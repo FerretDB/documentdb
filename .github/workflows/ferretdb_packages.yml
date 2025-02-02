@@ -1,0 +1,68 @@
+---
+name: Packages
+on:
+  pull_request:
+    types:
+      - labeled
+      - unlabeled
+      - opened
+      - reopened
+      - synchronize
+  push:
+    branches:
+      - "*"
+    tags:
+      - "*"
+  schedule:
+    - cron: "10 8 * * 1"
+
+# Do not run this workflow in parallel for any PR change or branch/tag push
+# to save some resources.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build .debs (${{ matrix.os }}, Pg${{ matrix.pg }})
+
+    # https://www.ubicloud.com/docs/about/pricing#github-actions
+    # https://docs.github.com/en/billing/managing-billing-for-github-actions/about-billing-for-github-actions#per-minute-rates-for-larger-runners
+    runs-on: ubicloud-standard-4
+
+    timeout-minutes: 40
+
+    if: >
+      github.event_name != 'pull_request' ||
+      (
+        !contains(github.event.pull_request.labels.*.name, 'not ready') &&
+        contains(github.event.pull_request.labels.*.name, 'packages')
+      )
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [deb11, deb12, ubuntu20.04, ubuntu22.04, ubuntu24.04]
+        pg: [15, 16]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build
+        run: ./packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg }} --test-clean-install
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-${{ matrix.pg }}-debs
+          path: packaging/*.deb
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: false
+
+      - name: Check dirty
+        run: |
+          git status
+          git diff --exit-code
