@@ -1,0 +1,67 @@
+---
+name: Go
+on:
+  pull_request:
+    types:
+      - unlabeled # if GitHub Actions stuck, add and remove "not ready" label to force rebuild
+      - opened
+      - reopened
+      - synchronize
+  push:
+    branches:
+      - main
+      - ferretdb
+  schedule:
+    - cron: "12 0 * * *"
+
+env:
+  GOPATH: /home/runner/go
+  GOCACHE: /home/runner/go/cache
+  GOLANGCI_LINT_CACHE: /home/runner/go/cache/lint
+  GOMODCACHE: /home/runner/go/mod
+  GOPROXY: https://proxy.golang.org
+  GOTOOLCHAIN: local
+
+jobs:
+  test:
+    name: Test
+
+    # CI cannot find ubicloud-standard-4 runner and displays the following message:
+    # `Waiting for a runner to pick up this job...`
+    #
+    # https://www.ubicloud.com/docs/about/pricing#github-actions
+    # https://docs.github.com/en/billing/managing-billing-for-github-actions/about-billing-for-github-actions#per-minute-rates-for-larger-runners
+    # runs-on: ubicloud-standard-4
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 15
+
+    # Do not run this job in parallel for any PR change or branch push.
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+      cancel-in-progress: true
+
+    if: github.event_name != 'pull_request' || !contains(github.event.pull_request.labels.*.name, 'not ready')
+
+    steps:
+      # TODO https://github.com/FerretDB/github-actions/issues/211
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: FerretDB/github-actions/setup-go@main
+
+      - name: Run tests
+        run: |
+          cd ferretdb_packaging
+          go mod tidy
+          go mod verify
+          go test ./...
+
+      - name: Check dirty
+        if: always()
+        run: |
+          git status --untracked-files --ignored
+          git status
+          git diff --exit-code

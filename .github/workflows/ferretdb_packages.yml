@@ -1,0 +1,94 @@
+---
+name: Packages
+on:
+  pull_request:
+    types:
+      - unlabeled # if GitHub Actions stuck, add and remove "not ready" label to force rebuild
+      - opened
+      - reopened
+      - synchronize
+  push:
+    branches:
+      - main
+      - ferretdb
+    tags:
+      - "*"
+  schedule:
+    - cron: "10 8 * * 1"
+
+env:
+  GOPATH: /home/runner/go
+  GOCACHE: /home/runner/go/cache
+  GOLANGCI_LINT_CACHE: /home/runner/go/cache/lint
+  GOMODCACHE: /home/runner/go/mod
+  GOPROXY: https://proxy.golang.org
+  GOTOOLCHAIN: local
+
+# Do not run this workflow in parallel for any PR change or branch/tag push
+# to save some resources.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build .debs (${{ matrix.os }}, Pg${{ matrix.pg }})
+
+    # CI cannot find ubicloud-standard-4 runner and displays the following message:
+    # `Waiting for a runner to pick up this job...`
+    #
+    # https://www.ubicloud.com/docs/about/pricing#github-actions
+    # https://docs.github.com/en/billing/managing-billing-for-github-actions/about-billing-for-github-actions#per-minute-rates-for-larger-runners
+    # runs-on: ubicloud-standard-4
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 40
+
+    if: >
+      github.event_name != 'pull_request' ||
+      (
+        !contains(github.event.pull_request.labels.*.name, 'not ready') &&
+        contains(github.event.pull_request.labels.*.name, 'packages')
+      )
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [deb11, deb12, ubuntu20.04, ubuntu22.04, ubuntu24.04]
+        pg: [15, 16]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: FerretDB/github-actions/setup-go@main
+
+      - name: Define package tag version
+        id: tag
+        run: |
+          cd ferretdb_packaging
+          go mod tidy
+          go mod verify
+          go build -v -o=bin/ ./defineversion
+          bin/defineversion --control-file ../pg_documentdb_core/documentdb_core.control
+
+      - name: Build ${{ steps.tag.outputs.version }}
+        if: steps.tag.outputs.version != ''
+        run: ./ferretdb_packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg }} --version ${{ steps.tag.outputs.version }} --test-clean-install
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-${{ matrix.pg }}-debs
+          path: packaging/*.deb
+          retention-days: 1
+          if-no-files-found: error
+          compression-level: 0
+          overwrite: false
+
+      - name: Check dirty
+        run: |
+          git status
+          git diff --exit-code
