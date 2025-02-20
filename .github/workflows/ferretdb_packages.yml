@@ -70,7 +70,7 @@ jobs:
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-${{ matrix.pg }}-${{ steps.version.outputs.version }}.zip
+          name: ${{ matrix.os }}-${{ matrix.pg }}-${{ steps.version.outputs.version }}
           path: packaging/*.deb
           retention-days: 1
           if-no-files-found: error
