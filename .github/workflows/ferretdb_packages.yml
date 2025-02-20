@@ -32,11 +32,8 @@ concurrency:
 jobs:
   build:
     name: Build .debs (${{ matrix.os }}, Pg${{ matrix.pg }})
-
-    # https://www.ubicloud.com/docs/about/pricing#github-actions
-    # https://docs.github.com/en/billing/managing-billing-for-github-actions/about-billing-for-github-actions#per-minute-rates-for-larger-runners
+    # runs-on: ubuntu-24.04
     runs-on: ubicloud-standard-4
-
     timeout-minutes: 40
 
     if: >
@@ -71,17 +68,11 @@ jobs:
         if: steps.version.outputs.version != ''
         run: ./ferretdb_packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg }} --version ${{ steps.version.outputs.version }} --test-clean-install
 
-      - name: Get file name
-        id: file
-        run: |
-          ls packaging/*.deb
-          echo "DEB_FILE=$(ls packaging/*.deb)" >> "$GITHUB_OUTPUT"
-
-      - name: Upload ${{ steps.file.outputs.DEB_FILE }}
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ steps.file.outputs.DEB_FILE }}.zip
-          path: packaging/${{ steps.file.outputs.DEB_FILE }}
+          name: ${{ matrix.os }}-${{ matrix.pg }}-${{ steps.version.outputs.version }}.zip
+          path: packaging/*.deb
           retention-days: 1
           if-no-files-found: error
           compression-level: 0

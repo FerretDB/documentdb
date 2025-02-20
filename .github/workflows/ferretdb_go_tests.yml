@@ -26,10 +26,8 @@ env:
 jobs:
   test:
     name: Test
-    # https://www.ubicloud.com/docs/about/pricing#github-actions
-    # https://docs.github.com/en/billing/managing-billing-for-github-actions/about-billing-for-github-actions#per-minute-rates-for-larger-runners
+    # runs-on: ubuntu-24.04
     runs-on: ubicloud-standard-4
-
     timeout-minutes: 15
 
     # Do not run this job in parallel for any PR change or branch push.
