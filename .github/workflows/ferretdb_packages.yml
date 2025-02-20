@@ -65,18 +65,23 @@ jobs:
           cd ferretdb_packaging
           go mod tidy
           go mod verify
-          go build -v -o=bin/ ./defineversion
-          bin/defineversion --control-file ../pg_documentdb_core/documentdb_core.control
+          go run ./defineversion --control-file ../pg_documentdb_core/documentdb_core.control
 
       - name: Build ${{ steps.version.outputs.version }}
         if: steps.version.outputs.version != ''
         run: ./ferretdb_packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg }} --version ${{ steps.version.outputs.version }} --test-clean-install
 
-      - name: Upload
+      - name: Get file name
+        id: file
+        run: |
+          ls packaging/*.deb
+          echo "DEB_FILE=$(ls packaging/*.deb)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload ${{ steps.file.outputs.DEB_FILE }}
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-${{ matrix.pg }}-debs
-          path: packaging/*.deb
+          name: ${{ steps.file.outputs.DEB_FILE }}.zip
+          path: packaging/${{ steps.file.outputs.DEB_FILE }}
           retention-days: 1
           if-no-files-found: error
           compression-level: 0
