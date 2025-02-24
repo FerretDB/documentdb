@@ -1,4 +1,4 @@
-FROM --platform=linux/amd64 mcr.microsoft.com/mirror/docker/library/ubuntu:20.04
+FROM --platform=linux/amd64 mcr.microsoft.com/mirror/docker/library/ubuntu:22.04
 
 RUN apt-get update && export DEBIAN_FRONTEND=noninteractive \
     && apt-get install -qy \

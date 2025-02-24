@@ -211,9 +211,9 @@ _GitHubActionsFileCommandDelimeter_
 }
 
 func TestReadControlDefaultVersion(t *testing.T) {
-	dir := t.TempDir()
+	controlF, err := os.CreateTemp(t.TempDir(), "test.control")
+	require.NoError(t, err)
 
-	controlF, err := os.CreateTemp(dir, "test.control")
 	defer controlF.Close() //nolint:errcheck // temporary file for testing
 
 	buf := `comment = 'API surface for DocumentDB for PostgreSQL'
