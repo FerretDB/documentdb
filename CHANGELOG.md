@@ -1,3 +1,9 @@
+### documentdb v0.102.0-ferretdb-2.0.0-rc.2 (February 24, 2025) ###
+
+This version works best with FerretDB v2.0.0-rc.2.
+
+Debian and Ubuntu `.deb` packages are now provided.
+
 ### documentdb v0.102-0 (Unreleased) ###
 * Support index pushdown for vector search queries *[Bugfix]*
 * Support exact search for vector search queries *[Feature]*
