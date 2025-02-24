@@ -8,7 +8,7 @@
 
 ## Git tag
 
-1. Make a signed tag `vX.Y.Z-ferretdb-A.B.C(-p)`,
+1. Make a signed tag `vX.Y.Z-ferretdb-A.B.C(-p)` (like `v0.102.0-ferretdb-2.0.0-rc.2`),
    where `X.Y.Z` is the SemVar formatted version of DocumentDB (like `0.102.0`),
    and `A.B.C(-p)` is the compatible FerretDB version (like `2.0.0-rc.2`).
 2. Check `git status` output.
