@@ -11,7 +11,7 @@ function show_help {
     echo ""
     echo "Mandatory Arguments:"
     echo "  --os                 OS to build packages for. Possible values: [deb11, deb12, ubuntu20.04, ubuntu22.04, ubuntu24.04]"
-    echo "  --pg                 PG version to build packages for. Possible values: [15, 16]"
+    echo "  --pg                 PG version to build packages for. Possible values: [15, 16, 17]"
     echo "  --version            The debian conformed version of documentdb to build. Examples: [0.100.0, 0.100.0~ferretdb]"
     echo ""
     echo "Optional Arguments:"
@@ -45,11 +45,11 @@ while [[ $# -gt 0 ]]; do
         --pg)
             shift
             case $1 in
-                15|16)
+                15|16|17)
                     PG=$1
                     ;;
                 *)
-                    error_exit "Invalid --pg value. Allowed values are [15, 16]"
+                    error_exit "Invalid --pg value. Allowed values are [15, 16, 17]"
                     ;;
             esac
             ;;
