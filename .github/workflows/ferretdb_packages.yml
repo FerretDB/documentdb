@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [deb11, deb12, ubuntu20.04, ubuntu22.04, ubuntu24.04]
+        os: [deb11, deb12, ubuntu22.04, ubuntu24.04]
         pg: [15, 16]
 
     steps:

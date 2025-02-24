@@ -10,7 +10,7 @@ function show_help {
     echo "  This script builds extension packages using Docker."
     echo ""
     echo "Mandatory Arguments:"
-    echo "  --os                 OS to build packages for. Possible values: [deb11, deb12, ubuntu20.04, ubuntu22.04, ubuntu24.04]"
+    echo "  --os                 OS to build packages for. Possible values: [deb11, deb12, ubuntu22.04, ubuntu24.04]"
     echo "  --pg                 PG version to build packages for. Possible values: [15, 16, 17]"
     echo "  --version            The debian conformed version of documentdb to build. Example: 0.102.0~ferretdb~2.0.0~rc.2"
     echo ""
@@ -34,11 +34,11 @@ while [[ $# -gt 0 ]]; do
         --os)
             shift
             case $1 in
-                deb11|deb12|ubuntu20.04|ubuntu22.04|ubuntu24.04)
+                deb11|deb12|ubuntu22.04|ubuntu24.04)
                     OS=$1
                     ;;
                 *)
-                    error_exit "Invalid --os value. Allowed values are [deb11, deb12, ubuntu20.04, ubuntu22.04, ubuntu24.04]"
+                    error_exit "Invalid --os value. Allowed values are [deb11, deb12, ubuntu22.04, ubuntu24.04]"
                     ;;
             esac
             ;;
@@ -103,9 +103,6 @@ case $OS in
         ;;
     deb12)
         DOCKER_IMAGE="debian:bookworm"
-        ;;
-    ubuntu20.04)
-        DOCKER_IMAGE="ubuntu:20.04"
         ;;
     ubuntu22.04)
         DOCKER_IMAGE="ubuntu:22.04"
