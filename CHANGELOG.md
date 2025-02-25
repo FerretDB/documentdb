@@ -3,7 +3,7 @@
 This version works best with [FerretDB v2.0.0-rc.2](https://github.com/FerretDB/FerretDB/releases/tag/v2.0.0-rc.2).
 
 Debian and Ubuntu `.deb` packages are now [provided](https://github.com/FerretDB/documentdb/releases/tag/v0.102.0-ferretdb-2.0.0-rc.2).
-Docker iamges are available [there](https://github.com/FerretDB/FerretDB/pkgs/container/postgres-documentdb).
+Docker images are available [here](https://github.com/FerretDB/FerretDB/pkgs/container/postgres-documentdb).
 
 ### documentdb v0.102-0 (Unreleased) ###
 * Support index pushdown for vector search queries *[Bugfix]*
