@@ -193,7 +193,7 @@ func TestResults(t *testing.T) {
 
 	setResults(action, version)
 
-	expected := "version: 0.100.0~ferretdb\n"
+	expected := "version: `0.100.0~ferretdb`\n"
 	assert.Equal(t, expected, stdout.String(), "stdout does not match")
 
 	b, err := io.ReadAll(summaryF)
