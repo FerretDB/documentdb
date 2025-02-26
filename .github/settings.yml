@@ -32,7 +32,3 @@ labels:
   - name: packages
     color: "#9B022C"
     description: PRs that should build packages
-
-  - name: trust
-    color: "#00FF00"
-    description: PRs that can access Actions secrets
