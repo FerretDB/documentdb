@@ -25,6 +25,7 @@
 #include "utils/version_utils.h"
 #include "utils/query_utils.h"
 #include "commands/parse_error.h"
+#include "commands/commands_common.h"
 #include "commands/diagnostic_commands_common.h"
 #include "io/bson_set_returning_functions.h"
 #include "metadata/collection.h"
@@ -103,12 +104,14 @@ typedef struct
 	IndexSpec *indexSpec;
 } SingleWorkerActivity;
 
+PG_FUNCTION_INFO_V1(command_current_op);
 PG_FUNCTION_INFO_V1(command_current_op_command);
 PG_FUNCTION_INFO_V1(command_current_op_worker);
 PG_FUNCTION_INFO_V1(command_current_op_aggregation);
 
-
-static void CurrentOpAggregateCore(PG_FUNCTION_ARGS, TupleDesc descriptor,
+static pgbson * BuildAggregateSpecFromCommandSpec(pgbson *commandSpec,
+												  pgbson **filterSpec);
+static void CurrentOpAggregateCore(pgbson *spec, TupleDesc descriptor,
 								   Tuplestorestate *tupleStore);
 static void PopulateCurrentOpOptions(pgbson *bson, CurrentOpOptions *options);
 static void MergeWorkerBsons(List *workerBsons, TupleDesc descriptor,
@@ -142,7 +145,8 @@ const char *FirstLockingPidQuery =
 
 /*
  * Command wrapper for CurrentOp. Tracks feature counter usage
- * and simply calls the common logic
+ * and simply calls the common logic.
+ * TODO: Deprecate this once the service doesn't depend on it.
  */
 Datum
 command_current_op_command(PG_FUNCTION_ARGS)
@@ -152,8 +156,53 @@ command_current_op_command(PG_FUNCTION_ARGS)
 	TupleDesc descriptor;
 	Tuplestorestate *tupleStore = SetupBsonTuplestore(fcinfo, &descriptor);
 
-	CurrentOpAggregateCore(fcinfo, descriptor, tupleStore);
+	CurrentOpAggregateCore(PG_GETARG_PGBSON(0), descriptor, tupleStore);
+
 	PG_RETURN_VOID();
+}
+
+
+Datum
+command_current_op(PG_FUNCTION_ARGS)
+{
+	ReportFeatureUsage(FEATURE_COMMAND_CURRENTOP);
+
+	pgbson *commandSpec = PG_GETARG_PGBSON(0);
+	pgbson *filterSpec = NULL;
+	pgbson *aggregateSpec = BuildAggregateSpecFromCommandSpec(commandSpec, &filterSpec);
+
+	/* Now write the response */
+	pgbson_writer writer;
+	PgbsonWriterInit(&writer);
+
+	StringInfo str = makeStringInfo();
+	appendStringInfo(str,
+					 "WITH currentOpQuery AS (SELECT %s.current_op_aggregation($1) AS document), "
+					 "currentOpResponse AS (SELECT COALESCE(array_agg(document), '{}') AS \"inprog\", "
+					 " 1::float AS \"ok\" FROM currentOpQuery WHERE $2 IS NULL OR document OPERATOR(%s.@@) $2) "
+					 " SELECT %s.row_get_bson(currentOpResponse) FROM currentOpResponse",
+					 ApiInternalSchemaNameV2, ApiCatalogSchemaName, CoreSchemaName);
+
+	Oid argTypes[2] = { BsonTypeId(), BsonTypeId() };
+	Datum argValues[2] = { PointerGetDatum(aggregateSpec), PointerGetDatum(filterSpec) };
+	char argNulls[2] = { ' ', ' ' };
+	if (filterSpec == NULL)
+	{
+		argNulls[1] = 'n';
+	}
+
+	bool readOnly = true;
+	bool isNull = false;
+	Datum result = ExtensionExecuteQueryWithArgsViaSPI(str->data, 2, argTypes, argValues,
+													   argNulls, readOnly, SPI_OK_SELECT,
+													   &isNull);
+	if (isNull)
+	{
+		ereport(ERROR, (errmsg(
+							"Unexpected - currentOp internal query returned a null response")));
+	}
+
+	PG_RETURN_DATUM(result);
 }
 
 
@@ -167,7 +216,7 @@ command_current_op_aggregation(PG_FUNCTION_ARGS)
 	TupleDesc descriptor;
 	Tuplestorestate *tupleStore = SetupBsonTuplestore(fcinfo, &descriptor);
 
-	CurrentOpAggregateCore(fcinfo, descriptor, tupleStore);
+	CurrentOpAggregateCore(PG_GETARG_PGBSON(0), descriptor, tupleStore);
 	PG_RETURN_VOID();
 }
 
@@ -195,11 +244,9 @@ command_current_op_worker(PG_FUNCTION_ARGS)
  * Core implementation logic for currentOp on the query Coordinator.
  */
 static void
-CurrentOpAggregateCore(PG_FUNCTION_ARGS, TupleDesc descriptor,
+CurrentOpAggregateCore(pgbson *spec, TupleDesc descriptor,
 					   Tuplestorestate *tupleStore)
 {
-	pgbson *spec = PG_GETARG_PGBSON(0);
-
 	CurrentOpOptions options = { 0 };
 	PopulateCurrentOpOptions(spec, &options);
 
@@ -1263,6 +1310,38 @@ AddFailedIndexBuilds(TupleDesc descriptor, Tuplestorestate *tupleStore)
 }
 
 
+static const char *
+PhaseToUserMessage(const char *phaseString)
+{
+	if (strcmp(phaseString, "initializing") == 0)
+	{
+		return "Initializing index.";
+	}
+	else if (strcmp(phaseString, "waiting for old snapshots") == 0)
+	{
+		return "Index is waiting for commands to reach snapshot threshold.";
+	}
+	else if (strstr(phaseString, "waiting for") != NULL)
+	{
+		return "Index is waiting for other concurrent commands.";
+	}
+	else if (strcmp(phaseString, "building index") == 0)
+	{
+		return "Building index.";
+	}
+	else if (strstr(phaseString, "index validation") != NULL)
+	{
+		return "Validating index.";
+	}
+	else
+	{
+		ereport(WARNING, (errmsg("Index build is in an unknown phase %s",
+								 phaseString)));
+		return "Index is in an unknown phase";
+	}
+}
+
+
 /*
  * Gets the index progress data from pg_stat_progress_create_index and writes it out to the
  * "progress" document as well as builds a message for the top level currentOp.
@@ -1273,9 +1352,31 @@ WriteIndexBuildProgressAndGetMessage(SingleWorkerActivity *activity,
 									 pgbson_writer *writer)
 {
 	/* For multi-shard operations like create index that uses multiple connections per node, we could see multiple entries in citus_stat_activity with same global_pid but different pids on same node. We should check for global_pid here */
-	const char *query =
-		"SELECT phase, blocks_done, blocks_total, tuples_done, tuples_total, pg_catalog.citus_calculate_gpid(pg_catalog.citus_nodeid_for_gpid($1), current_locker_pid::integer)"
-		" FROM pg_stat_progress_create_index WHERE pid IN (SELECT process_id FROM pg_catalog.get_all_active_transactions() WHERE global_pid = $1) LIMIT 1";
+	StringInfo str = makeStringInfo();
+
+	/* NULLIF(blocks_total) ensures that "Progress" is NULL if blocks_total is 0 so we don't get div by zero errors and row_get_bson skips the field. */
+	appendStringInfo(str,
+					 "WITH c1 AS (SELECT phase, blocks_done, blocks_total, (blocks_done * 100.0 / NULLIF(blocks_total, 0)) AS \"Progress\", "
+					 " tuples_done AS \"documents_done\", tuples_total AS \"documents_total\", ");
+
+	if (DefaultInlineWriteOperations)
+	{
+		/* Match the distributed set up to say a single node has a global pid of node 1 + PID (Similar to citus logic) */
+		appendStringInfo(str,
+						 " (10000000000 + current_locker_pid)::int8 AS AS \"Waiting on op_prefix\""
+						 " FROM pg_stat_progress_create_index WHERE (10000000000 + current_locker_pid)::int8 = $1), ");
+	}
+	else
+	{
+		appendStringInfo(str,
+						 " pg_catalog.citus_calculate_gpid(pg_catalog.citus_nodeid_for_gpid($1), current_locker_pid::integer) AS \"Waiting on op_prefix\""
+						 " FROM pg_stat_progress_create_index WHERE pid IN (SELECT process_id FROM pg_catalog.get_all_active_transactions() WHERE global_pid = $1)), ");
+	}
+
+	appendStringInfo(str,
+					 " c2 AS (SELECT %s.row_get_bson(c1) AS document FROM c1) "
+					 " SELECT %s.bson_array_agg(c2.document, '') FROM c2", CoreSchemaName,
+					 ApiCatalogSchemaName);
 
 	Oid argTypes[1] = { INT8OID };
 	Datum argValues[1] = {
@@ -1284,74 +1385,64 @@ WriteIndexBuildProgressAndGetMessage(SingleWorkerActivity *activity,
 	char argNulls[1] = { ' ' };
 	bool readOnly = true;
 
-	Datum outputValues[6] = { 0 };
-	bool outputNulls[6] = { 0 };
-	ExtensionExecuteMultiValueQueryWithArgsViaSPI(query, 1, argTypes, argValues, argNulls,
-												  readOnly, SPI_OK_SELECT, outputValues,
-												  outputNulls, 6);
+	bool isNull = false;
+	Datum result = ExtensionExecuteQueryWithArgsViaSPI(str->data, 1, argTypes, argValues,
+													   argNulls,
+													   readOnly, SPI_OK_SELECT, &isNull);
+	if (isNull)
+	{
+		return "";
+	}
+
+	pgbson *resultBson = DatumGetPgBson(result);
+	pgbsonelement resultElement;
+	bson_iter_t arrayIter;
+	PgbsonToSinglePgbsonElement(resultBson, &resultElement);
+
+	if (resultElement.bsonValue.value_type != BSON_TYPE_ARRAY)
+	{
+		/* somehow we didn't get an array */
+		return "";
+	}
+
+	BsonValueInitIterator(&resultElement.bsonValue, &arrayIter);
 
 	/* Phase */
 	StringInfo messageInfo = makeStringInfo();
-	if (!outputNulls[0])
+
+	pgbson_array_writer progress_elem_writer;
+	PgbsonWriterStartArray(writer, "builds", 6, &progress_elem_writer);
+	while (bson_iter_next(&arrayIter))
 	{
-		const char *phaseString = TextDatumGetCString(outputValues[0]);
-		if (strcmp(phaseString, "initializing") == 0)
+		/* Should be documents */
+		bson_iter_t subDocument;
+		if (BSON_ITER_HOLDS_DOCUMENT(&arrayIter) &&
+			bson_iter_recurse(&arrayIter, &subDocument))
 		{
-			appendStringInfo(messageInfo, "Initializing index.");
-		}
-		else if (strcmp(phaseString, "waiting for old snapshots") == 0)
-		{
-			appendStringInfo(messageInfo,
-							 "Index is waiting for commands to reach snapshot threshold.");
-		}
-		else if (strstr(phaseString, "waiting for") != NULL)
-		{
-			appendStringInfo(messageInfo,
-							 "Index is waiting for other concurrent commands.");
-		}
-		else if (strcmp(phaseString, "building index") == 0)
-		{
-			appendStringInfo(messageInfo, "Building index.");
-		}
-		else if (strstr(phaseString, "index validation") != NULL)
-		{
-			appendStringInfo(messageInfo, "Validating index.");
-		}
-		else
-		{
-			appendStringInfo(messageInfo, "Index is in an unknown phase");
-			ereport(WARNING, (errmsg("Index build is in an unknown phase %s",
-									 phaseString)));
+			pgbson_writer singleWriter;
+			PgbsonArrayWriterStartDocument(&progress_elem_writer, &singleWriter);
+			while (bson_iter_next(&subDocument))
+			{
+				const char *key = bson_iter_key(&subDocument);
+				if (strcmp(key, "phase") == 0)
+				{
+					uint32_t length;
+					const char *phaseString = bson_iter_utf8(&subDocument, &length);
+					const char *userString = PhaseToUserMessage(phaseString);
+					appendStringInfo(messageInfo, "%s,", userString);
+					PgbsonWriterAppendUtf8(&singleWriter, "phase", 5, userString);
+				}
+				else
+				{
+					PgbsonWriterAppendValue(&singleWriter, key, strlen(key),
+											bson_iter_value(&subDocument));
+				}
+			}
+
+			PgbsonArrayWriterEndDocument(&progress_elem_writer, &singleWriter);
 		}
 	}
-
-	if (!outputNulls[1] && !outputNulls[2])
-	{
-		/* Blocks are available */
-		int64 blocksDone = DatumGetInt64(outputValues[1]);
-		int64 blocksTotal = DatumGetInt64(outputValues[2]);
-
-		double progress = blocksDone * 1.0 / blocksTotal;
-
-		appendStringInfo(messageInfo, "Progress %.10f.", progress);
-
-		PgbsonWriterAppendInt64(writer, "blocks_done", 11, blocksDone);
-		PgbsonWriterAppendInt64(writer, "blocks_total", 12, blocksTotal);
-	}
-
-	if (!outputNulls[3] && !outputNulls[4])
-	{
-		PgbsonWriterAppendInt64(writer, "documents_done", 11, DatumGetInt64(
-									outputValues[3]));
-		PgbsonWriterAppendInt64(writer, "documents_total", 12, DatumGetInt64(
-									outputValues[4]));
-	}
-
-	if (!outputNulls[5])
-	{
-		appendStringInfo(messageInfo, "Waiting on op_prefix: %ld.", DatumGetInt64(
-							 outputValues[5]));
-	}
+	PgbsonWriterEndArray(writer, &progress_elem_writer);
 
 	return messageInfo->data;
 }
@@ -1429,4 +1520,59 @@ WriteIndexSpec(SingleWorkerActivity *activity,
 	WriteIndexSpecAsCurrentOpCommand(commandWriter, activity->processedMongoDatabase,
 									 activity->processedMongoCollection,
 									 activity->indexSpec);
+}
+
+
+static pgbson *
+BuildAggregateSpecFromCommandSpec(pgbson *commandSpec, pgbson **filterSpec)
+{
+	*filterSpec = NULL;
+	bool allOps = false;
+	bool hasFilter = false;
+	bson_iter_t commandIter;
+	PgbsonInitIterator(commandSpec, &commandIter);
+	pgbson_writer filterWriter;
+	PgbsonWriterInit(&filterWriter);
+	while (bson_iter_next(&commandIter))
+	{
+		const char *key = bson_iter_key(&commandIter);
+		if (strcmp(key, "currentOp") == 0)
+		{
+			continue;
+		}
+		else if (strcmp(key, "$all") == 0)
+		{
+			EnsureTopLevelFieldIsBooleanLike("$all", &commandIter);
+			allOps = BsonValueAsBool(bson_iter_value(&commandIter));
+		}
+		else if (strcmp(key, "$ownOps") == 0)
+		{
+			EnsureTopLevelFieldIsBooleanLike("$ownOps", &commandIter);
+		}
+		else if (IsCommonSpecIgnoredField(key))
+		{
+			/* Ignore these */
+		}
+		else
+		{
+			/* Treat other field sas a filter */
+			hasFilter = true;
+			PgbsonWriterAppendValue(&filterWriter, key, strlen(key), bson_iter_value(
+										&commandIter));
+		}
+	}
+
+	if (hasFilter)
+	{
+		*filterSpec = PgbsonWriterGetPgbson(&filterWriter);
+	}
+
+	/* TODO: Handle ownOps */
+	pgbson_writer specWriter;
+	PgbsonWriterInit(&specWriter);
+	PgbsonWriterAppendBool(&specWriter, "allUsers", 8, allOps);
+	PgbsonWriterAppendBool(&specWriter, "idleConnections", 15, true);
+	PgbsonWriterAppendBool(&specWriter, "idleSessions", 12, true);
+
+	return PgbsonWriterGetPgbson(&specWriter);
 }

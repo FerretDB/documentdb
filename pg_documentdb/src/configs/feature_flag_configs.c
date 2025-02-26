@@ -92,6 +92,10 @@ bool EnableMergeAcrossDB = DEFAULT_ENABLE_MERGE_ACROSS_DB;
 #define DEFAULT_ENABLE_MULTI_INDEX_RUM_JOIN false
 bool EnableMultiIndexRumJoin = DEFAULT_ENABLE_MULTI_INDEX_RUM_JOIN;
 
+#define DEFAULT_ENABLE_ALLOW_NESTED_AGGREGATION_FUNCTION_IN_QUERIES true
+bool AllowNestedAggregationFunctionInQueries =
+	DEFAULT_ENABLE_ALLOW_NESTED_AGGREGATION_FUNCTION_IN_QUERIES;
+
 #define DEFAULT_ENABLE_NOW_SYSTEM_VARIABLE false
 bool EnableNowSystemVariable = DEFAULT_ENABLE_NOW_SYSTEM_VARIABLE;
 
@@ -110,6 +114,10 @@ bool EnableSortbyIdPushDownToPrimaryKey =
 #define DEFAULT_ENABLE_MATCH_WITH_LET_IN_LOOKUP true
 bool EnableMatchWithLetInLookup =
 	DEFAULT_ENABLE_MATCH_WITH_LET_IN_LOOKUP;
+
+#define DEFAULT_ENABLE_COLLATION_LET_FOR_WRITE_COMMANDS false
+bool EnableCollationAndLetForQueryMatch =
+	DEFAULT_ENABLE_COLLATION_LET_FOR_WRITE_COMMANDS;
 
 void
 InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix)
@@ -210,6 +218,17 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 		NULL,
 		&EnableMultiIndexRumJoin,
 		DEFAULT_ENABLE_MULTI_INDEX_RUM_JOIN,
+		PGC_USERSET,
+		0,
+		NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.allowNestedAggregationFunctionInQueries", newGucPrefix),
+		gettext_noop(
+			"Whether or not to support having aggregation queries as nested subqueries or in CTEs"),
+		NULL,
+		&AllowNestedAggregationFunctionInQueries,
+		DEFAULT_ENABLE_ALLOW_NESTED_AGGREGATION_FUNCTION_IN_QUERIES,
 		PGC_USERSET,
 		0,
 		NULL, NULL, NULL);
@@ -318,5 +337,13 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 			"Whether or not to inline $match with lookup let variables."),
 		NULL, &EnableMatchWithLetInLookup,
 		DEFAULT_ENABLE_MATCH_WITH_LET_IN_LOOKUP,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.enableCollationAndLetForQueryMatch", newGucPrefix),
+		gettext_noop(
+			"Whether or not to enable collation and let for write commands."),
+		NULL, &EnableCollationAndLetForQueryMatch,
+		DEFAULT_ENABLE_COLLATION_LET_FOR_WRITE_COMMANDS,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 }
