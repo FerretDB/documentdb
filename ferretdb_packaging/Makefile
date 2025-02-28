@@ -38,6 +38,7 @@ docker-documentdb-development-push:
         FILE=development \
         TARGET=development \
         PLATFORM=linux/amd64 \
+        TAGS=$(TAGS)
         OUTPUT="type=image,push=true"
 
 docker-documentdb-production-push:
@@ -46,11 +47,12 @@ docker-documentdb-production-push:
         FILE=production \
         TARGET=production \
         PLATFORM=linux/amd64 \
+        TAGS=$(TAGS)
         OUTPUT="type=image,push=true"
 
 docker-init:
 	docker buildx create \
-		--driver=docker-container \
+        --driver=docker-container \
         --name=ferretdb \
         --bootstrap=true \
         --use=false \
