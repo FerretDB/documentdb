@@ -41,8 +41,8 @@ func parseGitTag(tag string) (major, minor, patch int, prerelease string, err er
 	prerelease = match[semVerTag.SubexpIndex("prerelease")]
 	buildmetadata := match[semVerTag.SubexpIndex("buildmetadata")]
 
-	if !strings.Contains(prerelease, "ferretdb-") {
-		err = fmt.Errorf("prerelease %q should include 'ferretdb-'", prerelease)
+	if !strings.HasPrefix(prerelease, "ferretdb-") {
+		err = fmt.Errorf("prerelease %q should start with 'ferretdb-'", prerelease)
 		return
 	}
 

@@ -27,23 +27,20 @@ func TestParseGitTag(t *testing.T) {
 		prerelease string
 		err        string
 	}{
+		"v0.100.0-ferretdb-2.0.0": {
+			major:      0,
+			minor:      100,
+			patch:      0,
+			prerelease: "ferretdb-2.0.0",
+		},
+		"0.100.0-ferretdb-2.0.0": {
+			err: `unexpected git tag format "0.100.0-ferretdb-2.0.0"`,
+		},
 		"v0.100.0-ferretdb": {
-			major:      0,
-			minor:      100,
-			patch:      0,
-			prerelease: "ferretdb",
-		},
-		"v0.100.0-ferretdb-2.0.1": {
-			major:      0,
-			minor:      100,
-			patch:      0,
-			prerelease: "ferretdb-2.0.1",
-		},
-		"0.100.0-ferretdb": {
-			err: `unexpected git tag format "0.100.0-ferretdb"`,
+			err: `prerelease "ferretdb" should start with 'ferretdb-'`,
 		},
 		"v0.100.0": {
-			err: `prerelease "" should include 'ferretdb-'`,
+			err: `prerelease "" should start with 'ferretdb-'`,
 		},
 	}
 
@@ -54,6 +51,8 @@ func TestParseGitTag(t *testing.T) {
 				require.EqualError(t, err, tc.err)
 				return
 			}
+
+			require.NoError(t, err)
 
 			assert.Equal(t, tc.major, major)
 			assert.Equal(t, tc.minor, minor)
