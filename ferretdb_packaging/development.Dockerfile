@@ -28,6 +28,10 @@ cp packaging/deb12-postgresql-${PG_MAJOR}-documentdb_${DOCUMENTDB_VERSION}_amd64
 dpkg -i /tmp/documentdb.deb
 rm /tmp/documentdb.deb
 
+cp packaging/deb12-postgresql-${PG_MAJOR}-documentdb-dbgsym_${DOCUMENTDB_VERSION}_amd64.deb /tmp/documentdb-dbgsym.deb
+dpkg -i /tmp/documentdb-dbgsym.deb
+rm /tmp/documentdb-dbgsym.deb
+
 EOF
 
 # extra packages for development
