@@ -120,11 +120,10 @@ func main() {
 		action.Fatalf("%s", err)
 	}
 
-	output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", debian)
+	debianSummary(action, debian)
+	action.SetOutput("debian_version", debian)
 
-	action.AddStepSummary(output)
-	action.Infof("%s", output)
-	action.SetOutput("version", debian)
-
-	setDockerTagsResults(action, docker)
+	dockerSummary(action, docker)
+	action.SetOutput("docker_development_images", strings.Join(docker.developmentImages, ","))
+	action.SetOutput("docker_production_images", strings.Join(docker.productionImages, ","))
 }

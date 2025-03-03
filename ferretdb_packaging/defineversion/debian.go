@@ -114,3 +114,11 @@ func defineDebianVersionForTag(tag string) (string, error) {
 	res := fmt.Sprintf("%d.%d.%d-%s", major, minor, patch, prerelease)
 	return disallowedDebian.ReplaceAllString(res, "~"), nil
 }
+
+// debianSummary sets action summary.
+func debianSummary(action *githubactions.Action, version string) {
+	output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", version)
+
+	action.AddStepSummary(output)
+	action.Infof("%s", output)
+}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"regexp"
 	"slices"
 	"strings"
 	"text/tabwriter"
@@ -15,9 +14,6 @@ type images struct {
 	developmentImages []string
 	productionImages  []string
 }
-
-// pgVer is the version of PostgreSQL.
-var pgVer = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)$`)
 
 // defineDockerVersion extracts Docker image names and tags from the environment variables defined by GitHub Actions.
 func defineDockerVersion(controlDefaultVersion, pgVersion string, getenv githubactions.GetenvFunc) (*images, error) {
@@ -157,32 +153,6 @@ func defineDockerVersionForTag(owner, repo string, tags []string) *images {
 	return res
 }
 
-// setDockerTagsResults sets action output parameters, summary, etc.
-func setDockerTagsResults(action *githubactions.Action, res *images) {
-	var buf strings.Builder
-	w := tabwriter.NewWriter(&buf, 1, 1, 1, ' ', tabwriter.Debug)
-	fmt.Fprintf(w, "\tType\tImage\t\n")
-	fmt.Fprintf(w, "\t----\t-----\t\n")
-
-	for _, image := range res.developmentImages {
-		u := dockerImageURL(image)
-		_, _ = fmt.Fprintf(w, "\tDevelopment\t[`%s`](%s)\t\n", image, u)
-	}
-
-	for _, image := range res.productionImages {
-		u := dockerImageURL(image)
-		_, _ = fmt.Fprintf(w, "\tProduction\t[`%s`](%s)\t\n", image, u)
-	}
-
-	_ = w.Flush()
-
-	action.AddStepSummary(buf.String())
-	action.Infof("%s", buf.String())
-
-	action.SetOutput("development_images", strings.Join(res.developmentImages, ","))
-	action.SetOutput("production_images", strings.Join(res.productionImages, ","))
-}
-
 // dockerImageURL returns HTML page URL for the given image name and tag.
 func dockerImageURL(name string) string {
 	switch {
@@ -196,4 +166,27 @@ func dockerImageURL(name string) string {
 
 	// there is no easy way to get Docker Hub URL for the given tag
 	return fmt.Sprintf("https://hub.docker.com/r/%s/tags", name)
+}
+
+// dockerSummary sets action summary.
+func dockerSummary(action *githubactions.Action, version *images) {
+	var buf strings.Builder
+	w := tabwriter.NewWriter(&buf, 1, 1, 1, ' ', tabwriter.Debug)
+	fmt.Fprintf(w, "\tType\tImage\t\n")
+	fmt.Fprintf(w, "\t----\t-----\t\n")
+
+	for _, image := range version.developmentImages {
+		u := dockerImageURL(image)
+		_, _ = fmt.Fprintf(w, "\tDevelopment\t[`%s`](%s)\t\n", image, u)
+	}
+
+	for _, image := range version.productionImages {
+		u := dockerImageURL(image)
+		_, _ = fmt.Fprintf(w, "\tProduction\t[`%s`](%s)\t\n", image, u)
+	}
+
+	_ = w.Flush()
+
+	action.AddStepSummary(buf.String())
+	action.Infof("%s", buf.String())
 }

@@ -31,7 +31,7 @@ func TestImageURL(t *testing.T) {
 	)
 }
 
-func TestDockerTagsResults(t *testing.T) {
+func TestDockerSummary(t *testing.T) {
 	dir := t.TempDir()
 
 	summaryF, err := os.CreateTemp(dir, "summary")
@@ -59,7 +59,7 @@ func TestDockerTagsResults(t *testing.T) {
 		},
 	}
 
-	setDockerTagsResults(action, result)
+	dockerSummary(action, result)
 
 	expectedStdout := strings.ReplaceAll(`
  |Type        |Image                                                                                                                                  |
@@ -84,16 +84,4 @@ func TestDockerTagsResults(t *testing.T) {
 	b, err := io.ReadAll(summaryF)
 	require.NoError(t, err)
 	assert.Equal(t, expectedSummary, string(b), "summary does not match")
-
-	expectedOutput := `
-development_images<<_GitHubActionsFileCommandDelimeter_
-ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb,ghcr.io/ferretdb/postgres-documentdb-dev:latest
-_GitHubActionsFileCommandDelimeter_
-production_images<<_GitHubActionsFileCommandDelimeter_
-quay.io/ferretdb/postgres-documentdb:latest
-_GitHubActionsFileCommandDelimeter_
-`[1:]
-	b, err = io.ReadAll(outputF)
-	require.NoError(t, err)
-	assert.Equal(t, expectedOutput, string(b), "output parameters does not match")
 }
