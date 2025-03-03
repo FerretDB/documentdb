@@ -136,7 +136,8 @@ jobs:
         if: steps.version.outputs.version != ''
         run: >
           make -C ferretdb_packaging docker-documentdb
-          FILE=development POSTGRES_VERSION=${{ matrix.pg }}
+          TARGET=development
+          POSTGRES_VERSION=${{ matrix.pg }}
           PG_MAJOR=${{ steps.tag.outputs.pg_major }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.version }}
 
@@ -167,7 +168,7 @@ jobs:
           POSTGRES_VERSION=${{ matrix.pg }}
           PG_MAJOR=${{ steps.tag.outputs.pg_major }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.version }}
-           TAGS=${{ steps.tag.outputs.development_images }}
+          TAGS=${{ steps.tag.outputs.development_images }}
 
       - name: Build and push production Docker images ${{ steps.tag.outputs.production_images }}
         if: steps.tag.outputs.production_images != '' && steps.version.outputs.version != ''
