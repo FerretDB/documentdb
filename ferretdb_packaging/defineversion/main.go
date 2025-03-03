@@ -13,8 +13,6 @@ import (
 )
 
 func main() {
-	commandF := flag.String("command", "", "command to run, possible values: [deb-version, docker-tags]")
-
 	controlFileF := flag.String("control-file", "../pg_documentdb/documentdb.control", "pg_documentdb/documentdb.control file path")
 
 	flag.Parse()
@@ -23,42 +21,32 @@ func main() {
 
 	debugEnv(action)
 
-	if *commandF == "" {
-		action.Fatalf("-command flag is empty.")
+	if *controlFileF == "" {
+		action.Fatalf("%s", "-control-file flag is empty.")
 	}
 
-	switch *commandF {
-	case "deb-version":
-		if *controlFileF == "" {
-			action.Fatalf("%s", "-control-file flag is empty.")
-		}
-
-		controlDefaultVersion, err := getControlDefaultVersion(*controlFileF)
-		if err != nil {
-			action.Fatalf("%s", err)
-		}
-
-		packageVersion, err := defineDebianPackageVersion(controlDefaultVersion, action.Getenv)
-		if err != nil {
-			action.Fatalf("%s", err)
-		}
-
-		output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", packageVersion)
-
-		action.AddStepSummary(output)
-		action.Infof("%s", output)
-		action.SetOutput("version", packageVersion)
-
-	case "docker-tags":
-		res, err := defineDockerTags(action.Getenv)
-		if err != nil {
-			action.Fatalf("%s", err)
-		}
-
-		setDockerTagsResults(action, res)
-	default:
-		action.Fatalf("unhandled command %q", *commandF)
+	controlDefaultVersion, err := getControlDefaultVersion(*controlFileF)
+	if err != nil {
+		action.Fatalf("%s", err)
 	}
+
+	packageVersion, err := defineDebianPackageVersion(controlDefaultVersion, action.Getenv)
+	if err != nil {
+		action.Fatalf("%s", err)
+	}
+
+	output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", packageVersion)
+
+	action.AddStepSummary(output)
+	action.Infof("%s", output)
+	action.SetOutput("version", packageVersion)
+
+	dockerTags, err := defineDockerTags(action.Getenv)
+	if err != nil {
+		action.Fatalf("%s", err)
+	}
+
+	setDockerTagsResults(action, dockerTags)
 }
 
 // semVerTag is a https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string,
