@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -72,6 +73,7 @@ func TestDefineVersion(t *testing.T) {
 		env            map[string]string
 		expectedDebian string
 		expectedDocker *images
+		expectedErr    error
 	}{
 		"pull_request": {
 			env: map[string]string{
@@ -183,6 +185,7 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
+			expectedErr: fmt.Errorf(`unhandled branch "main"`),
 		},
 		"push/main-other": {
 			env: map[string]string{
@@ -193,6 +196,7 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
+			expectedErr: fmt.Errorf(`unhandled branch "main"`),
 		},
 
 		"push/tag/release": {
@@ -245,41 +249,6 @@ func TestDefineVersion(t *testing.T) {
 				},
 			},
 		},
-
-		// FIXME
-		//
-		// "push/tag/missing-prerelease": {
-		// 	env: map[string]string{
-		// 		"GITHUB_EVENT_NAME": "push",
-		// 		"GITHUB_HEAD_REF":   "",
-		// 		"GITHUB_REF_NAME":   "v0.100.0", // missing prerelease
-		// 		"GITHUB_REF_TYPE":   "tag",
-		// 	},
-		// },
-		// "push/tag/not-ferretdb-prerelease": {
-		// 	env: map[string]string{
-		// 		"GITHUB_EVENT_NAME": "push",
-		// 		"GITHUB_HEAD_REF":   "",
-		// 		"GITHUB_REF_NAME":   "v0.100.0-other", // missing ferretdb in prerelease
-		// 		"GITHUB_REF_TYPE":   "tag",
-		// 	},
-		// },
-		// "push/tag/missing-v": {
-		// 	env: map[string]string{
-		// 		"GITHUB_EVENT_NAME": "push",
-		// 		"GITHUB_HEAD_REF":   "",
-		// 		"GITHUB_REF_NAME":   "0.100.0-ferretdb",
-		// 		"GITHUB_REF_TYPE":   "tag",
-		// 	},
-		// },
-		// "push/tag/not-semvar": {
-		// 	env: map[string]string{
-		// 		"GITHUB_EVENT_NAME": "push",
-		// 		"GITHUB_HEAD_REF":   "",
-		// 		"GITHUB_REF_NAME":   "v0.100-0-ferretdb",
-		// 		"GITHUB_REF_TYPE":   "tag",
-		// 	},
-		// },
 
 		"schedule": {
 			env: map[string]string{
@@ -354,11 +323,14 @@ func TestDefineVersion(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			debian, docker, err := defineVersion(controlDefaultVersion, pgVersion, getEnvFunc(t, tc.env))
 			if tc.expectedDebian == "" && tc.expectedDocker == nil {
-				require.Error(t, err)
+				require.Error(t, tc.expectedErr)
+				require.Equal(t, err, tc.expectedErr)
 				return
 			}
 
+			require.NoError(t, tc.expectedErr)
 			require.NoError(t, err)
+
 			assert.Equal(t, tc.expectedDebian, debian)
 			assert.Equal(t, tc.expectedDocker, docker)
 		})
