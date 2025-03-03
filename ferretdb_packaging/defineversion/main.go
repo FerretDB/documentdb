@@ -89,29 +89,11 @@ func debugEnv(action *githubactions.Action) {
 	}
 }
 
-// getControlDefaultVersion returns the default_version field from the control file
-// in SemVer format (0.100-0 -> 0.100.0).
-func getControlDefaultVersion(f string) (string, error) {
-	b, err := os.ReadFile(f)
-	if err != nil {
-		return "", err
-	}
-
-	match := controlDefaultVer.FindSubmatch(b)
-	if match == nil || len(match) != controlDefaultVer.NumSubexp()+1 {
-		return "", fmt.Errorf("control file did not find default_version: %s", f)
-	}
-
-	major := match[controlDefaultVer.SubexpIndex("major")]
-	minor := match[controlDefaultVer.SubexpIndex("minor")]
-	patch := match[controlDefaultVer.SubexpIndex("patch")]
-
-	return fmt.Sprintf("%s.%s.%s", major, minor, patch), nil
-}
-
 // semVar parses tag and returns version components.
 //
 // It returns error for invalid tag syntax, prerelease is missing `ferretdb` or if it has buildmetadata.
+//
+// FIXME
 func semVar(tag string) (major, minor, patch, prerelease string, err error) {
 	match := semVerTag.FindStringSubmatch(tag)
 	if match == nil || len(match) != semVerTag.NumSubexp()+1 {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 
@@ -11,6 +12,26 @@ import (
 // disallowedDebian matches disallowed characters of Debian `upstream_version` when used without `debian_revision`.
 // See https://www.debian.org/doc/debian-policy/ch-controlfields.html#version.
 var disallowedDebian = regexp.MustCompile(`[^A-Za-z0-9\.+~]`)
+
+// getControlDefaultVersion returns the default_version field from the control file
+// in SemVer format (0.100-0 -> 0.100.0).
+func getControlDefaultVersion(f string) (string, error) {
+	b, err := os.ReadFile(f)
+	if err != nil {
+		return "", err
+	}
+
+	match := controlDefaultVer.FindSubmatch(b)
+	if match == nil || len(match) != controlDefaultVer.NumSubexp()+1 {
+		return "", fmt.Errorf("control file did not find default_version: %s", f)
+	}
+
+	major := match[controlDefaultVer.SubexpIndex("major")]
+	minor := match[controlDefaultVer.SubexpIndex("minor")]
+	patch := match[controlDefaultVer.SubexpIndex("patch")]
+
+	return fmt.Sprintf("%s.%s.%s", major, minor, patch), nil
+}
 
 // defineDebianPackageVersion returns valid Debian package version,
 // based on `default_version` in the control file and environment variables set by GitHub Actions.
