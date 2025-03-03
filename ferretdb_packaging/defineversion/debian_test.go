@@ -12,7 +12,7 @@ import (
 func TestDefineDebianVersion(t *testing.T) {
 	const (
 		controlDefaultVersion = "0.100.0"
-		pgVersion             = "16"
+		pgVersion             = "17"
 	)
 
 	for name, tc := range map[string]struct {
@@ -154,19 +154,19 @@ func TestDefineDebianVersion(t *testing.T) {
 			expectedDebian: "0.100.0~ferretdb~2.0.0",
 			expectedDocker: &images{
 				developmentImages: []string{
-					//"ferretdb/postgres-documentdb-dev:16-0.100.0-ferretdb",
+					//"ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb",
 					//"ferretdb/postgres-documentdb-dev:latest",
-					"ghcr.io/ferretdb/postgres-documentdb-dev:16-0.100.0-ferretdb-2.0.0",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb-2.0.0",
 					"ghcr.io/ferretdb/postgres-documentdb-dev:latest",
-					//"quay.io/ferretdb/postgres-documentdb-dev:16-0.100.0-ferretdb",
+					//"quay.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb",
 					//"quay.io/ferretdb/postgres-documentdb-dev:latest",
 				},
 				productionImages: []string{
-					//"ferretdb/postgres-documentdb:16-0.100.0-ferretdb",
+					//"ferretdb/postgres-documentdb:17-0.100.0-ferretdb",
 					//"ferretdb/postgres-documentdb:latest",
-					"ghcr.io/ferretdb/postgres-documentdb:16-0.100.0-ferretdb-2.0.0",
+					"ghcr.io/ferretdb/postgres-documentdb:17-0.100.0-ferretdb-2.0.0",
 					"ghcr.io/ferretdb/postgres-documentdb:latest",
-					//"quay.io/ferretdb/postgres-documentdb:16-0.100.0-ferretdb",
+					//"quay.io/ferretdb/postgres-documentdb:17-0.100.0-ferretdb",
 					//"quay.io/ferretdb/postgres-documentdb:latest",
 				},
 			},
@@ -183,11 +183,11 @@ func TestDefineDebianVersion(t *testing.T) {
 			expectedDebian: "0.100.0~ferretdb~2.0.0",
 			expectedDocker: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/postgres-otherrepo-dev:16-0.100.0-ferretdb-2.0.0",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:17-0.100.0-ferretdb-2.0.0",
 					"ghcr.io/otherorg/postgres-otherrepo-dev:latest",
 				},
 				productionImages: []string{
-					"ghcr.io/otherorg/postgres-otherrepo:16-0.100.0-ferretdb-2.0.0",
+					"ghcr.io/otherorg/postgres-otherrepo:17-0.100.0-ferretdb-2.0.0",
 					"ghcr.io/otherorg/postgres-otherrepo:latest",
 				},
 			},
