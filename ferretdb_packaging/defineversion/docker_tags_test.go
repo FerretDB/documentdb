@@ -162,23 +162,29 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REF_NAME":   "v0.102.0-ferretdb",
 				"GITHUB_REF_TYPE":   "tag",
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
-				"INPUT_PG_VERSION":  "16",
+				"INPUT_PG_VERSION":  "16.7",
 			},
 			expected: &images{
 				developmentImages: []string{
 					"ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb",
+					"ferretdb/postgres-documentdb-dev:16.7-0.102.0-ferretdb",
 					"ferretdb/postgres-documentdb-dev:latest",
 					"ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:16.7-0.102.0-ferretdb",
 					"ghcr.io/ferretdb/postgres-documentdb-dev:latest",
 					"quay.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb",
+					"quay.io/ferretdb/postgres-documentdb-dev:16.7-0.102.0-ferretdb",
 					"quay.io/ferretdb/postgres-documentdb-dev:latest",
 				},
 				productionImages: []string{
 					"ferretdb/postgres-documentdb:16-0.102.0-ferretdb",
+					"ferretdb/postgres-documentdb:16.7-0.102.0-ferretdb",
 					"ferretdb/postgres-documentdb:latest",
 					"ghcr.io/ferretdb/postgres-documentdb:16-0.102.0-ferretdb",
+					"ghcr.io/ferretdb/postgres-documentdb:16.7-0.102.0-ferretdb",
 					"ghcr.io/ferretdb/postgres-documentdb:latest",
 					"quay.io/ferretdb/postgres-documentdb:16-0.102.0-ferretdb",
+					"quay.io/ferretdb/postgres-documentdb:16.7-0.102.0-ferretdb",
 					"quay.io/ferretdb/postgres-documentdb:latest",
 				},
 			},
@@ -191,21 +197,23 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REF_NAME":   "v0.102.0-ferretdb",
 				"GITHUB_REF_TYPE":   "tag",
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
-				"INPUT_PG_VERSION":  "16",
+				"INPUT_PG_VERSION":  "16.7",
 			},
 			expected: &images{
 				developmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:16-0.102.0-ferretdb",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:16.7-0.102.0-ferretdb",
 					"ghcr.io/otherorg/postgres-otherrepo-dev:latest",
 				},
 				productionImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo:16-0.102.0-ferretdb",
+					"ghcr.io/otherorg/postgres-otherrepo:16.7-0.102.0-ferretdb",
 					"ghcr.io/otherorg/postgres-otherrepo:latest",
 				},
 			},
 		},
 
-		"push/tag/release-rc-major-minor": {
+		"push/tag/release-rc": {
 			env: map[string]string{
 				"GITHUB_BASE_REF":   "",
 				"GITHUB_EVENT_NAME": "push",
@@ -240,7 +248,7 @@ func TestDefineDockerTags(t *testing.T) {
 				},
 			},
 		},
-		"push/tag/release-rc-major-minor-other": {
+		"push/tag/release-rc-other": {
 			env: map[string]string{
 				"GITHUB_BASE_REF":   "",
 				"GITHUB_EVENT_NAME": "push",
@@ -264,7 +272,7 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 		},
 
-		"push/tag/release-major": {
+		"push/tag/release// missing minor": {
 			env: map[string]string{
 				"GITHUB_BASE_REF":   "",
 				"GITHUB_EVENT_NAME": "push",
@@ -272,28 +280,10 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REF_NAME":   "v0.102.0-ferretdb-2.0.0-rc2",
 				"GITHUB_REF_TYPE":   "tag",
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
-				"INPUT_PG_VERSION":  "16", // set major version only
-			},
-			expected: &images{
-				developmentImages: []string{
-					"ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ferretdb/postgres-documentdb-dev:latest",
-					"ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/ferretdb/postgres-documentdb-dev:latest",
-					"quay.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
-					"quay.io/ferretdb/postgres-documentdb-dev:latest",
-				},
-				productionImages: []string{
-					"ferretdb/postgres-documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ferretdb/postgres-documentdb:latest",
-					"ghcr.io/ferretdb/postgres-documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/ferretdb/postgres-documentdb:latest",
-					"quay.io/ferretdb/postgres-documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
-					"quay.io/ferretdb/postgres-documentdb:latest",
-				},
+				"INPUT_PG_VERSION":  "16", // missing minor
 			},
 		},
-		"push/tag/release-major-other": {
+		"push/tag/release-missing-minor-other": {
 			env: map[string]string{
 				"GITHUB_BASE_REF":   "",
 				"GITHUB_EVENT_NAME": "push",
@@ -301,17 +291,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REF_NAME":   "v0.102.0-ferretdb-2.0.0-rc2",
 				"GITHUB_REF_TYPE":   "tag",
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
-				"INPUT_PG_VERSION":  "16", // set major version only
-			},
-			expected: &images{
-				developmentImages: []string{
-					"ghcr.io/otherorg/postgres-otherrepo-dev:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/otherorg/postgres-otherrepo-dev:latest",
-				},
-				productionImages: []string{
-					"ghcr.io/otherorg/postgres-otherrepo:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/otherorg/postgres-otherrepo:latest",
-				},
+				"INPUT_PG_VERSION":  "16", // missing minor
 			},
 		},
 

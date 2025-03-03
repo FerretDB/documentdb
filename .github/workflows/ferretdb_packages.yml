@@ -83,7 +83,7 @@ jobs:
           git diff --exit-code
 
   docker:
-    name: Build docker (Pg ${{ matrix.pg }})
+    name: Build Docker (Pg${{ matrix.pg }})
     runs-on: ubuntu-24.04
     timeout-minutes: 40
 
@@ -97,7 +97,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pg: [15, 16, 17]
+        pg: [15.12, 16.8, 17.4]
 
     steps:
       - name: Checkout code

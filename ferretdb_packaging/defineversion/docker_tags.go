@@ -30,8 +30,8 @@ type images struct {
 	productionImages  []string
 }
 
-// pgVer is the version of PostgreSQL with or without minor.
-var pgVer = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)(?:\.(?P<minor>0|[1-9]\d*))?$`)
+// pgVer is the version of PostgreSQL.
+var pgVer = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)$`)
 
 // defineDockerTags extracts Docker image names and tags from the environment variables defined by GitHub Actions.
 func defineDockerTags(getenv githubactions.GetenvFunc) (*images, error) {
