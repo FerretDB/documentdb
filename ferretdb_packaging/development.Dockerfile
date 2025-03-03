@@ -38,7 +38,7 @@ RUN --mount=type=cache,sharing=locked,target=/var/cache/apt <<EOF
 set -ex
 
 apt install -y \
-    postgresql-${DOCUMENTDB_VERSION}-pgtap
+    postgresql-${POSTGRES_VERSION}-pgtap
 EOF
 
 RUN --mount=target=/src,rw <<EOF
