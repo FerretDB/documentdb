@@ -1,9 +1,11 @@
 # syntax=docker/dockerfile:1
 
 ARG POSTGRES_VERSION
-ARG DOCUMENTDB_VERSION
 
 FROM postgres:${POSTGRES_VERSION} AS production
+
+ARG POSTGRES_VERSION
+ARG DOCUMENTDB_VERSION
 
 RUN --mount=type=cache,sharing=locked,target=/var/cache/apt <<EOF
 set -ex
