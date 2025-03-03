@@ -30,8 +30,8 @@ docker-documentdb:
 	test -n "$(DOCUMENTDB_VERSION)" || (echo "DOCUMENTDB_VERSION not set" && false)
 	test -n "$(FILE)" || (echo "FILE not set" && false)
 	make docker-build \
-		PG_VERSION=$(PG_VERSION) \
-		DOCUMENTDB_VERSION=$(DOCUMENTDB_VERSION) \
+        PG_VERSION=$(PG_VERSION) \
+        DOCUMENTDB_VERSION=$(DOCUMENTDB_VERSION) \
         FILE=$(FILE) \
         TARGET=$(FILE) \
         PLATFORM=linux/amd64 \
@@ -42,7 +42,7 @@ docker-documentdb-development-push:
 	test -n "$(PG_VERSION)" || (echo "PG_VERSION not set" && false)
 	test -n "$(TAGS)" || (echo "TAGS not set" && false)
 	make docker-build \
-		PG_VERSION=$(PG_VERSION) \
+        PG_VERSION=$(PG_VERSION) \
         FILE=development \
         TARGET=development \
         PLATFORM=linux/amd64 \
@@ -53,7 +53,7 @@ docker-documentdb-production-push:
 	test -n "$(PG_VERSION)" || (echo "PG_VERSION not set" && false)
 	test -n "$(TAGS)" || (echo "TAGS not set" && false)
 	make docker-build \
-		PG_VERSION=$(PG_VERSION) \
+        PG_VERSION=$(PG_VERSION) \
         FILE=production \
         TARGET=production \
         PLATFORM=linux/amd64 \
