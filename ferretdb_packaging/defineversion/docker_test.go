@@ -376,7 +376,7 @@ func TestDefineDockerTags(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			actual, err := defineDockerTags(getEnvFunc(t, tc.env))
+			actual, err := defineDockerVersion(getEnvFunc(t, tc.env))
 			if tc.expected == nil {
 				require.Error(t, err)
 				return
@@ -393,17 +393,17 @@ func TestImageURL(t *testing.T) {
 	assert.Equal(
 		t,
 		"https://ghcr.io/ferretdb/postgres-documentdb-dev:pr-docker-tag",
-		imageURL("ghcr.io/ferretdb/postgres-documentdb-dev:pr-docker-tag"),
+		dockerImageURL("ghcr.io/ferretdb/postgres-documentdb-dev:pr-docker-tag"),
 	)
 	assert.Equal(
 		t,
 		"https://quay.io/ferretdb/postgres-documentdb-dev:pr-docker-tag",
-		imageURL("quay.io/ferretdb/postgres-documentdb-dev:pr-docker-tag"),
+		dockerImageURL("quay.io/ferretdb/postgres-documentdb-dev:pr-docker-tag"),
 	)
 	assert.Equal(
 		t,
 		"https://hub.docker.com/r/ferretdb/postgres-documentdb-dev/tags",
-		imageURL("ferretdb/postgres-documentdb-dev:pr-docker-tag"),
+		dockerImageURL("ferretdb/postgres-documentdb-dev:pr-docker-tag"),
 	)
 }
 

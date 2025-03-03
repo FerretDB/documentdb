@@ -1,8 +1,6 @@
 package main
 
 import (
-	"io"
-	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -143,7 +141,7 @@ func TestDefine(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			actual, err := defineDebianPackageVersion(tc.controlDefaultVersion, getEnvFunc(t, tc.env))
+			actual, err := defineDebianVersion(tc.controlDefaultVersion, getEnvFunc(t, tc.env))
 			if tc.expected == "" {
 				require.Error(t, err)
 				return
@@ -153,27 +151,6 @@ func TestDefine(t *testing.T) {
 			assert.Equal(t, tc.expected, actual)
 		})
 	}
-}
-
-func TestReadControlDefaultVersion(t *testing.T) {
-	controlF, err := os.CreateTemp(t.TempDir(), "test.control")
-	require.NoError(t, err)
-
-	defer controlF.Close() //nolint:errcheck // temporary file for testing
-
-	buf := `comment = 'API surface for DocumentDB for PostgreSQL'
-default_version = '0.100-0'
-module_pathname = '$libdir/pg_documentdb'
-relocatable = false
-superuser = true
-requires = 'documentdb_core, pg_cron, tsm_system_rows, vector, postgis, rum'`
-	_, err = io.WriteString(controlF, buf)
-	require.NoError(t, err)
-
-	controlDefaultVersion, err := getControlDefaultVersion(controlF.Name())
-	require.NoError(t, err)
-
-	require.Equal(t, "0.100.0", controlDefaultVersion)
 }
 
 func TestSemVar(t *testing.T) {

@@ -30,7 +30,7 @@ func main() {
 		action.Fatalf("%s", err)
 	}
 
-	packageVersion, err := defineDebianPackageVersion(controlDefaultVersion, action.Getenv)
+	packageVersion, err := defineDebianVersion(controlDefaultVersion, action.Getenv)
 	if err != nil {
 		action.Fatalf("%s", err)
 	}
@@ -41,7 +41,7 @@ func main() {
 	action.Infof("%s", output)
 	action.SetOutput("version", packageVersion)
 
-	dockerTags, err := defineDockerTags(action.Getenv)
+	dockerTags, err := defineDockerVersion(action.Getenv)
 	if err != nil {
 		action.Fatalf("%s", err)
 	}

@@ -37,30 +37,30 @@ func getControlDefaultVersion(f string) (string, error) {
 	return fmt.Sprintf("%s.%s.%s", major, minor, patch), nil
 }
 
-// defineDebianPackageVersion returns valid Debian package version,
+// defineDebianVersion returns valid Debian package version,
 // based on `default_version` in the control file and environment variables set by GitHub Actions.
 //
 // See https://www.debian.org/doc/debian-policy/ch-controlfields.html#version.
 // We use `upstream_version` only.
 // For that reason, we can't use `-`, so we replace it with `~`.
-func defineDebianPackageVersion(controlDefaultVersion string, getenv githubactions.GetenvFunc) (string, error) {
+func defineDebianVersion(controlDefaultVersion string, getenv githubactions.GetenvFunc) (string, error) {
 	var res string
 	var err error
 
 	switch event := getenv("GITHUB_EVENT_NAME"); event {
 	case "pull_request", "pull_request_target":
 		branch := strings.ToLower(getenv("GITHUB_HEAD_REF"))
-		res = defineDebianPackageVersionForPR(controlDefaultVersion, branch)
+		res = defineDebianVersionForPR(controlDefaultVersion, branch)
 
 	case "push", "schedule", "workflow_run":
 		refName := strings.ToLower(getenv("GITHUB_REF_NAME"))
 
 		switch refType := strings.ToLower(getenv("GITHUB_REF_TYPE")); refType {
 		case "branch":
-			res, err = defineDebianPackageVersionForBranch(controlDefaultVersion, refName)
+			res, err = defineDebianVersionForBranch(controlDefaultVersion, refName)
 
 		case "tag":
-			res, err = defineDebianPackageVersionForTag(refName)
+			res, err = defineDebianVersionForTag(refName)
 
 		default:
 			err = fmt.Errorf("unhandled ref type %q for event %q", refType, event)
@@ -81,9 +81,9 @@ func defineDebianPackageVersion(controlDefaultVersion string, getenv githubactio
 	return res, nil
 }
 
-// defineDebianPackageVersionForPR returns valid Debian package version for PR.
-// See [defineDebianPackageVersion].
-func defineDebianPackageVersionForPR(controlDefaultVersion, branch string) string {
+// defineDebianVersionForPR returns valid Debian package version for PR.
+// See [defineDebianVersion].
+func defineDebianVersionForPR(controlDefaultVersion, branch string) string {
 	// for branches like "dependabot/submodules/XXX"
 	parts := strings.Split(branch, "/")
 	branch = parts[len(parts)-1]
@@ -92,9 +92,9 @@ func defineDebianPackageVersionForPR(controlDefaultVersion, branch string) strin
 	return disallowedDebian.ReplaceAllString(res, "~")
 }
 
-// defineDebianPackageVersionForBranch returns valid Debian package version for branch.
-// See [defineDebianPackageVersion].
-func defineDebianPackageVersionForBranch(controlDefaultVersion, branch string) (string, error) {
+// defineDebianVersionForBranch returns valid Debian package version for branch.
+// See [defineDebianVersion].
+func defineDebianVersionForBranch(controlDefaultVersion, branch string) (string, error) {
 	switch branch {
 	case "ferretdb":
 		return fmt.Sprintf("%s~branch~%s", controlDefaultVersion, branch), nil
@@ -103,9 +103,9 @@ func defineDebianPackageVersionForBranch(controlDefaultVersion, branch string) (
 	}
 }
 
-// defineDebianPackageVersionForTag returns valid Debian package version for tag.
-// See [defineDebianPackageVersion].
-func defineDebianPackageVersionForTag(tag string) (string, error) {
+// defineDebianVersionForTag returns valid Debian package version for tag.
+// See [defineDebianVersion].
+func defineDebianVersionForTag(tag string) (string, error) {
 	major, minor, patch, prerelease, err := semVar(tag)
 	if err != nil {
 		return "", err

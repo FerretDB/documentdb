@@ -19,8 +19,8 @@ type images struct {
 // pgVer is the version of PostgreSQL.
 var pgVer = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)$`)
 
-// defineDockerTags extracts Docker image names and tags from the environment variables defined by GitHub Actions.
-func defineDockerTags(getenv githubactions.GetenvFunc) (*images, error) {
+// defineDockerVersion extracts Docker image names and tags from the environment variables defined by GitHub Actions.
+func defineDockerVersion(getenv githubactions.GetenvFunc) (*images, error) {
 	repo := getenv("GITHUB_REPOSITORY")
 
 	// to support GitHub forks
@@ -37,14 +37,14 @@ func defineDockerTags(getenv githubactions.GetenvFunc) (*images, error) {
 	switch event := getenv("GITHUB_EVENT_NAME"); event {
 	case "pull_request", "pull_request_target":
 		branch := strings.ToLower(getenv("GITHUB_HEAD_REF"))
-		res = defineForPR(owner, repo, branch)
+		res = defineDockerVersionForPR(owner, repo, branch)
 
 	case "push", "schedule", "workflow_run":
 		refName := strings.ToLower(getenv("GITHUB_REF_NAME"))
 
 		switch refType := strings.ToLower(getenv("GITHUB_REF_TYPE")); refType {
 		case "branch":
-			res, err = defineForBranch(owner, repo, refName)
+			res, err = defineDockerVersionForBranch(owner, repo, refName)
 
 		case "tag":
 			var major, minor, patch, prerelease string
@@ -70,7 +70,7 @@ func defineDockerTags(getenv githubactions.GetenvFunc) (*images, error) {
 				tags = append(tags, fmt.Sprintf("%s.%s-%s.%s.%s-%s", pgMajor, pgMinor, major, minor, patch, prerelease))
 			}
 
-			res = defineForTag(owner, repo, tags)
+			res = defineDockerVersionForTag(owner, repo, tags)
 
 		default:
 			err = fmt.Errorf("unhandled ref type %q for event %q", refType, event)
@@ -94,8 +94,8 @@ func defineDockerTags(getenv githubactions.GetenvFunc) (*images, error) {
 	return res, nil
 }
 
-// defineForPR defines Docker image names and tags for pull requests.
-func defineForPR(owner, repo, branch string) *images {
+// defineDockerVersionForPR defines Docker image names and tags for pull requests.
+func defineDockerVersionForPR(owner, repo, branch string) *images {
 	// for branches like "dependabot/submodules/XXX"
 	parts := strings.Split(branch, "/")
 	branch = parts[len(parts)-1]
@@ -111,8 +111,8 @@ func defineForPR(owner, repo, branch string) *images {
 	return res
 }
 
-// defineForBranch defines Docker image names and tags for branch builds.
-func defineForBranch(owner, repo, branch string) (*images, error) {
+// defineDockerVersionForBranch defines Docker image names and tags for branch builds.
+func defineDockerVersionForBranch(owner, repo, branch string) (*images, error) {
 	if branch != "ferretdb" {
 		return nil, fmt.Errorf("unhandled branch %q", branch)
 	}
@@ -139,8 +139,8 @@ func defineForBranch(owner, repo, branch string) (*images, error) {
 	return res, nil
 }
 
-// defineForTag defines Docker image names and tags for prerelease tag builds.
-func defineForTag(owner, repo string, tags []string) *images {
+// defineDockerVersionForTag defines Docker image names and tags for prerelease tag builds.
+func defineDockerVersionForTag(owner, repo string, tags []string) *images {
 	res := new(images)
 
 	for _, t := range tags {
@@ -177,12 +177,12 @@ func setDockerTagsResults(action *githubactions.Action, res *images) {
 	fmt.Fprintf(w, "\t----\t-----\t\n")
 
 	for _, image := range res.developmentImages {
-		u := imageURL(image)
+		u := dockerImageURL(image)
 		_, _ = fmt.Fprintf(w, "\tDevelopment\t[`%s`](%s)\t\n", image, u)
 	}
 
 	for _, image := range res.productionImages {
-		u := imageURL(image)
+		u := dockerImageURL(image)
 		_, _ = fmt.Fprintf(w, "\tProduction\t[`%s`](%s)\t\n", image, u)
 	}
 
@@ -195,8 +195,8 @@ func setDockerTagsResults(action *githubactions.Action, res *images) {
 	action.SetOutput("production_images", strings.Join(res.productionImages, ","))
 }
 
-// imageURL returns HTML page URL for the given image name and tag.
-func imageURL(name string) string {
+// dockerImageURL returns HTML page URL for the given image name and tag.
+func dockerImageURL(name string) string {
 	switch {
 	case strings.HasPrefix(name, "ghcr.io/"):
 		return fmt.Sprintf("https://%s", name)
