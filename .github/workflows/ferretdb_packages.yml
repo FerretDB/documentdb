@@ -131,6 +131,9 @@ jobs:
           go mod tidy
           go mod verify
           go run ./defineversion --command pg-major-version
+        env:
+          INPUT_PG_VERSION: ${{ matrix.pg }}
+
 
       - name: Build Debian package ${{ steps.version.outputs.version }} to use for docker build
         if: steps.version.outputs.version != '' && steps.pg.outputs.pg_major != ''
