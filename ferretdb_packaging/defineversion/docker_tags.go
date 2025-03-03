@@ -30,8 +30,8 @@ type images struct {
 	productionImages  []string
 }
 
-// pgVer is the version of PostgreSQL with or without minor.
-var pgVer = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)(?:\.(?P<minor>0|[1-9]\d*))?$`)
+// pgVer is the version of PostgreSQL.
+var pgVer = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)$`)
 
 // defineDockerTags extracts Docker image names and tags from the environment variables defined by GitHub Actions.
 func defineDockerTags(getenv githubactions.GetenvFunc) (*images, error) {
@@ -147,8 +147,8 @@ func defineForBranch(owner, repo, branch string) (*images, error) {
 		return res, nil
 	}
 
-	res.developmentImages = append(res.developmentImages, "quay.io/ferretdb/postgres-documentdb-dev:ferretdb")
-	res.developmentImages = append(res.developmentImages, "ferretdb/postgres-documentdb-dev:ferretdb")
+	//res.developmentImages = append(res.developmentImages, "quay.io/ferretdb/postgres-documentdb-dev:ferretdb")
+	//res.developmentImages = append(res.developmentImages, "ferretdb/postgres-documentdb-dev:ferretdb")
 
 	return res, nil
 }
@@ -172,13 +172,13 @@ func defineForTag(owner, repo string, tags []string) *images {
 		return res
 	}
 
-	for _, t := range tags {
-		res.developmentImages = append(res.developmentImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb-dev:%s", t))
-		res.productionImages = append(res.productionImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb:%s", t))
-
-		res.developmentImages = append(res.developmentImages, fmt.Sprintf("ferretdb/postgres-documentdb-dev:%s", t))
-		res.productionImages = append(res.productionImages, fmt.Sprintf("ferretdb/postgres-documentdb:%s", t))
-	}
+	//for _, t := range tags {
+	//	res.developmentImages = append(res.developmentImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb-dev:%s", t))
+	//	res.productionImages = append(res.productionImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb:%s", t))
+	//
+	//	res.developmentImages = append(res.developmentImages, fmt.Sprintf("ferretdb/postgres-documentdb-dev:%s", t))
+	//	res.productionImages = append(res.productionImages, fmt.Sprintf("ferretdb/postgres-documentdb:%s", t))
+	//}
 
 	return res
 }
