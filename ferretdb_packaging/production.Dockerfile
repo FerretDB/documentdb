@@ -1,15 +1,12 @@
 # syntax=docker/dockerfile:1
 
-ARG PG_VERSION
+ARG PG_MAJOR=16
 
-FROM postgres:${PG_VERSION} AS production
+FROM postgres:${PG_MAJOR} AS production
+
+
 
 ARG DOCUMENTDB_VERSION
-
-ENV LANG=en_US.UTF-8
-ENV LANGUAGE=en_US
-ENV LC_ALL=en_US.UTF-8
-ENV LC_CTYPE=en_US.UTF-8
 
 RUN --mount=type=cache,sharing=locked,target=/var/cache/apt <<EOF
 set -ex
