@@ -1,11 +1,9 @@
 # syntax=docker/dockerfile:1
 
-ARG POSTGRES_VERSION=16.8
+ARG POSTGRES_VERSION
+ARG DOCUMENTDB_VERSION
 
 FROM postgres:${POSTGRES_VERSION} AS production
-
-ARG DOCUMENTDB_VERSION
-ARG PG_MAJOR
 
 RUN --mount=type=cache,sharing=locked,target=/var/cache/apt <<EOF
 set -ex
@@ -13,10 +11,12 @@ set -ex
 apt update
 apt upgrade -y
 apt install -y \
-    postgresql-${PG_MAJOR}-cron \
-    postgresql-${PG_MAJOR}-pgvector \
-    postgresql-${PG_MAJOR}-postgis-3 \
-    postgresql-${PG_MAJOR}-rum \
+    postgresql-${POSTGRES_VERSION} \
+    postgresql-${POSTGRES_VERSION}-cron \
+    postgresql-${POSTGRES_VERSION}-pgvector \
+    postgresql-${POSTGRES_VERSION}-postgis-3 \
+    postgresql-${POSTGRES_VERSION}-rum \
+    postgresql-server-dev-${POSTGRES_VERSION}
 EOF
 
 RUN --mount=target=/src,rw <<EOF
@@ -24,7 +24,7 @@ set -ex
 
 cd /src
 
-cp packaging/deb12-postgresql-${PG_MAJOR}-documentdb_${DOCUMENTDB_VERSION}_amd64.deb /tmp/documentdb.deb
+cp packaging/deb12-postgresql-${POSTGRES_VERSION}-documentdb_${DOCUMENTDB_VERSION}_amd64.deb /tmp/documentdb.deb
 dpkg -i /tmp/documentdb.deb
 rm /tmp/documentdb.deb
 

@@ -124,6 +124,16 @@ func main() {
 	action.SetOutput("debian_version", debian)
 
 	dockerSummary(action, docker)
-	action.SetOutput("docker_development_images", strings.Join(docker.developmentImages, ","))
-	action.SetOutput("docker_production_images", strings.Join(docker.productionImages, ","))
+
+	developmentTagFlags := make([]string, len(docker.developmentImages))
+	for i, image := range docker.developmentImages {
+		developmentTagFlags[i] = fmt.Sprintf("--tag %s", image)
+	}
+	action.SetOutput("docker_development_tag_flags", strings.Join(developmentTagFlags, " "))
+
+	productionTagFlags := make([]string, len(docker.productionImages))
+	for i, image := range docker.productionImages {
+		productionTagFlags[i] = fmt.Sprintf("--tag %s", image)
+	}
+	action.SetOutput("docker_production_tag_flags", strings.Join(productionTagFlags, " "))
 }

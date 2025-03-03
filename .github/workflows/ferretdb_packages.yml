@@ -102,22 +102,22 @@ jobs:
       - name: Setup Go
         uses: FerretDB/github-actions/setup-go@main
 
-      - name: Define Debian package version
+      - name: Define version
         id: version
         run: |
           cd ferretdb_packaging
           go mod tidy
           go mod verify
-          go run ./defineversion --command deb-version --control-file ../pg_documentdb_core/documentdb_core.control
+          go run ./defineversion --pg-version ${{ matrix.pg }}
 
-      - name: Build ${{ steps.version.outputs.version }}
-        if: steps.version.outputs.version != ''
-        run: ./ferretdb_packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg }} --version ${{ steps.version.outputs.version }} --test-clean-install
+      - name: Build ${{ steps.version.outputs.debian_version }}
+        if: steps.version.outputs.debian_version != ''
+        run: ./ferretdb_packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg }} --version ${{ steps.version.outputs.debian_version }} --test-clean-install
 
-      - name: Upload
+      - name: Upload .deb packages
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-${{ matrix.pg }}-${{ steps.version.outputs.version }}
+          name: ${{ matrix.os }}-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
           path: packaging/*.deb
           retention-days: 1
           if-no-files-found: error
@@ -130,10 +130,11 @@ jobs:
           git diff --exit-code
 
   docker:
-    needs: deb
     name: Build Docker (Pg${{ matrix.pg }})
     runs-on: ubuntu-24.04
     timeout-minutes: 40
+
+    needs: deb
 
     if: >
       github.event_name != 'pull_request_target' ||
@@ -149,7 +150,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pg: [15.12, 16.8, 17.4]
+        pg: [15, 16, 17]
 
     steps:
       # TODO https://github.com/FerretDB/github-actions/issues/211
@@ -181,48 +182,42 @@ jobs:
       - name: Setup Go
         uses: FerretDB/github-actions/setup-go@main
 
-      - name: Define Docker tags
-        id: tag
-        run: |
-          cd ferretdb_packaging
-          go mod tidy
-          go mod verify
-          go run ./defineversion --command docker-tags --pg-version ${{ matrix.pg }}
-
-      - name: Debian package version
+      - name: Define version
         id: version
         run: |
           cd ferretdb_packaging
           go mod tidy
           go mod verify
-          go run ./defineversion --command deb-version --control-file ../pg_documentdb_core/documentdb_core.control
+          go run ./defineversion --pg-version ${{ matrix.pg }}
 
-      - name: PostgreSQL major version
-        id: pg
-        run: |
-          cd ferretdb_packaging
-          go mod tidy
-          go mod verify
-          go run ./defineversion --command pg-major-version --pg-version ${{ matrix.pg }}
-
-      - name: Download
+      - name: Download .deb package
         uses: actions/download-artifact@v4
         with:
-          name: deb12-${{ steps.pg.outputs.pg_major }}-${{ steps.version.outputs.version }}
+          name: deb12-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
           path: packaging
 
-      - name: Initialize Docker Buildx builder
+      - name: Initialize Docker builder
         run: make -C ferretdb_packaging docker-init
 
-      # mostly to check that this command still works
-      - name: Build local Docker image
-        if: steps.version.outputs.version != ''
+      - name: Build local development Docker image
+        if: steps.version.outputs.docker_development_tag_flags != ''
         run: >
-          make -C ferretdb_packaging docker-documentdb
-          TARGET=development
+          make -C ferretdb_packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
-          PG_MAJOR=${{ steps.pg.outputs.pg_major }}
-          DOCUMENTDB_VERSION=${{ steps.version.outputs.version }}
+          DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
+          FILE=development
+          OUTPUT='type=docker'
+          TAGS=${{ steps.version.outputs.docker_development_tag_flags }}
+
+      - name: Build local production Docker image
+        if: steps.version.outputs.docker_production_tag_flags != ''
+        run: >
+          make -C ferretdb_packaging docker-build
+          POSTGRES_VERSION=${{ matrix.pg }}
+          DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
+          FILE=production
+          OUTPUT='type=docker'
+          TAGS=${{ steps.version.outputs.docker_production_tag_flags }}
 
       # - name: Login to Docker Hub
       #   uses: docker/login-action@v3
@@ -244,23 +239,25 @@ jobs:
       #     username: ferretdbbot
       #     password: ${{ secrets.QUAY_TOKEN }}
 
-      - name: Build and push development Docker images ${{ steps.tag.outputs.development_images }}
-        if: steps.tag.outputs.development_images != '' && steps.version.outputs.version != ''
+      - name: Build and push development Docker images
+        if: steps.version.outputs.docker_development_tag_flags != ''
         run: >
-          make -C ferretdb_packaging docker-documentdb-development-push
+          make -C ferretdb_packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
-          PG_MAJOR=${{ steps.pg.outputs.pg_major }}
-          DOCUMENTDB_VERSION=${{ steps.version.outputs.version }}
-          TAGS=${{ steps.tag.outputs.development_images }}
+          DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
+          FILE=development
+          OUTPUT='type=image,push=true'
+          TAGS=${{ steps.version.outputs.docker_development_tag_flags }}
 
-      - name: Build and push production Docker images ${{ steps.tag.outputs.production_images }}
-        if: steps.tag.outputs.production_images != '' && steps.version.outputs.version != ''
+      - name: Build and push production Docker images
+        if: steps.version.outputs.docker_production_tag_flags != ''
         run: >
-          make -C ferretdb_packaging docker-documentdb-production-push
+          make -C ferretdb_packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
-          PG_MAJOR=${{ steps.pg.outputs.pg_major }}
-          DOCUMENTDB_VERSION=${{ steps.version.outputs.version }}
-          TAGS=${{ steps.tag.outputs.production_images }}
+          DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
+          FILE=production
+          OUTPUT='type=image,push=true'
+          TAGS=${{ steps.version.outputs.docker_production_tag_flags }}
 
       - name: Check dirty
         run: |
