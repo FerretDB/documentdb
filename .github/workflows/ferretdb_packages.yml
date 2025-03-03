@@ -174,7 +174,7 @@ jobs:
       - name: Build and push development Docker images ${{ steps.tag.outputs.development_images }}
         if: steps.tag.outputs.development_images != '' && steps.version.outputs.version != ''
         run: >
-          make -C docker-documentdb-development-push
+          make -C ferretdb_packaging docker-documentdb-development-push
           POSTGRES_VERSION=${{ matrix.pg }}
           PG_MAJOR=${{ steps.pg.outputs.pg_major }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.version }}
@@ -183,7 +183,7 @@ jobs:
       - name: Build and push production Docker images ${{ steps.tag.outputs.production_images }}
         if: steps.tag.outputs.production_images != '' && steps.version.outputs.version != ''
         run: >
-          make -C docker-documentdb-production-push
+          make -C ferretdb_packaging docker-documentdb-production-push
           POSTGRES_VERSION=${{ matrix.pg }}
           PG_MAJOR=${{ steps.pg.outputs.pg_major }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.version }}
