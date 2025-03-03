@@ -92,6 +92,7 @@ func defineVersion(controlDefaultVersion, pgVersion string, getenv githubactions
 func main() {
 	controlFileF := flag.String("control-file", "../pg_documentdb/documentdb.control", "pg_documentdb/documentdb.control file path")
 	pgVersionF := flag.String("pg-version", "17", "Major PostgreSQL version")
+	debianOnlyF := flag.Bool("debian-only", false, "Only set output for Debian package version")
 
 	flag.Parse()
 
@@ -123,17 +124,22 @@ func main() {
 	debianSummary(action, debian)
 	action.SetOutput("debian_version", debian)
 
-	dockerSummary(action, docker)
+	if !*debianOnlyF {
+		dockerSummary(action, docker)
 
-	developmentTagFlags := make([]string, len(docker.developmentImages))
-	for i, image := range docker.developmentImages {
-		developmentTagFlags[i] = fmt.Sprintf("--tag %s", image)
-	}
-	action.SetOutput("docker_development_tag_flags", strings.Join(developmentTagFlags, " "))
+		action.SetOutput("docker_development_images", strings.Join(docker.developmentImages, ","))
+		action.SetOutput("docker_production_images", strings.Join(docker.productionImages, ","))
 
-	productionTagFlags := make([]string, len(docker.productionImages))
-	for i, image := range docker.productionImages {
-		productionTagFlags[i] = fmt.Sprintf("--tag %s", image)
+		developmentTagFlags := make([]string, len(docker.developmentImages))
+		for i, image := range docker.developmentImages {
+			developmentTagFlags[i] = fmt.Sprintf("--tag %s", image)
+		}
+		action.SetOutput("docker_development_tag_flags", strings.Join(developmentTagFlags, " "))
+
+		productionTagFlags := make([]string, len(docker.productionImages))
+		for i, image := range docker.productionImages {
+			productionTagFlags[i] = fmt.Sprintf("--tag %s", image)
+		}
+		action.SetOutput("docker_production_tag_flags", strings.Join(productionTagFlags, " "))
 	}
-	action.SetOutput("docker_production_tag_flags", strings.Join(productionTagFlags, " "))
 }

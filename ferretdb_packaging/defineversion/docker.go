@@ -172,8 +172,8 @@ func dockerImageURL(name string) string {
 func dockerSummary(action *githubactions.Action, version *images) {
 	var buf strings.Builder
 	w := tabwriter.NewWriter(&buf, 1, 1, 1, ' ', tabwriter.Debug)
-	fmt.Fprintf(w, "\tType\tImage\t\n")
-	fmt.Fprintf(w, "\t----\t-----\t\n")
+	fmt.Fprintf(w, "\tType\tDocker image\t\n")
+	fmt.Fprintf(w, "\t----\t------------\t\n")
 
 	for _, image := range version.developmentImages {
 		u := dockerImageURL(image)
