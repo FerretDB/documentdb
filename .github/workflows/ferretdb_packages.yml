@@ -116,12 +116,24 @@ jobs:
         env:
           INPUT_PG_VERSION: ${{ matrix.pg }}
 
+      - name: Debian package version
+        id: version
+        run: |
+          cd ferretdb_packaging
+          go mod tidy
+          go mod verify
+          go run ./defineversion --command deb-version --control-file ../pg_documentdb_core/documentdb_core.control
+
+      - name: Build Debian package ${{ steps.version.outputs.version }} to use for docker build
+        if: steps.version.outputs.version != ''
+        run: ./ferretdb_packaging/build_packages.sh --os deb12 --pg ${{ matrix.pg }} --version ${{ steps.version.outputs.version }}
+
       - name: Initialize Docker Buildx builder
         run: make -C ferretdb_packaging docker-init
 
       # mostly to check that this command still works
       - name: Build local Docker image
-        run: make -C ferretdb_packaging docker-documentdb FILE=production
+        run: make -C ferretdb_packaging docker-documentdb FILE=development PG_VERSION=${{ matrix.pg }} DOCUMENTDB_VERSION=${{ steps.version.outputs.version }}
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -145,11 +157,11 @@ jobs:
 
       - name: Build and push development Docker images ${{ steps.tag.outputs.development_images }}
         if: steps.tag.outputs.development_images != ''
-        run: make -C docker-documentdb-development-push POSTGRESQL_VERSION=${{ matrix.pg }} TAGS=${{ steps.tag.outputs.development_images }}
+        run: make -C docker-documentdb-development-push PG_VERSION=${{ matrix.pg }} DOCUMENTDB_VERSION=${{ steps.version.outputs.version }} TAGS=${{ steps.tag.outputs.development_images }}
 
       - name: Build and push production Docker images ${{ steps.tag.outputs.production_images }}
         if: steps.tag.outputs.production_images != ''
-        run: make -C docker-documentdb-production-push POSTGRESQL_VERSION=${{ matrix.pg }} TAGS=${{ steps.tag.outputs.production_images }}
+        run: make -C docker-documentdb-production-push PG_VERSION=${{ matrix.pg }} DOCUMENTDB_VERSION=${{ steps.version.outputs.version }} TAGS=${{ steps.tag.outputs.production_images }}
 
       - name: Check dirty
         run: |
