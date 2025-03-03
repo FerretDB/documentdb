@@ -16,13 +16,14 @@ package main
 
 import (
 	"bytes"
-	"github.com/sethvargo/go-githubactions"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 	"io"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/sethvargo/go-githubactions"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDefineDockerTags(t *testing.T) {
@@ -476,10 +477,10 @@ func TestDockerTagsResults(t *testing.T) {
 
 	expectedOutput := `
 development_images<<_GitHubActionsFileCommandDelimeter_
---tag=ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb --tag=ghcr.io/ferretdb/postgres-documentdb-dev:latest
+ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb,ghcr.io/ferretdb/postgres-documentdb-dev:latest
 _GitHubActionsFileCommandDelimeter_
 production_images<<_GitHubActionsFileCommandDelimeter_
---tag=quay.io/ferretdb/postgres-documentdb:latest
+quay.io/ferretdb/postgres-documentdb:latest
 _GitHubActionsFileCommandDelimeter_
 `[1:]
 	b, err = io.ReadAll(outputF)

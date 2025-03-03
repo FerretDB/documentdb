@@ -33,20 +33,6 @@ type images struct {
 // pgVer is the version of PostgreSQL.
 var pgVer = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)$`)
 
-// getPostgreSQLVersion gets PostgreSQL major and minor versions from the environment.
-func getPostgreSQLVersion(getenv githubactions.GetenvFunc) (string, string, error) {
-	pgVersion := getenv("INPUT_PG_VERSION")
-	pgMatch := pgVer.FindStringSubmatch(pgVersion)
-	if pgMatch == nil || len(pgMatch) != pgVer.NumSubexp()+1 {
-		return "", "", fmt.Errorf("unexpected PostgreSQL version %q", pgVersion)
-	}
-
-	pgMajor := pgMatch[pgVer.SubexpIndex("major")]
-	pgMinor := pgMatch[pgVer.SubexpIndex("minor")]
-
-	return pgMajor, pgMinor, nil
-}
-
 // defineDockerTags extracts Docker image names and tags from the environment variables defined by GitHub Actions.
 func defineDockerTags(getenv githubactions.GetenvFunc) (*images, error) {
 	repo := getenv("GITHUB_REPOSITORY")
@@ -80,10 +66,14 @@ func defineDockerTags(getenv githubactions.GetenvFunc) (*images, error) {
 				return nil, err
 			}
 
-			var pgMajor, pgMinor string
-			if pgMajor, pgMinor, err = getPostgreSQLVersion(getenv); err != nil {
-				return nil, err
+			pgVersion := getenv("INPUT_PG_VERSION")
+			pgMatch := pgVer.FindStringSubmatch(pgVersion)
+			if pgMatch == nil || len(pgMatch) != pgVer.NumSubexp()+1 {
+				return nil, fmt.Errorf("unexpected PostgreSQL version %q", pgVersion)
 			}
+
+			pgMajor := pgMatch[pgVer.SubexpIndex("major")]
+			pgMinor := pgMatch[pgVer.SubexpIndex("minor")]
 
 			tags := []string{
 				fmt.Sprintf("%s-%s.%s.%s-%s", pgMajor, major, minor, patch, prerelease),
@@ -157,8 +147,8 @@ func defineForBranch(owner, repo, branch string) (*images, error) {
 		return res, nil
 	}
 
-	//res.developmentImages = append(res.developmentImages, "quay.io/ferretdb/postgres-documentdb-dev:ferretdb")
-	//res.developmentImages = append(res.developmentImages, "ferretdb/postgres-documentdb-dev:ferretdb")
+	// res.developmentImages = append(res.developmentImages, "quay.io/ferretdb/postgres-documentdb-dev:ferretdb")
+	// res.developmentImages = append(res.developmentImages, "ferretdb/postgres-documentdb-dev:ferretdb")
 
 	return res, nil
 }
@@ -215,18 +205,8 @@ func setDockerTagsResults(action *githubactions.Action, res *images) {
 	action.AddStepSummary(buf.String())
 	action.Infof("%s", buf.String())
 
-	developmentTags := make([]string, len(res.developmentImages))
-	for i, image := range res.developmentImages {
-		developmentTags[i] = fmt.Sprintf("--tag=%s", image)
-	}
-
-	productionTags := make([]string, len(res.productionImages))
-	for i, image := range res.productionImages {
-		productionTags[i] = fmt.Sprintf("--tag=%s", image)
-	}
-
-	action.SetOutput("development_images", strings.Join(developmentTags, " "))
-	action.SetOutput("production_images", strings.Join(productionTags, " "))
+	action.SetOutput("development_images", strings.Join(res.developmentImages, ","))
+	action.SetOutput("production_images", strings.Join(res.productionImages, ","))
 }
 
 // imageURL returns HTML page URL for the given image name and tag.
