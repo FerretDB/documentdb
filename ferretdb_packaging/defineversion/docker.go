@@ -117,8 +117,8 @@ func defineDockerVersionForBranch(owner, repo, branch string) (*images, error) {
 		return res, nil
 	}
 
-	// res.developmentImages = append(res.developmentImages, "quay.io/ferretdb/postgres-documentdb-dev:ferretdb")
-	// res.developmentImages = append(res.developmentImages, "ferretdb/postgres-documentdb-dev:ferretdb")
+	res.developmentImages = append(res.developmentImages, "quay.io/ferretdb/postgres-documentdb-dev:ferretdb")
+	res.developmentImages = append(res.developmentImages, "ferretdb/postgres-documentdb-dev:ferretdb")
 
 	return res, nil
 }
@@ -142,13 +142,13 @@ func defineDockerVersionForTag(owner, repo string, tags []string) *images {
 		return res
 	}
 
-	//for _, t := range tags {
-	//	res.developmentImages = append(res.developmentImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb-dev:%s", t))
-	//	res.productionImages = append(res.productionImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb:%s", t))
-	//
-	//	res.developmentImages = append(res.developmentImages, fmt.Sprintf("ferretdb/postgres-documentdb-dev:%s", t))
-	//	res.productionImages = append(res.productionImages, fmt.Sprintf("ferretdb/postgres-documentdb:%s", t))
-	//}
+	for _, t := range tags {
+		res.developmentImages = append(res.developmentImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb-dev:%s", t))
+		res.productionImages = append(res.productionImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb:%s", t))
+
+		res.developmentImages = append(res.developmentImages, fmt.Sprintf("ferretdb/postgres-documentdb-dev:%s", t))
+		res.productionImages = append(res.productionImages, fmt.Sprintf("ferretdb/postgres-documentdb:%s", t))
+	}
 
 	return res
 }
