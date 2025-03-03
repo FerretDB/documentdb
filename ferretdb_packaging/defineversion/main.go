@@ -90,7 +90,7 @@ func defineVersion(controlDefaultVersion, pgVersion string, getenv githubactions
 }
 
 func main() {
-	controlFileF := flag.String("control-file", "../pg_documentdb/documentdb.control", "pg_documentdb/documentdb.control file path")
+	controlFileF := flag.String("control-file", "../../pg_documentdb/documentdb.control", "pg_documentdb/documentdb.control file path")
 	pgVersionF := flag.String("pg-version", "17", "Major PostgreSQL version")
 
 	flag.Parse()
