@@ -12,74 +12,9 @@ import (
 	"github.com/sethvargo/go-githubactions"
 )
 
-func main() {
-	controlFileF := flag.String("control-file", "../pg_documentdb/documentdb.control", "pg_documentdb/documentdb.control file path")
-	pgVersionF := flag.String("pg-version", "17", "Major PostgreSQL version")
-
-	flag.Parse()
-
-	action := githubactions.New()
-
-	debugEnv(action)
-
-	if *controlFileF == "" {
-		action.Fatalf("%s", "-control-file flag is empty.")
-	}
-
-	switch *pgVersionF {
-	case "15", "16", "17":
-		// nothing
-	default:
-		action.Fatalf("%s", fmt.Sprintf("Invalid PostgreSQL version %q.", *pgVersionF))
-	}
-
-	controlDefaultVersion, err := getControlDefaultVersion(*controlFileF)
-	if err != nil {
-		action.Fatalf("%s", err)
-	}
-
-	packageVersion, err := defineDebianVersion(controlDefaultVersion, action.Getenv)
-	if err != nil {
-		action.Fatalf("%s", err)
-	}
-
-	output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", packageVersion)
-
-	action.AddStepSummary(output)
-	action.Infof("%s", output)
-	action.SetOutput("version", packageVersion)
-
-	dockerTags, err := defineDockerVersion(*pgVersionF, action.Getenv)
-	if err != nil {
-		action.Fatalf("%s", err)
-	}
-
-	setDockerTagsResults(action, dockerTags)
-}
-
 // semVerTag is a https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string,
 // but with a leading `v`.
 var semVerTag = regexp.MustCompile(`^v(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$`)
-
-// debugEnv logs all environment variables that start with `GITHUB_` or `INPUT_`
-// in debug level.
-func debugEnv(action *githubactions.Action) {
-	res := make([]string, 0, 30)
-
-	for _, l := range os.Environ() {
-		if strings.HasPrefix(l, "GITHUB_") || strings.HasPrefix(l, "INPUT_") {
-			res = append(res, l)
-		}
-	}
-
-	slices.Sort(res)
-
-	action.Debugf("Dumping environment variables:")
-
-	for _, l := range res {
-		action.Debugf("\t%s", l)
-	}
-}
 
 // parseGitTag parses git tag in specific format and returns SemVer components.
 //
@@ -110,4 +45,79 @@ func parseGitTag(tag string) (major, minor, patch, prerelease string, err error)
 	}
 
 	return
+}
+
+// debugEnv logs all environment variables that start with `GITHUB_` or `INPUT_`
+// in debug level.
+func debugEnv(action *githubactions.Action) {
+	res := make([]string, 0, 30)
+
+	for _, l := range os.Environ() {
+		if strings.HasPrefix(l, "GITHUB_") || strings.HasPrefix(l, "INPUT_") {
+			res = append(res, l)
+		}
+	}
+
+	slices.Sort(res)
+
+	action.Debugf("Dumping environment variables:")
+
+	for _, l := range res {
+		action.Debugf("\t%s", l)
+	}
+}
+
+// defineVersion returns Debian package version and Docker tags.
+func defineVersion(controlDefaultVersion, pgVersion string, getenv githubactions.GetenvFunc) (string, *images, error) {
+	debian, err := defineDebianVersion(controlDefaultVersion, getenv)
+	if err != nil {
+		return "", nil, err
+	}
+
+	docker, err := defineDockerVersion(pgVersion, getenv)
+	if err != nil {
+		return "", nil, err
+	}
+
+	return debian, docker, nil
+}
+
+func main() {
+	controlFileF := flag.String("control-file", "../pg_documentdb/documentdb.control", "pg_documentdb/documentdb.control file path")
+	pgVersionF := flag.String("pg-version", "17", "Major PostgreSQL version")
+
+	flag.Parse()
+
+	action := githubactions.New()
+
+	debugEnv(action)
+
+	if *controlFileF == "" {
+		action.Fatalf("%s", "-control-file flag is empty.")
+	}
+
+	switch *pgVersionF {
+	case "15", "16", "17":
+		// nothing
+	default:
+		action.Fatalf("%s", fmt.Sprintf("Invalid PostgreSQL version %q.", *pgVersionF))
+	}
+
+	controlDefaultVersion, err := getControlDefaultVersion(*controlFileF)
+	if err != nil {
+		action.Fatalf("%s", err)
+	}
+
+	debian, docker, err := defineVersion(controlDefaultVersion, *pgVersionF, action.Getenv)
+	if err != nil {
+		action.Fatalf("%s", err)
+	}
+
+	output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", debian)
+
+	action.AddStepSummary(output)
+	action.Infof("%s", output)
+	action.SetOutput("version", debian)
+
+	setDockerTagsResults(action, docker)
 }

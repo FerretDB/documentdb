@@ -63,7 +63,7 @@ func TestParseGitTag(t *testing.T) {
 	}
 }
 
-func TestDefineDebianVersion(t *testing.T) {
+func TestDefineVersion(t *testing.T) {
 	const (
 		controlDefaultVersion = "0.100.0"
 		pgVersion             = "17"
@@ -353,27 +353,15 @@ func TestDefineDebianVersion(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			t.Run("Debian", func(t *testing.T) {
-				actual, err := defineDebianVersion(controlDefaultVersion, getEnvFunc(t, tc.env))
-				if tc.expectedDebian == "" {
-					require.Error(t, err)
-					return
-				}
+			debian, docker, err := defineVersion(controlDefaultVersion, pgVersion, getEnvFunc(t, tc.env))
+			if tc.expectedDebian == "" && tc.expectedDocker == nil {
+				require.Error(t, err)
+				return
+			}
 
-				require.NoError(t, err)
-				assert.Equal(t, tc.expectedDebian, actual)
-			})
-
-			t.Run("Docker", func(t *testing.T) {
-				actual, err := defineDockerVersion(pgVersion, getEnvFunc(t, tc.env))
-				if tc.expectedDocker == nil {
-					require.Error(t, err)
-					return
-				}
-
-				require.NoError(t, err)
-				assert.Equal(t, tc.expectedDocker, actual)
-			})
+			require.NoError(t, err)
+			assert.Equal(t, tc.expectedDebian, debian)
+			assert.Equal(t, tc.expectedDocker, docker)
 		})
 	}
 }
