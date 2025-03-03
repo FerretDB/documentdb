@@ -13,7 +13,9 @@ func TestDefineDebianVersion(t *testing.T) {
 	for name, tc := range map[string]struct {
 		env                   map[string]string
 		controlDefaultVersion string
-		expected              string
+		pgVersion             string
+		expectedDebian        string
+		expectedDocker        *images
 	}{
 		"pull_request": {
 			env: map[string]string{
@@ -23,7 +25,7 @@ func TestDefineDebianVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 			},
 			controlDefaultVersion: "0.100.0",
-			expected:              "0.100.0~pr~define~version",
+			expectedDebian:        "0.100.0~pr~define~version",
 		},
 
 		"pull_request_target": {
@@ -34,7 +36,7 @@ func TestDefineDebianVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 			},
 			controlDefaultVersion: "0.100.0",
-			expected:              "0.100.0~pr~define~version",
+			expectedDebian:        "0.100.0~pr~define~version",
 		},
 
 		"push/ferretdb": {
@@ -45,7 +47,7 @@ func TestDefineDebianVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 			},
 			controlDefaultVersion: "0.100.0",
-			expected:              "0.100.0~branch~ferretdb",
+			expectedDebian:        "0.100.0~branch~ferretdb",
 		},
 		"push/other": {
 			env: map[string]string{
@@ -63,7 +65,7 @@ func TestDefineDebianVersion(t *testing.T) {
 				"GITHUB_REF_NAME":   "v0.100.0-ferretdb-2.0.1",
 				"GITHUB_REF_TYPE":   "tag",
 			},
-			expected: "0.100.0~ferretdb~2.0.1",
+			expectedDebian: "0.100.0~ferretdb~2.0.1",
 		},
 
 		"push/tag/missing-prerelease": {
@@ -107,7 +109,7 @@ func TestDefineDebianVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 			},
 			controlDefaultVersion: "0.100.0",
-			expected:              "0.100.0~branch~ferretdb",
+			expectedDebian:        "0.100.0~branch~ferretdb",
 		},
 
 		"workflow_run": {
@@ -118,18 +120,18 @@ func TestDefineDebianVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 			},
 			controlDefaultVersion: "0.100.0",
-			expected:              "0.100.0~branch~ferretdb",
+			expectedDebian:        "0.100.0~branch~ferretdb",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			actual, err := defineDebianVersion(tc.controlDefaultVersion, getEnvFunc(t, tc.env))
-			if tc.expected == "" {
+			if tc.expectedDebian == "" {
 				require.Error(t, err)
 				return
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expectedDebian, actual)
 		})
 	}
 }

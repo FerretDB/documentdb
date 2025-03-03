@@ -14,9 +14,9 @@ import (
 
 func TestDefineDockerTags(t *testing.T) {
 	for name, tc := range map[string]struct {
-		env       map[string]string
-		pgVersion string
-		expected  *images
+		env            map[string]string
+		pgVersion      string
+		expectedDocker *images
 	}{
 		"pull_request": {
 			env: map[string]string{
@@ -28,7 +28,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					"ghcr.io/ferretdb/postgres-documentdb-dev:pr-docker-tag",
 				},
@@ -44,7 +44,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:pr-docker-tag",
 				},
@@ -61,7 +61,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					"ghcr.io/ferretdb/postgres-documentdb-dev:pr-docker-tag",
 				},
@@ -77,7 +77,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:pr-docker-tag",
 				},
@@ -94,7 +94,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					//"ferretdb/postgres-documentdb-dev:ferretdb",
 					"ghcr.io/ferretdb/postgres-documentdb-dev:ferretdb",
@@ -112,7 +112,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:ferretdb",
 				},
@@ -152,7 +152,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					//"ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb",
 					//"ferretdb/postgres-documentdb-dev:latest",
@@ -181,7 +181,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:16-0.102.0-ferretdb-2.0.0",
 					"ghcr.io/otherorg/postgres-otherrepo-dev:latest",
@@ -203,7 +203,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					//"ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
 					//"ferretdb/postgres-documentdb-dev:latest",
@@ -232,7 +232,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:16-0.102.0-ferretdb-2.0.0-rc2",
 					"ghcr.io/otherorg/postgres-otherrepo-dev:latest",
@@ -277,7 +277,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					//"ferretdb/postgres-documentdb-dev:ferretdb",
 					"ghcr.io/ferretdb/postgres-documentdb-dev:ferretdb",
@@ -295,7 +295,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:ferretdb",
 				},
@@ -312,7 +312,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					//"ferretdb/postgres-documentdb-dev:ferretdb",
 					"ghcr.io/ferretdb/postgres-documentdb-dev:ferretdb",
@@ -330,7 +330,7 @@ func TestDefineDockerTags(t *testing.T) {
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
 			pgVersion: "16",
-			expected: &images{
+			expectedDocker: &images{
 				developmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:ferretdb",
 				},
@@ -339,13 +339,13 @@ func TestDefineDockerTags(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			actual, err := defineDockerVersion(tc.pgVersion, getEnvFunc(t, tc.env))
-			if tc.expected == nil {
+			if tc.expectedDocker == nil {
 				require.Error(t, err)
 				return
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tc.expected, actual)
+			assert.Equal(t, tc.expectedDocker, actual)
 		})
 	}
 }
