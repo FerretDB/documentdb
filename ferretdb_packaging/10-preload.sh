@@ -6,5 +6,7 @@ echo "shared_preload_libraries = 'pg_cron,pg_documentdb_core,pg_documentdb'" >> 
 echo "cron.database_name       = 'postgres'"                                 >> $PGDATA/postgresql.conf
 
 source /usr/local/bin/docker-entrypoint.sh
+
+# restarting is needed to create extension
 docker_temp_server_stop
 docker_temp_server_start "$@"

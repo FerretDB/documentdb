@@ -145,11 +145,11 @@ jobs:
 
       - name: Build and push development Docker images ${{ steps.tag.outputs.development_images }}
         if: steps.tag.outputs.development_images != ''
-        run: make -C docker-documentdb-development-push TAGS=${{ steps.tag.outputs.development_images }}
+        run: make -C docker-documentdb-development-push POSTGRESQL_VERSION=${{ matrix.pg }} TAGS=${{ steps.tag.outputs.development_images }}
 
       - name: Build and push production Docker images ${{ steps.tag.outputs.production_images }}
         if: steps.tag.outputs.production_images != ''
-        run: make -C docker-documentdb-production-push TAGS=${{ steps.tag.outputs.production_images }}
+        run: make -C docker-documentdb-production-push POSTGRESQL_VERSION=${{ matrix.pg }} TAGS=${{ steps.tag.outputs.production_images }}
 
       - name: Check dirty
         run: |

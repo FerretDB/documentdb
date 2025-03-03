@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1
 
-FROM postgres:16.8 AS production
+ARG PG_VERSION
+
+FROM postgres:${PG_VERSION} AS production
+
+ARG DOCUMENTDB_VERSION
 
 ENV LANG=en_US.UTF-8
 ENV LANGUAGE=en_US
@@ -13,18 +17,10 @@ set -ex
 apt update
 apt upgrade -y
 apt install -y \
-    build-essential \
-    cmake \
-    curl \
-    git \
-    libicu-dev \
-    libkrb5-dev \
-    pkg-config \
-    postgresql-16-cron \
-    postgresql-16-pgvector \
-    postgresql-16-postgis-3 \
-    postgresql-16-rum \
-    postgresql-server-dev-16
+    postgresql-${PG_MAJOR}-cron \
+    postgresql-${PG_MAJOR}-pgvector \
+    postgresql-${PG_MAJOR}-postgis-3 \
+    postgresql-${PG_MAJOR}-rum \
 EOF
 
 RUN --mount=target=/src,rw <<EOF
@@ -32,21 +28,19 @@ set -ex
 
 cd /src
 
-mkdir -p /tmp/install_setup
-cp scripts/* /tmp/install_setup/
+cp packaging/deb12-postgresql-${PG_MAJOR}-documentdb_${DOCUMENTDB_VERSION}_amd64.deb /tmp/documentdb.deb
+dpkg -i /tmp/documentdb.deb
+rm /tmp/documentdb.deb
+
+EOF
+
+RUN --mount=target=/src,rw <<EOF
+set -ex
+
+cd /src
+
 cp ferretdb_packaging/10-preload.sh ferretdb_packaging/20-install.sql /docker-entrypoint-initdb.d/
 
-export CLEANUP_SETUP=1
-export INSTALL_DEPENDENCIES_ROOT=/tmp/install_setup
-
-env MAKE_PROGRAM=cmake /tmp/install_setup/install_setup_libbson.sh
-/tmp/install_setup/install_setup_pcre2.sh
-/tmp/install_setup/install_setup_intel_decimal_math_lib.sh
-
-make -k -j $(nproc)
-make install
-
-rm -fr /tmp/install_setup /var/lib/apt/lists/*
 EOF
 
 WORKDIR /
