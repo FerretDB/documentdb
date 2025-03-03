@@ -1,12 +1,10 @@
 package main
 
 import (
-	"bytes"
 	"io"
 	"os"
 	"testing"
 
-	"github.com/sethvargo/go-githubactions"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -145,7 +143,7 @@ func TestDefine(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			actual, err := definePackageVersion(tc.controlDefaultVersion, getEnvFunc(t, tc.env))
+			actual, err := defineDebianPackageVersion(tc.controlDefaultVersion, getEnvFunc(t, tc.env))
 			if tc.expected == "" {
 				require.Error(t, err)
 				return
@@ -155,45 +153,6 @@ func TestDefine(t *testing.T) {
 			assert.Equal(t, tc.expected, actual)
 		})
 	}
-}
-
-func TestResults(t *testing.T) {
-	dir := t.TempDir()
-
-	summaryF, err := os.CreateTemp(dir, "summary")
-	require.NoError(t, err)
-	defer summaryF.Close() //nolint:errcheck // temporary file for testing
-
-	outputF, err := os.CreateTemp(dir, "output")
-	require.NoError(t, err)
-	defer outputF.Close() //nolint:errcheck // temporary file for testing
-
-	var stdout bytes.Buffer
-	getenv := getEnvFunc(t, map[string]string{
-		"GITHUB_STEP_SUMMARY": summaryF.Name(),
-		"GITHUB_OUTPUT":       outputF.Name(),
-	})
-	action := githubactions.New(githubactions.WithGetenv(getenv), githubactions.WithWriter(&stdout))
-
-	version := "0.100.0~ferretdb"
-
-	setDebianVersionResults(action, version)
-
-	expected := "version: `0.100.0~ferretdb`\n"
-	assert.Equal(t, expected, stdout.String(), "stdout does not match")
-
-	b, err := io.ReadAll(summaryF)
-	require.NoError(t, err)
-	assert.Equal(t, expected, string(b), "summary does not match")
-
-	expectedOutput := `
-version<<_GitHubActionsFileCommandDelimeter_
-0.100.0~ferretdb
-_GitHubActionsFileCommandDelimeter_
-`[1:]
-	b, err = io.ReadAll(outputF)
-	require.NoError(t, err)
-	assert.Equal(t, expectedOutput, string(b), "output parameters does not match")
 }
 
 func TestReadControlDefaultVersion(t *testing.T) {

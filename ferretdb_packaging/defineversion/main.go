@@ -38,12 +38,17 @@ func main() {
 			action.Fatalf("%s", err)
 		}
 
-		packageVersion, err := definePackageVersion(controlDefaultVersion, action.Getenv)
+		packageVersion, err := defineDebianPackageVersion(controlDefaultVersion, action.Getenv)
 		if err != nil {
 			action.Fatalf("%s", err)
 		}
 
-		setDebianVersionResults(action, packageVersion)
+		output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", packageVersion)
+
+		action.AddStepSummary(output)
+		action.Infof("%s", output)
+		action.SetOutput("version", packageVersion)
+
 	case "docker-tags":
 		res, err := defineDockerTags(action.Getenv)
 		if err != nil {
