@@ -43,7 +43,7 @@ func getControlDefaultVersion(f string) (string, error) {
 // See https://www.debian.org/doc/debian-policy/ch-controlfields.html#version.
 // We use `upstream_version` only.
 // For that reason, we can't use `-`, so we replace it with `~`.
-func defineDebianVersion(controlDefaultVersion string, getenv githubactions.GetenvFunc) (string, error) {
+func defineDebianVersion(controlDefaultVersion, pgVersion string, getenv githubactions.GetenvFunc) (string, error) {
 	var res string
 	var err error
 

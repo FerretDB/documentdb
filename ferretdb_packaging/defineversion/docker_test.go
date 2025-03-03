@@ -338,7 +338,7 @@ func TestDefineDockerTags(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			actual, err := defineDockerVersion(tc.pgVersion, getEnvFunc(t, tc.env))
+			actual, err := defineDockerVersion("0.100.0", tc.pgVersion, getEnvFunc(t, tc.env))
 			if tc.expectedDocker == nil {
 				require.Error(t, err)
 				return

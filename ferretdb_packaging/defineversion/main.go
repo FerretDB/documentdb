@@ -69,12 +69,12 @@ func debugEnv(action *githubactions.Action) {
 
 // defineVersion returns Debian package version and Docker tags.
 func defineVersion(controlDefaultVersion, pgVersion string, getenv githubactions.GetenvFunc) (string, *images, error) {
-	debian, err := defineDebianVersion(controlDefaultVersion, getenv)
+	debian, err := defineDebianVersion(controlDefaultVersion, pgVersion, getenv)
 	if err != nil {
 		return "", nil, err
 	}
 
-	docker, err := defineDockerVersion(pgVersion, getenv)
+	docker, err := defineDockerVersion(controlDefaultVersion, pgVersion, getenv)
 	if err != nil {
 		return "", nil, err
 	}

@@ -20,7 +20,7 @@ type images struct {
 var pgVer = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)$`)
 
 // defineDockerVersion extracts Docker image names and tags from the environment variables defined by GitHub Actions.
-func defineDockerVersion(pgVersion string, getenv githubactions.GetenvFunc) (*images, error) {
+func defineDockerVersion(controlDefaultVersion, pgVersion string, getenv githubactions.GetenvFunc) (*images, error) {
 	repo := getenv("GITHUB_REPOSITORY")
 
 	// to support GitHub forks
