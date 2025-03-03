@@ -138,7 +138,7 @@ jobs:
       - name: Download
         uses: actions/download-artifact@v4
         with:
-          name: deb12-postgresql-${{ steps.pg.outputs.pg_major }}-documentdb_${{ steps.version.outputs.version }}_amd64.deb
+          name: deb12-${{ steps.pg.outputs.pg_major }}-${{ steps.version.outputs.version }}.zip
           path: packaging
 
       - name: Initialize Docker Buildx builder
