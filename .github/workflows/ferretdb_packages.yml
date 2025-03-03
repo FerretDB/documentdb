@@ -124,8 +124,16 @@ jobs:
           go mod verify
           go run ./defineversion --command deb-version --control-file ../pg_documentdb_core/documentdb_core.control
 
+      - name: PostgreSQL major version
+        id: pg
+        run: |
+          cd ferretdb_packaging
+          go mod tidy
+          go mod verify
+          go run ./defineversion --command pg-major-version
+
       - name: Build Debian package ${{ steps.version.outputs.version }} to use for docker build
-        if: steps.version.outputs.version != '' && steps.tag.outputs.pg_major != ''
+        if: steps.version.outputs.version != '' && steps.pg.outputs.pg_major != ''
         run: ./ferretdb_packaging/build_packages.sh --os deb12 --pg ${{ steps.tag.outputs.pg_major }} --version ${{ steps.version.outputs.version }}
 
       - name: Initialize Docker Buildx builder
@@ -138,7 +146,7 @@ jobs:
           make -C ferretdb_packaging docker-documentdb
           TARGET=development
           POSTGRES_VERSION=${{ matrix.pg }}
-          PG_MAJOR=${{ steps.tag.outputs.pg_major }}
+          PG_MAJOR=${{ steps.pg.outputs.pg_major }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.version }}
 
 #      - name: Login to Docker Hub
@@ -166,7 +174,7 @@ jobs:
         run: >
           make -C docker-documentdb-development-push
           POSTGRES_VERSION=${{ matrix.pg }}
-          PG_MAJOR=${{ steps.tag.outputs.pg_major }}
+          PG_MAJOR=${{ steps.pg.outputs.pg_major }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.version }}
           TAGS=${{ steps.tag.outputs.development_images }}
 
@@ -175,7 +183,7 @@ jobs:
         run: >
           make -C docker-documentdb-production-push
           POSTGRES_VERSION=${{ matrix.pg }}
-          PG_MAJOR=${{ steps.tag.outputs.pg_major }}
+          PG_MAJOR=${{ steps.pg.outputs.pg_major }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.version }}
           TAGS=${{ steps.tag.outputs.production_images }}
 

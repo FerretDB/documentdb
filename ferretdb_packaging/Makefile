@@ -43,10 +43,12 @@ docker-documentdb:
 docker-documentdb-development-push:
 	test -n "$(POSTGRES_VERSION)" || (echo "POSTGRES_VERSION not set" && false)
 	test -n "$(PG_MAJOR)" || (echo "PG_MAJOR not set" && false)
+	test -n "$(DOCUMENTDB_VERSION)" || (echo "DOCUMENTDB_VERSION not set" && false)
 	test -n "$(TAGS)" || (echo "TAGS not set" && false)
 	make docker-build \
         POSTGRES_VERSION=$(POSTGRES_VERSION) \
         PG_MAJOR=$(PG_MAJOR) \
+        DOCUMENTDB_VERSION=$(DOCUMENTDB_VERSION) \
         TARGET=development \
         PLATFORM=linux/amd64 \
         TAGS=$(TAGS)
@@ -55,10 +57,12 @@ docker-documentdb-development-push:
 docker-documentdb-production-push:
 	test -n "$(POSTGRES_VERSION)" || (echo "POSTGRES_VERSION not set" && false)
 	test -n "$(PG_MAJOR)" || (echo "PG_MAJOR not set" && false)
+	test -n "$(DOCUMENTDB_VERSION)" || (echo "DOCUMENTDB_VERSION not set" && false)
 	test -n "$(TAGS)" || (echo "TAGS not set" && false)
 	make docker-build \
         POSTGRES_VERSION=$(POSTGRES_VERSION) \
         PG_MAJOR=$(PG_MAJOR) \
+        DOCUMENTDB_VERSION=$(DOCUMENTDB_VERSION) \
         TARGET=production \
         PLATFORM=linux/amd64 \
         TAGS=$(TAGS)

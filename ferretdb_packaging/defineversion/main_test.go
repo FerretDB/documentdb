@@ -191,7 +191,7 @@ func TestResults(t *testing.T) {
 
 	version := "0.100.0~ferretdb"
 
-	setDebianVersionResults(action, version)
+	setKeyValueOutput(action, "version", version)
 
 	expected := "version: `0.100.0~ferretdb`\n"
 	assert.Equal(t, expected, stdout.String(), "stdout does not match")

@@ -194,7 +194,7 @@ func defineForTag(owner, repo string, tags []string) *images {
 }
 
 // setDockerTagsResults sets action output parameters, summary, etc.
-func setDockerTagsResults(action *githubactions.Action, res *images, pgMajor string) {
+func setDockerTagsResults(action *githubactions.Action, res *images) {
 	var buf strings.Builder
 	w := tabwriter.NewWriter(&buf, 1, 1, 1, ' ', tabwriter.Debug)
 	fmt.Fprintf(w, "\tType\tImage\t\n")
@@ -227,7 +227,6 @@ func setDockerTagsResults(action *githubactions.Action, res *images, pgMajor str
 
 	action.SetOutput("development_images", strings.Join(developmentTags, " "))
 	action.SetOutput("production_images", strings.Join(productionTags, " "))
-	action.SetOutput("pg_major", pgMajor)
 }
 
 // imageURL returns HTML page URL for the given image name and tag.

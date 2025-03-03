@@ -57,19 +57,21 @@ func main() {
 			action.Fatalf("%s", err)
 		}
 
-		setDebianVersionResults(action, packageVersion)
+		setKeyValueOutput(action, "version", packageVersion)
 	case "docker-tags":
 		res, err := defineDockerTags(action.Getenv)
 		if err != nil {
 			action.Fatalf("%s", err)
 		}
 
+		setDockerTagsResults(action, res)
+	case "pg-major-version":
 		major, _, err := getPostgreSQLVersion(action.Getenv)
 		if err != nil {
 			action.Fatalf("%s", err)
 		}
 
-		setDockerTagsResults(action, res, major)
+		setKeyValueOutput(action, "pg_major", major)
 	default:
 		action.Fatalf("unhandled command %q", *commandF)
 	}
@@ -235,11 +237,11 @@ func definePackagerVersionForTag(tag string) (string, error) {
 	return disallowedVer.ReplaceAllString(res, "~"), nil
 }
 
-// setDebianVersionResults sets action output parameters, summary, etc.
-func setDebianVersionResults(action *githubactions.Action, res string) {
-	output := fmt.Sprintf("version: `%s`", res)
+// setKeyValueOutput sets key value pair for github action output.
+func setKeyValueOutput(action *githubactions.Action, key, value string) {
+	output := fmt.Sprintf("%s: `%s`", key, value)
 
 	action.AddStepSummary(output)
 	action.Infof("%s", output)
-	action.SetOutput("version", res)
+	action.SetOutput(key, value)
 }
