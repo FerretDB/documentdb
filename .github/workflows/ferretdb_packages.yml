@@ -134,10 +134,9 @@ jobs:
         env:
           INPUT_PG_VERSION: ${{ matrix.pg }}
 
-
       - name: Build Debian package ${{ steps.version.outputs.version }} to use for docker build
         if: steps.version.outputs.version != '' && steps.pg.outputs.pg_major != ''
-        run: ./ferretdb_packaging/build_packages.sh --os deb12 --pg ${{ steps.tag.outputs.pg_major }} --version ${{ steps.version.outputs.version }}
+        run: ./ferretdb_packaging/build_packages.sh --os deb12 --pg ${{ steps.pg.outputs.pg_major }} --version ${{ steps.version.outputs.version }}
 
       - name: Initialize Docker Buildx builder
         run: make -C ferretdb_packaging docker-init
