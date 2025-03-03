@@ -9,6 +9,10 @@ import (
 	"github.com/sethvargo/go-githubactions"
 )
 
+// controlDefaultVer matches major, minor and "patch" from `default_version` field in control file,
+// see pg_documentdb_core/documentdb_core.control.
+var controlDefaultVer = regexp.MustCompile(`(?m)^default_version = '(?P<major>[0-9]+)\.(?P<minor>[0-9]+)-(?P<patch>[0-9]+)'$`)
+
 // disallowedDebian matches disallowed characters of Debian `upstream_version` when used without `debian_revision`.
 // See https://www.debian.org/doc/debian-policy/ch-controlfields.html#version.
 var disallowedDebian = regexp.MustCompile(`[^A-Za-z0-9\.+~]`)
