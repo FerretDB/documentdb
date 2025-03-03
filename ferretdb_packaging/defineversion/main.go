@@ -64,7 +64,12 @@ func main() {
 			action.Fatalf("%s", err)
 		}
 
-		setDockerTagsResults(action, res)
+		major, _, err := getPostgreSQLVersion(action.Getenv)
+		if err != nil {
+			action.Fatalf("%s", err)
+		}
+
+		setDockerTagsResults(action, res, major)
 	default:
 		action.Fatalf("unhandled command %q", *commandF)
 	}

@@ -448,7 +448,9 @@ func TestDockerTagsResults(t *testing.T) {
 		},
 	}
 
-	setDockerTagsResults(action, result)
+	pgMajor := "16"
+
+	setDockerTagsResults(action, result, pgMajor)
 
 	expectedStdout := strings.ReplaceAll(`
  |Type        |Image                                                                                                                                  |
@@ -480,6 +482,9 @@ development_images<<_GitHubActionsFileCommandDelimeter_
 _GitHubActionsFileCommandDelimeter_
 production_images<<_GitHubActionsFileCommandDelimeter_
 --tag=quay.io/ferretdb/postgres-documentdb:latest
+_GitHubActionsFileCommandDelimeter_
+pg_major<<_GitHubActionsFileCommandDelimeter_
+16
 _GitHubActionsFileCommandDelimeter_
 `[1:]
 	b, err = io.ReadAll(outputF)

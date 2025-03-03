@@ -2,15 +2,16 @@
 
 docker-build:
 	test -n "$(POSTGRES_VERSION)" || (echo "POSTGRES_VERSION not set" && false)
+	test -n "$(PG_MAJOR)" || (echo "PG_MAJOR not set" && false)
 	test -n "$(DOCUMENTDB_VERSION)" || (echo "DOCUMENTDB_VERSION not set" && false)
-	test -n "$(FILE)" || (echo "FILE not set" && false)
 	test -n "$(TARGET)" || (echo "TARGET not set" && false)
 	test -n "$(OUTPUT)" || (echo "OUTPUT not set" && false)
 	test -n "$(PLATFORM)" || (echo "PLATFORM not set" && false)
 	test -n "$(TAGS)" || (echo "TAGS not set" && false)
 	cd ..; docker buildx build --builder=ferretdb \
-        --file=ferretdb_packaging/$(FILE).Dockerfile \
+        --file=ferretdb_packaging/$(TARGET).Dockerfile \
         --build-arg=POSTGRES_VERSION=$(POSTGRES_VERSION) \
+        --build-arg=PG_MAJOR=$(PG_MAJOR) \
         --build-arg=DOCUMENTDB_VERSION=$(DOCUMENTDB_VERSION) \
         --target=$(TARGET) \
         --platform=$(PLATFORM) \
@@ -27,23 +28,25 @@ docker-cleanup:
 
 docker-documentdb:
 	test -n "$(POSTGRES_VERSION)" || (echo "POSTGRES_VERSION not set" && false)
+	test -n "$(PG_MAJOR)" || (echo "PG_MAJOR not set" && false)
 	test -n "$(DOCUMENTDB_VERSION)" || (echo "DOCUMENTDB_VERSION not set" && false)
-	test -n "$(FILE)" || (echo "FILE not set" && false)
+	test -n "$(TARGET)" || (echo "TARGET not set" && false)
 	make docker-build \
         POSTGRES_VERSION=$(POSTGRES_VERSION) \
+        PG_MAJOR=$(PG_MAJOR) \
         DOCUMENTDB_VERSION=$(DOCUMENTDB_VERSION) \
-        FILE=$(FILE) \
-        TARGET=$(FILE) \
+        TARGET=$(TARGET) \
         PLATFORM=linux/amd64 \
         TAGS="--tag=documentdb-local" \
         OUTPUT="type=docker"
 
 docker-documentdb-development-push:
 	test -n "$(POSTGRES_VERSION)" || (echo "POSTGRES_VERSION not set" && false)
+	test -n "$(PG_MAJOR)" || (echo "PG_MAJOR not set" && false)
 	test -n "$(TAGS)" || (echo "TAGS not set" && false)
 	make docker-build \
         POSTGRES_VERSION=$(POSTGRES_VERSION) \
-        FILE=development \
+        PG_MAJOR=$(PG_MAJOR) \
         TARGET=development \
         PLATFORM=linux/amd64 \
         TAGS=$(TAGS)
@@ -51,10 +54,11 @@ docker-documentdb-development-push:
 
 docker-documentdb-production-push:
 	test -n "$(POSTGRES_VERSION)" || (echo "POSTGRES_VERSION not set" && false)
+	test -n "$(PG_MAJOR)" || (echo "PG_MAJOR not set" && false)
 	test -n "$(TAGS)" || (echo "TAGS not set" && false)
 	make docker-build \
         POSTGRES_VERSION=$(POSTGRES_VERSION) \
-        FILE=production \
+        PG_MAJOR=$(PG_MAJOR) \
         TARGET=production \
         PLATFORM=linux/amd64 \
         TAGS=$(TAGS)

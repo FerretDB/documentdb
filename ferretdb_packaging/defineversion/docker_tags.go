@@ -33,6 +33,20 @@ type images struct {
 // pgVer is the version of PostgreSQL.
 var pgVer = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)$`)
 
+// getPostgreSQLVersion gets PostgreSQL major and minor versions from the environment.
+func getPostgreSQLVersion(getenv githubactions.GetenvFunc) (string, string, error) {
+	pgVersion := getenv("INPUT_PG_VERSION")
+	pgMatch := pgVer.FindStringSubmatch(pgVersion)
+	if pgMatch == nil || len(pgMatch) != pgVer.NumSubexp()+1 {
+		return "", "", fmt.Errorf("unexpected PostgreSQL version %q", pgVersion)
+	}
+
+	pgMajor := pgMatch[pgVer.SubexpIndex("major")]
+	pgMinor := pgMatch[pgVer.SubexpIndex("minor")]
+
+	return pgMajor, pgMinor, nil
+}
+
 // defineDockerTags extracts Docker image names and tags from the environment variables defined by GitHub Actions.
 func defineDockerTags(getenv githubactions.GetenvFunc) (*images, error) {
 	repo := getenv("GITHUB_REPOSITORY")
@@ -66,14 +80,10 @@ func defineDockerTags(getenv githubactions.GetenvFunc) (*images, error) {
 				return nil, err
 			}
 
-			pgVersion := getenv("INPUT_PG_VERSION")
-			pgMatch := pgVer.FindStringSubmatch(pgVersion)
-			if pgMatch == nil || len(pgMatch) != pgVer.NumSubexp()+1 {
-				return nil, fmt.Errorf("unexpected PostgreSQL version %q", pgVersion)
+			var pgMajor, pgMinor string
+			if pgMajor, pgMinor, err = getPostgreSQLVersion(getenv); err != nil {
+				return nil, err
 			}
-
-			pgMajor := pgMatch[pgVer.SubexpIndex("major")]
-			pgMinor := pgMatch[pgVer.SubexpIndex("minor")]
 
 			tags := []string{
 				fmt.Sprintf("%s-%s.%s.%s-%s", pgMajor, major, minor, patch, prerelease),
@@ -184,7 +194,7 @@ func defineForTag(owner, repo string, tags []string) *images {
 }
 
 // setDockerTagsResults sets action output parameters, summary, etc.
-func setDockerTagsResults(action *githubactions.Action, res *images) {
+func setDockerTagsResults(action *githubactions.Action, res *images, pgMajor string) {
 	var buf strings.Builder
 	w := tabwriter.NewWriter(&buf, 1, 1, 1, ' ', tabwriter.Debug)
 	fmt.Fprintf(w, "\tType\tImage\t\n")
@@ -217,6 +227,7 @@ func setDockerTagsResults(action *githubactions.Action, res *images) {
 
 	action.SetOutput("development_images", strings.Join(developmentTags, " "))
 	action.SetOutput("production_images", strings.Join(productionTags, " "))
+	action.SetOutput("pg_major", pgMajor)
 }
 
 // imageURL returns HTML page URL for the given image name and tag.
