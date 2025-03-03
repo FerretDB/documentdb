@@ -106,7 +106,7 @@ func defineDebianVersionForBranch(controlDefaultVersion, branch string) (string,
 // defineDebianVersionForTag returns valid Debian package version for tag.
 // See [defineDebianVersion].
 func defineDebianVersionForTag(tag string) (string, error) {
-	major, minor, patch, prerelease, err := semVar(tag)
+	major, minor, patch, prerelease, err := parseGitTag(tag)
 	if err != nil {
 		return "", err
 	}

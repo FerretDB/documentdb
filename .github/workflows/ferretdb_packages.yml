@@ -187,9 +187,7 @@ jobs:
           cd ferretdb_packaging
           go mod tidy
           go mod verify
-          go run ./defineversion --command docker-tags
-        env:
-          INPUT_PG_VERSION: ${{ matrix.pg }}
+          go run ./defineversion --command docker-tags --pg-version ${{ matrix.pg }}
 
       - name: Debian package version
         id: version
@@ -205,9 +203,7 @@ jobs:
           cd ferretdb_packaging
           go mod tidy
           go mod verify
-          go run ./defineversion --command pg-major-version
-        env:
-          INPUT_PG_VERSION: ${{ matrix.pg }}
+          go run ./defineversion --command pg-major-version --pg-version ${{ matrix.pg }}
 
       - name: Download
         uses: actions/download-artifact@v4

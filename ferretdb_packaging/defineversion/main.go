@@ -14,6 +14,7 @@ import (
 
 func main() {
 	controlFileF := flag.String("control-file", "../pg_documentdb/documentdb.control", "pg_documentdb/documentdb.control file path")
+	pgVersionF := flag.String("pg-version", "17", "Major PostgreSQL version")
 
 	flag.Parse()
 
@@ -23,6 +24,13 @@ func main() {
 
 	if *controlFileF == "" {
 		action.Fatalf("%s", "-control-file flag is empty.")
+	}
+
+	switch *pgVersionF {
+	case "15", "16", "17":
+		// nothing
+	default:
+		action.Fatalf("%s", fmt.Sprintf("Invalid PostgreSQL version %q.", *pgVersionF))
 	}
 
 	controlDefaultVersion, err := getControlDefaultVersion(*controlFileF)
@@ -41,7 +49,7 @@ func main() {
 	action.Infof("%s", output)
 	action.SetOutput("version", packageVersion)
 
-	dockerTags, err := defineDockerVersion(action.Getenv)
+	dockerTags, err := defineDockerVersion(*pgVersionF, action.Getenv)
 	if err != nil {
 		action.Fatalf("%s", err)
 	}
@@ -73,15 +81,16 @@ func debugEnv(action *githubactions.Action) {
 	}
 }
 
-// semVar parses tag and returns version components.
+// parseGitTag parses git tag in specific format and returns SemVer components.
 //
-// It returns error for invalid tag syntax, prerelease is missing `ferretdb` or if it has buildmetadata.
-//
-// FIXME
-func semVar(tag string) (major, minor, patch, prerelease string, err error) {
+// Expected format is v0.100.0-ferretdb-2.0.0-rc.2,
+// where v0.100.0 is a DocumentDB version (0.100-0 -> 0.100.0),
+// and ferretdb-2.0.0-rc.2 is a compatible FerretDB version.
+func parseGitTag(tag string) (major, minor, patch, prerelease string, err error) {
 	match := semVerTag.FindStringSubmatch(tag)
 	if match == nil || len(match) != semVerTag.NumSubexp()+1 {
-		return "", "", "", "", fmt.Errorf("unexpected tag syntax %q", tag)
+		err = fmt.Errorf("unexpected git tag format %q", tag)
+		return
 	}
 
 	major = match[semVerTag.SubexpIndex("major")]
@@ -90,16 +99,14 @@ func semVar(tag string) (major, minor, patch, prerelease string, err error) {
 	prerelease = match[semVerTag.SubexpIndex("prerelease")]
 	buildmetadata := match[semVerTag.SubexpIndex("buildmetadata")]
 
-	if prerelease == "" {
-		return "", "", "", "", fmt.Errorf("prerelease is empty")
-	}
-
-	if !strings.Contains(prerelease, "ferretdb") {
-		return "", "", "", "", fmt.Errorf("prerelease %q should include `ferretdb`", prerelease)
+	if !strings.Contains(prerelease, "ferretdb-") {
+		err = fmt.Errorf("prerelease %q should include 'ferretdb-'", prerelease)
+		return
 	}
 
 	if buildmetadata != "" {
-		return "", "", "", "", fmt.Errorf("buildmetadata %q is present", buildmetadata)
+		err = fmt.Errorf("buildmetadata %q is present", buildmetadata)
+		return
 	}
 
 	return

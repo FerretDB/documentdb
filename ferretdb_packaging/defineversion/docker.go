@@ -20,7 +20,7 @@ type images struct {
 var pgVer = regexp.MustCompile(`^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)$`)
 
 // defineDockerVersion extracts Docker image names and tags from the environment variables defined by GitHub Actions.
-func defineDockerVersion(getenv githubactions.GetenvFunc) (*images, error) {
+func defineDockerVersion(pgVersion string, getenv githubactions.GetenvFunc) (*images, error) {
 	repo := getenv("GITHUB_REPOSITORY")
 
 	// to support GitHub forks
@@ -48,26 +48,13 @@ func defineDockerVersion(getenv githubactions.GetenvFunc) (*images, error) {
 
 		case "tag":
 			var major, minor, patch, prerelease string
-			if major, minor, patch, prerelease, err = semVar(refName); err != nil {
+			if major, minor, patch, prerelease, err = parseGitTag(refName); err != nil {
 				return nil, err
 			}
 
-			pgVersion := getenv("INPUT_PG_VERSION")
-			pgMatch := pgVer.FindStringSubmatch(pgVersion)
-			if pgMatch == nil || len(pgMatch) != pgVer.NumSubexp()+1 {
-				return nil, fmt.Errorf("unexpected PostgreSQL version %q", pgVersion)
-			}
-
-			pgMajor := pgMatch[pgVer.SubexpIndex("major")]
-			pgMinor := pgMatch[pgVer.SubexpIndex("minor")]
-
 			tags := []string{
-				fmt.Sprintf("%s-%s.%s.%s-%s", pgMajor, major, minor, patch, prerelease),
+				fmt.Sprintf("%s-%s.%s.%s-%s", pgVersion, major, minor, patch, prerelease),
 				"latest",
-			}
-
-			if pgMinor != "" {
-				tags = append(tags, fmt.Sprintf("%s.%s-%s.%s.%s-%s", pgMajor, pgMinor, major, minor, patch, prerelease))
 			}
 
 			res = defineDockerVersionForTag(owner, repo, tags)
