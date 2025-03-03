@@ -25,8 +25,8 @@ docker-build:
 		--build-arg='POSTGRES_VERSION=$(POSTGRES_VERSION)' \
 		--build-arg='DOCUMENTDB_VERSION=$(DOCUMENTDB_VERSION)' \
 		--platform=linux/amd64 \
-		$(TAGS) \
 		--output='$(OUTPUT)' \
+		$(TAGS) \
 		..
 
 docker-cleanup:
