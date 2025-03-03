@@ -116,7 +116,7 @@ func defineForPR(owner, repo, branch string) *images {
 
 	res := &images{
 		developmentImages: []string{
-			fmt.Sprintf("ghcr.io/%s/%s-dev:pr-%s", owner, repo, branch),
+			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:pr-%s", owner, repo, branch),
 		},
 	}
 
@@ -133,7 +133,7 @@ func defineForBranch(owner, repo, branch string) (*images, error) {
 
 	res := &images{
 		developmentImages: []string{
-			fmt.Sprintf("ghcr.io/%s/%s-dev:ferretdb", owner, repo),
+			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:ferretdb", owner, repo),
 		},
 	}
 
@@ -147,8 +147,8 @@ func defineForBranch(owner, repo, branch string) (*images, error) {
 		return res, nil
 	}
 
-	res.developmentImages = append(res.developmentImages, "quay.io/ferretdb/documentdb-dev:ferretdb")
-	res.developmentImages = append(res.developmentImages, "ferretdb/documentdb-dev:ferretdb")
+	res.developmentImages = append(res.developmentImages, "quay.io/ferretdb/postgres-documentdb-dev:ferretdb")
+	res.developmentImages = append(res.developmentImages, "ferretdb/postgres-documentdb-dev:ferretdb")
 
 	return res, nil
 }
@@ -158,8 +158,8 @@ func defineForTag(owner, repo string, tags []string) *images {
 	res := new(images)
 
 	for _, t := range tags {
-		res.developmentImages = append(res.developmentImages, fmt.Sprintf("ghcr.io/%s/%s-dev:%s", owner, repo, t))
-		res.productionImages = append(res.productionImages, fmt.Sprintf("ghcr.io/%s/%s:%s", owner, repo, t))
+		res.developmentImages = append(res.developmentImages, fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s", owner, repo, t))
+		res.productionImages = append(res.productionImages, fmt.Sprintf("ghcr.io/%s/postgres-%s:%s", owner, repo, t))
 	}
 
 	// forks don't have Quay.io and Docker Hub orgs
@@ -173,11 +173,11 @@ func defineForTag(owner, repo string, tags []string) *images {
 	}
 
 	for _, t := range tags {
-		res.developmentImages = append(res.developmentImages, fmt.Sprintf("quay.io/ferretdb/documentdb-dev:%s", t))
-		res.productionImages = append(res.productionImages, fmt.Sprintf("quay.io/ferretdb/documentdb:%s", t))
+		res.developmentImages = append(res.developmentImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb-dev:%s", t))
+		res.productionImages = append(res.productionImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb:%s", t))
 
-		res.developmentImages = append(res.developmentImages, fmt.Sprintf("ferretdb/documentdb-dev:%s", t))
-		res.productionImages = append(res.productionImages, fmt.Sprintf("ferretdb/documentdb:%s", t))
+		res.developmentImages = append(res.developmentImages, fmt.Sprintf("ferretdb/postgres-documentdb-dev:%s", t))
+		res.productionImages = append(res.productionImages, fmt.Sprintf("ferretdb/postgres-documentdb:%s", t))
 	}
 
 	return res

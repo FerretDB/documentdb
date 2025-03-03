@@ -97,7 +97,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        pg: [15.12, 16.8]
+        pg: [15, 16, 17]
 
     steps:
       - name: Checkout code
