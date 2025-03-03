@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/sethvargo/go-githubactions"
@@ -21,16 +22,22 @@ var semVerTag = regexp.MustCompile(`^v(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d
 // Expected format is v0.100.0-ferretdb-2.0.0-rc.2,
 // where v0.100.0 is a DocumentDB version (0.100-0 -> 0.100.0),
 // and ferretdb-2.0.0-rc.2 is a compatible FerretDB version.
-func parseGitTag(tag string) (major, minor, patch, prerelease string, err error) {
+func parseGitTag(tag string) (major, minor, patch int, prerelease string, err error) {
 	match := semVerTag.FindStringSubmatch(tag)
 	if match == nil || len(match) != semVerTag.NumSubexp()+1 {
 		err = fmt.Errorf("unexpected git tag format %q", tag)
 		return
 	}
 
-	major = match[semVerTag.SubexpIndex("major")]
-	minor = match[semVerTag.SubexpIndex("minor")]
-	patch = match[semVerTag.SubexpIndex("patch")]
+	if major, err = strconv.Atoi(match[semVerTag.SubexpIndex("major")]); err != nil {
+		return
+	}
+	if minor, err = strconv.Atoi(match[semVerTag.SubexpIndex("minor")]); err != nil {
+		return
+	}
+	if patch, err = strconv.Atoi(match[semVerTag.SubexpIndex("patch")]); err != nil {
+		return
+	}
 	prerelease = match[semVerTag.SubexpIndex("prerelease")]
 	buildmetadata := match[semVerTag.SubexpIndex("buildmetadata")]
 

@@ -21,22 +21,22 @@ func getEnvFunc(t *testing.T, env map[string]string) func(string) string {
 
 func TestParseGitTag(t *testing.T) {
 	tests := map[string]struct {
-		major      string
-		minor      string
-		patch      string
+		major      int
+		minor      int
+		patch      int
 		prerelease string
 		err        string
 	}{
-		"v1.100.0-ferretdb": {
-			major:      "1",
-			minor:      "100",
-			patch:      "0",
+		"v0.100.0-ferretdb": {
+			major:      0,
+			minor:      100,
+			patch:      0,
 			prerelease: "ferretdb",
 		},
-		"v1.100.0-ferretdb-2.0.1": {
-			major:      "1",
-			minor:      "100",
-			patch:      "0",
+		"v0.100.0-ferretdb-2.0.1": {
+			major:      0,
+			minor:      100,
+			patch:      0,
 			prerelease: "ferretdb-2.0.1",
 		},
 		"0.100.0-ferretdb": {

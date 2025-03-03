@@ -47,13 +47,14 @@ func defineDockerVersion(controlDefaultVersion, pgVersion string, getenv githuba
 			res, err = defineDockerVersionForBranch(owner, repo, refName)
 
 		case "tag":
-			var major, minor, patch, prerelease string
+			var major, minor, patch int
+			var prerelease string
 			if major, minor, patch, prerelease, err = parseGitTag(refName); err != nil {
 				return nil, err
 			}
 
 			tags := []string{
-				fmt.Sprintf("%s-%s.%s.%s-%s", pgVersion, major, minor, patch, prerelease),
+				fmt.Sprintf("%s-%d.%d.%d-%s", pgVersion, major, minor, patch, prerelease),
 				"latest",
 			}
 

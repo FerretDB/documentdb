@@ -111,6 +111,6 @@ func defineDebianVersionForTag(tag string) (string, error) {
 		return "", err
 	}
 
-	res := fmt.Sprintf("%s.%s.%s-%s", major, minor, patch, prerelease)
+	res := fmt.Sprintf("%d.%d.%d-%s", major, minor, patch, prerelease)
 	return disallowedDebian.ReplaceAllString(res, "~"), nil
 }
