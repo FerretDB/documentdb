@@ -19,13 +19,21 @@ func TestDefineDebianVersion(t *testing.T) {
 	}{
 		"pull_request": {
 			env: map[string]string{
+				"GITHUB_BASE_REF":   "ferretdb",
 				"GITHUB_EVENT_NAME": "pull_request",
 				"GITHUB_HEAD_REF":   "define-version",
 				"GITHUB_REF_NAME":   "1/merge",
 				"GITHUB_REF_TYPE":   "branch",
+				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
+			pgVersion:             "16",
 			controlDefaultVersion: "0.100.0",
 			expectedDebian:        "0.100.0~pr~define~version",
+			expectedDocker: &images{
+				developmentImages: []string{
+					"ghcr.io/ferretdb/postgres-documentdb-dev:pr-docker-tag",
+				},
+			},
 		},
 
 		"pull_request_target": {
@@ -124,14 +132,29 @@ func TestDefineDebianVersion(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			actual, err := defineDebianVersion(tc.controlDefaultVersion, getEnvFunc(t, tc.env))
-			if tc.expectedDebian == "" {
-				require.Error(t, err)
-				return
-			}
+			t.Run("Debian", func(t *testing.T) {
+				actual, err := defineDebianVersion(tc.controlDefaultVersion, getEnvFunc(t, tc.env))
+				if tc.expectedDebian == "" {
+					require.Error(t, err)
+					return
+				}
 
-			require.NoError(t, err)
-			assert.Equal(t, tc.expectedDebian, actual)
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedDebian, actual)
+			})
+
+			t.Run("Docker", func(t *testing.T) {
+				t.Skip("TODO")
+
+				actual, err := defineDockerVersion(tc.pgVersion, getEnvFunc(t, tc.env))
+				if tc.expectedDocker == nil {
+					require.Error(t, err)
+					return
+				}
+
+				require.NoError(t, err)
+				assert.Equal(t, tc.expectedDocker, actual)
+			})
 		})
 	}
 }
