@@ -1,7 +1,7 @@
 .PHONY: docker-build docker-cleanup docker-documentdb docker-documentdb-development-push docker-documentdb-production-push docker-init
 
 docker-build:
-	test -n "$(PG_MAJOR)" || (echo "PG_MAJOR not set" && false)
+	test -n "$(POSTGRES_VERSION)" || (echo "POSTGRES_VERSION not set" && false)
 	test -n "$(DOCUMENTDB_VERSION)" || (echo "DOCUMENTDB_VERSION not set" && false)
 	test -n "$(FILE)" || (echo "FILE not set" && false)
 	test -n "$(TARGET)" || (echo "TARGET not set" && false)
@@ -10,7 +10,7 @@ docker-build:
 	test -n "$(TAGS)" || (echo "TAGS not set" && false)
 	cd ..; docker buildx build --builder=ferretdb \
         --file=ferretdb_packaging/$(FILE).Dockerfile \
-        --build-arg=PG_MAJOR=$(PG_MAJOR) \
+        --build-arg=POSTGRES_VERSION=$(POSTGRES_VERSION) \
         --build-arg=DOCUMENTDB_VERSION=$(DOCUMENTDB_VERSION) \
         --target=$(TARGET) \
         --platform=$(PLATFORM) \
@@ -26,11 +26,11 @@ docker-cleanup:
 	docker system df
 
 docker-documentdb:
-	test -n "$(PG_MAJOR)" || (echo "PG_MAJOR not set" && false)
+	test -n "$(POSTGRES_VERSION)" || (echo "POSTGRES_VERSION not set" && false)
 	test -n "$(DOCUMENTDB_VERSION)" || (echo "DOCUMENTDB_VERSION not set" && false)
 	test -n "$(FILE)" || (echo "FILE not set" && false)
 	make docker-build \
-        PG_MAJOR=$(PG_MAJOR) \
+        POSTGRES_VERSION=$(POSTGRES_VERSION) \
         DOCUMENTDB_VERSION=$(DOCUMENTDB_VERSION) \
         FILE=$(FILE) \
         TARGET=$(FILE) \
@@ -39,10 +39,10 @@ docker-documentdb:
         OUTPUT="type=docker"
 
 docker-documentdb-development-push:
-	test -n "$(PG_MAJOR)" || (echo "PG_MAJOR not set" && false)
+	test -n "$(POSTGRES_VERSION)" || (echo "POSTGRES_VERSION not set" && false)
 	test -n "$(TAGS)" || (echo "TAGS not set" && false)
 	make docker-build \
-        PG_MAJOR=$(PG_MAJOR) \
+        POSTGRES_VERSION=$(POSTGRES_VERSION) \
         FILE=development \
         TARGET=development \
         PLATFORM=linux/amd64 \
@@ -50,10 +50,10 @@ docker-documentdb-development-push:
         OUTPUT="type=image,push=true"
 
 docker-documentdb-production-push:
-	test -n "$(PG_MAJOR)" || (echo "PG_MAJOR not set" && false)
+	test -n "$(POSTGRES_VERSION)" || (echo "POSTGRES_VERSION not set" && false)
 	test -n "$(TAGS)" || (echo "TAGS not set" && false)
 	make docker-build \
-        PG_MAJOR=$(PG_MAJOR) \
+        POSTGRES_VERSION=$(POSTGRES_VERSION) \
         FILE=production \
         TARGET=production \
         PLATFORM=linux/amd64 \

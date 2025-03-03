@@ -1,12 +1,14 @@
 # syntax=docker/dockerfile:1
 
-ARG PG_MAJOR=16
+ARG POSTGRES_VERSION=16
 
-FROM postgres:${PG_MAJOR} AS production
-
-
+FROM postgres:${POSTGRES_VERSION} AS production
 
 ARG DOCUMENTDB_VERSION
+
+# redeclare arg to use within build
+# https://docs.docker.com/reference/dockerfile/#understand-how-arg-and-from-interact
+ARG POSTGRES_VERSION
 
 RUN --mount=type=cache,sharing=locked,target=/var/cache/apt <<EOF
 set -ex
@@ -14,10 +16,10 @@ set -ex
 apt update
 apt upgrade -y
 apt install -y \
-    postgresql-${PG_MAJOR}-cron \
-    postgresql-${PG_MAJOR}-pgvector \
-    postgresql-${PG_MAJOR}-postgis-3 \
-    postgresql-${PG_MAJOR}-rum \
+    postgresql-${POSTGRES_VERSION}-cron \
+    postgresql-${POSTGRES_VERSION}-pgvector \
+    postgresql-${POSTGRES_VERSION}-postgis-3 \
+    postgresql-${POSTGRES_VERSION}-rum \
 EOF
 
 RUN --mount=target=/src,rw <<EOF
@@ -25,7 +27,7 @@ set -ex
 
 cd /src
 
-cp packaging/deb12-postgresql-${PG_MAJOR}-documentdb_${DOCUMENTDB_VERSION}_amd64.deb /tmp/documentdb.deb
+cp packaging/deb12-postgresql-${POSTGRES_VERSION}-documentdb_${DOCUMENTDB_VERSION}_amd64.deb /tmp/documentdb.deb
 dpkg -i /tmp/documentdb.deb
 rm /tmp/documentdb.deb
 
