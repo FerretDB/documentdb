@@ -22,11 +22,11 @@ docker-build:
 	test -n "$(TAGS)" || (echo "TAGS not set" && false)
 	docker buildx build --builder=documentdb \
 		--file=ferretdb_packaging/$(TARGET).Dockerfile \
-		--build-arg=POSTGRES_VERSION=$(POSTGRES_VERSION) \
-		--build-arg=DOCUMENTDB_VERSION=$(DOCUMENTDB_VERSION) \
+		--build-arg='POSTGRES_VERSION=$(POSTGRES_VERSION)' \
+		--build-arg='DOCUMENTDB_VERSION=$(DOCUMENTDB_VERSION)' \
 		--platform=linux/amd64 \
 		$(TAGS) \
-		--output=$(OUTPUT) \
+		--output='$(OUTPUT)' \
 		..
 
 docker-cleanup:
