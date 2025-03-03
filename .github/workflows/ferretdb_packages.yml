@@ -60,6 +60,7 @@ jobs:
     if: >
       github.event_name != 'pull_request_target' ||
       (
+        contains(github.event.pull_request.labels.*.name, 'trust') &&
         !contains(github.event.pull_request.labels.*.name, 'not ready') &&
         contains(github.event.pull_request.labels.*.name, 'packages')
       )
