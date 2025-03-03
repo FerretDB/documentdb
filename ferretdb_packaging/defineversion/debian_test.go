@@ -10,12 +10,15 @@ import (
 )
 
 func TestDefineDebianVersion(t *testing.T) {
+	const (
+		controlDefaultVersion = "0.100.0"
+		pgVersion             = "16"
+	)
+
 	for name, tc := range map[string]struct {
-		env                   map[string]string
-		controlDefaultVersion string
-		pgVersion             string
-		expectedDebian        string
-		expectedDocker        *images
+		env            map[string]string
+		expectedDebian string
+		expectedDocker *images
 	}{
 		"pull_request": {
 			env: map[string]string{
@@ -26,43 +29,116 @@ func TestDefineDebianVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
-			pgVersion:             "16",
-			controlDefaultVersion: "0.100.0",
-			expectedDebian:        "0.100.0~pr~define~version",
+			expectedDebian: "0.100.0~pr~define~version",
 			expectedDocker: &images{
 				developmentImages: []string{
-					"ghcr.io/ferretdb/postgres-documentdb-dev:pr-docker-tag",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:pr-define-version",
+				},
+			},
+		},
+		"pull_request-other": {
+			env: map[string]string{
+				"GITHUB_BASE_REF":   "ferretdb",
+				"GITHUB_EVENT_NAME": "pull_request",
+				"GITHUB_HEAD_REF":   "define-version",
+				"GITHUB_REF_NAME":   "1/merge",
+				"GITHUB_REF_TYPE":   "branch",
+				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
+			},
+			expectedDebian: "0.100.0~pr~define~version",
+			expectedDocker: &images{
+				developmentImages: []string{
+					"ghcr.io/otherorg/postgres-otherrepo-dev:pr-define-version",
 				},
 			},
 		},
 
 		"pull_request_target": {
 			env: map[string]string{
+				"GITHUB_BASE_REF":   "ferretdb",
 				"GITHUB_EVENT_NAME": "pull_request_target",
 				"GITHUB_HEAD_REF":   "define-version",
 				"GITHUB_REF_NAME":   "ferretdb",
 				"GITHUB_REF_TYPE":   "branch",
+				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
-			controlDefaultVersion: "0.100.0",
-			expectedDebian:        "0.100.0~pr~define~version",
+			expectedDebian: "0.100.0~pr~define~version",
+			expectedDocker: &images{
+				developmentImages: []string{
+					"ghcr.io/ferretdb/postgres-documentdb-dev:pr-define-version",
+				},
+			},
+		},
+		"pull_request_target-other": {
+			env: map[string]string{
+				"GITHUB_BASE_REF":   "ferretdb",
+				"GITHUB_EVENT_NAME": "pull_request_target",
+				"GITHUB_HEAD_REF":   "define-version",
+				"GITHUB_REF_NAME":   "ferretdb",
+				"GITHUB_REF_TYPE":   "branch",
+				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
+			},
+			expectedDebian: "0.100.0~pr~define~version",
+			expectedDocker: &images{
+				developmentImages: []string{
+					"ghcr.io/otherorg/postgres-otherrepo-dev:pr-define-version",
+				},
+			},
 		},
 
 		"push/ferretdb": {
 			env: map[string]string{
+				"GITHUB_BASE_REF":   "",
 				"GITHUB_EVENT_NAME": "push",
 				"GITHUB_HEAD_REF":   "",
 				"GITHUB_REF_NAME":   "ferretdb",
 				"GITHUB_REF_TYPE":   "branch",
+				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
-			controlDefaultVersion: "0.100.0",
-			expectedDebian:        "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDocker: &images{
+				developmentImages: []string{
+					//"ferretdb/postgres-documentdb-dev:ferretdb",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:ferretdb",
+					//"quay.io/ferretdb/postgres-documentdb-dev:ferretdb",
+				},
+			},
 		},
-		"push/other": {
+		"push/ferretdb-other": {
 			env: map[string]string{
+				"GITHUB_BASE_REF":   "",
 				"GITHUB_EVENT_NAME": "push",
 				"GITHUB_HEAD_REF":   "",
-				"GITHUB_REF_NAME":   "releases",
-				"GITHUB_REF_TYPE":   "other", // not ferretdb branch
+				"GITHUB_REF_NAME":   "ferretdb",
+				"GITHUB_REF_TYPE":   "branch",
+				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
+			},
+			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDocker: &images{
+				developmentImages: []string{
+					"ghcr.io/otherorg/postgres-otherrepo-dev:ferretdb",
+				},
+			},
+		},
+
+		"push/main": {
+			env: map[string]string{
+				"GITHUB_BASE_REF":   "",
+				"GITHUB_EVENT_NAME": "push",
+				"GITHUB_HEAD_REF":   "",
+				"GITHUB_REF_NAME":   "main",
+				"GITHUB_REF_TYPE":   "branch",
+				"GITHUB_REPOSITORY": "FerretDB/documentdb",
+			},
+		},
+		"push/main-other": {
+			env: map[string]string{
+				"GITHUB_BASE_REF":   "",
+				"GITHUB_EVENT_NAME": "push",
+				"GITHUB_HEAD_REF":   "",
+				"GITHUB_REF_NAME":   "main",
+				"GITHUB_REF_TYPE":   "branch",
+				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
 		},
 
@@ -116,8 +192,7 @@ func TestDefineDebianVersion(t *testing.T) {
 				"GITHUB_REF_NAME":   "ferretdb",
 				"GITHUB_REF_TYPE":   "branch",
 			},
-			controlDefaultVersion: "0.100.0",
-			expectedDebian:        "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~branch~ferretdb",
 		},
 
 		"workflow_run": {
@@ -127,13 +202,12 @@ func TestDefineDebianVersion(t *testing.T) {
 				"GITHUB_REF_NAME":   "ferretdb",
 				"GITHUB_REF_TYPE":   "branch",
 			},
-			controlDefaultVersion: "0.100.0",
-			expectedDebian:        "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~branch~ferretdb",
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Run("Debian", func(t *testing.T) {
-				actual, err := defineDebianVersion(tc.controlDefaultVersion, getEnvFunc(t, tc.env))
+				actual, err := defineDebianVersion(controlDefaultVersion, getEnvFunc(t, tc.env))
 				if tc.expectedDebian == "" {
 					require.Error(t, err)
 					return
@@ -146,7 +220,7 @@ func TestDefineDebianVersion(t *testing.T) {
 			t.Run("Docker", func(t *testing.T) {
 				t.Skip("TODO")
 
-				actual, err := defineDockerVersion(tc.pgVersion, getEnvFunc(t, tc.env))
+				actual, err := defineDockerVersion(pgVersion, getEnvFunc(t, tc.env))
 				if tc.expectedDocker == nil {
 					require.Error(t, err)
 					return
