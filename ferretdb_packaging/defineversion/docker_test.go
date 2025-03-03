@@ -51,7 +51,7 @@ func TestDockerSummary(t *testing.T) {
 
 	result := &images{
 		developmentImages: []string{
-			"ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb",
+			"ghcr.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb",
 			"ghcr.io/ferretdb/postgres-documentdb-dev:latest",
 		},
 		productionImages: []string{
@@ -62,9 +62,9 @@ func TestDockerSummary(t *testing.T) {
 	dockerSummary(action, result)
 
 	expectedStdout := strings.ReplaceAll(`
- |Type        |Image                                                                                                                                  |
- |----        |-----                                                                                                                                  |
- |Development |['ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb'](https://ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb) |
+ |Type        |Docker image                                                                                                                           |
+ |----        |------------                                                                                                                           |
+ |Development |['ghcr.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb'](https://ghcr.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb) |
  |Development |['ghcr.io/ferretdb/postgres-documentdb-dev:latest'](https://ghcr.io/ferretdb/postgres-documentdb-dev:latest)                           |
  |Production  |['quay.io/ferretdb/postgres-documentdb:latest'](https://quay.io/ferretdb/postgres-documentdb:latest)                                   |
 
@@ -73,9 +73,9 @@ func TestDockerSummary(t *testing.T) {
 	assert.Equal(t, expectedStdout, stdout.String(), "stdout does not match")
 
 	expectedSummary := strings.ReplaceAll(`
- |Type        |Image                                                                                                                                  |
- |----        |-----                                                                                                                                  |
- |Development |['ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb'](https://ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb) |
+ |Type        |Docker image                                                                                                                           |
+ |----        |------------                                                                                                                           |
+ |Development |['ghcr.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb'](https://ghcr.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb) |
  |Development |['ghcr.io/ferretdb/postgres-documentdb-dev:latest'](https://ghcr.io/ferretdb/postgres-documentdb-dev:latest)                           |
  |Production  |['quay.io/ferretdb/postgres-documentdb:latest'](https://quay.io/ferretdb/postgres-documentdb:latest)                                   |
 

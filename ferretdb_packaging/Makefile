@@ -3,7 +3,7 @@
 docker-init:
 	docker buildx create \
 		--driver=docker-container \
-		--name=ferretdb \
+		--name=documentdb \
 		--bootstrap=true \
 		--use=false \
 		--config=./buildkitd.toml \
