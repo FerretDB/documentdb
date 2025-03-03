@@ -27,29 +27,47 @@ import (
 )
 
 func main() {
+	commandF := flag.String("command", "", "command to run, possible values: [deb-version, docker-tags]")
+
 	controlFileF := flag.String("control-file", "../pg_documentdb/documentdb.control", "pg_documentdb/documentdb.control file path")
 
 	flag.Parse()
 
 	action := githubactions.New()
 
-	if *controlFileF == "" {
-		action.Fatalf("%s", "-control-file flag is empty.")
-	}
-
-	controlDefaultVersion, err := getControlDefaultVersion(*controlFileF)
-	if err != nil {
-		action.Fatalf("%s", err)
-	}
-
 	debugEnv(action)
 
-	packageVersion, err := definePackageVersion(controlDefaultVersion, action.Getenv)
-	if err != nil {
-		action.Fatalf("%s", err)
+	if *commandF == "" {
+		action.Fatalf("-command flag is empty.")
 	}
 
-	setResults(action, packageVersion)
+	switch *commandF {
+	case "deb-version":
+		if *controlFileF == "" {
+			action.Fatalf("%s", "-control-file flag is empty.")
+		}
+
+		controlDefaultVersion, err := getControlDefaultVersion(*controlFileF)
+		if err != nil {
+			action.Fatalf("%s", err)
+		}
+
+		packageVersion, err := definePackageVersion(controlDefaultVersion, action.Getenv)
+		if err != nil {
+			action.Fatalf("%s", err)
+		}
+
+		setDebianVersionResults(action, packageVersion)
+	case "docker-tags":
+		res, err := defineDockerTags(action.Getenv)
+		if err != nil {
+			action.Fatalf("%s", err)
+		}
+
+		setDockerTagsResults(action, res)
+	default:
+		action.Fatalf("unhandled command %q", *commandF)
+	}
 }
 
 // controlDefaultVer matches major, minor and "patch" from default_version field in control file,
@@ -170,38 +188,50 @@ func definePackageVersionForBranch(controlDefaultVersion, branch string) (string
 	}
 }
 
-// definePackagerVersionForTag returns valid Debian package version for tag.
-// See [definePackageVersion].
-func definePackagerVersionForTag(tag string) (string, error) {
+// semVar parses tag and returns version components.
+//
+// It returns error for invalid tag syntax, prerelease is missing `ferretdb` or if it has buildmetadata.
+func semVar(tag string) (major, minor, patch, prerelease string, err error) {
 	match := semVerTag.FindStringSubmatch(tag)
 	if match == nil || len(match) != semVerTag.NumSubexp()+1 {
-		return "", fmt.Errorf("unexpected tag syntax %q", tag)
+		return "", "", "", "", fmt.Errorf("unexpected tag syntax %q", tag)
 	}
 
-	major := match[semVerTag.SubexpIndex("major")]
-	minor := match[semVerTag.SubexpIndex("minor")]
-	patch := match[semVerTag.SubexpIndex("patch")]
-	prerelease := match[semVerTag.SubexpIndex("prerelease")]
+	major = match[semVerTag.SubexpIndex("major")]
+	minor = match[semVerTag.SubexpIndex("minor")]
+	patch = match[semVerTag.SubexpIndex("patch")]
+	prerelease = match[semVerTag.SubexpIndex("prerelease")]
 	buildmetadata := match[semVerTag.SubexpIndex("buildmetadata")]
 
 	if prerelease == "" {
-		return "", fmt.Errorf("prerelease is empty")
+		return "", "", "", "", fmt.Errorf("prerelease is empty")
 	}
 
 	if !strings.Contains(prerelease, "ferretdb") {
-		return "", fmt.Errorf("prerelease %q should include `ferretdb`", prerelease)
+		return "", "", "", "", fmt.Errorf("prerelease %q should include `ferretdb`", prerelease)
 	}
 
 	if buildmetadata != "" {
-		return "", fmt.Errorf("buildmetadata %q is present", buildmetadata)
+		return "", "", "", "", fmt.Errorf("buildmetadata %q is present", buildmetadata)
+	}
+
+	return
+}
+
+// definePackagerVersionForTag returns valid Debian package version for tag.
+// See [definePackageVersion].
+func definePackagerVersionForTag(tag string) (string, error) {
+	major, minor, patch, prerelease, err := semVar(tag)
+	if err != nil {
+		return "", err
 	}
 
 	res := fmt.Sprintf("%s.%s.%s-%s", major, minor, patch, prerelease)
 	return disallowedVer.ReplaceAllString(res, "~"), nil
 }
 
-// setResults sets action output parameters, summary, etc.
-func setResults(action *githubactions.Action, res string) {
+// setDebianVersionResults sets action output parameters, summary, etc.
+func setDebianVersionResults(action *githubactions.Action, res string) {
 	output := fmt.Sprintf("version: `%s`", res)
 
 	action.AddStepSummary(output)

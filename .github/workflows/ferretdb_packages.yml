@@ -30,7 +30,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  deb:
     name: Build .debs (${{ matrix.os }}, Pg${{ matrix.pg }})
     runs-on: ubuntu-24.04
     timeout-minutes: 40
@@ -61,7 +61,7 @@ jobs:
           cd ferretdb_packaging
           go mod tidy
           go mod verify
-          go run ./defineversion --control-file ../pg_documentdb_core/documentdb_core.control
+          go run ./defineversion --command deb-version --control-file ../pg_documentdb_core/documentdb_core.control
 
       - name: Build ${{ steps.version.outputs.version }}
         if: steps.version.outputs.version != ''
@@ -76,6 +76,47 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           overwrite: false
+
+      - name: Check dirty
+        run: |
+          git status
+          git diff --exit-code
+
+  docker:
+    name: Build Docker (Pg${{ matrix.pg }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    if: >
+      github.event_name != 'pull_request' ||
+      (
+        !contains(github.event.pull_request.labels.*.name, 'not ready') &&
+        contains(github.event.pull_request.labels.*.name, 'packages')
+      )
+
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: [15.12, 16.8, 17.4]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: FerretDB/github-actions/setup-go@main
+
+      - name: Define Docker tags
+        id: tag
+        run: |
+          cd ferretdb_packaging
+          go mod tidy
+          go mod verify
+          go run ./defineversion --command docker-tags
+        env:
+          INPUT_PG_VERSION: ${{ matrix.pg }}
+
+      # Build and push Docker images
 
       - name: Check dirty
         run: |
