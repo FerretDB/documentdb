@@ -42,7 +42,7 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ghcr.io/ferretdb/documentdb-dev:pr-docker-tag",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:pr-docker-tag",
 				},
 			},
 		},
@@ -58,7 +58,7 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/otherrepo-dev:pr-docker-tag",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:pr-docker-tag",
 				},
 			},
 		},
@@ -75,7 +75,7 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ghcr.io/ferretdb/documentdb-dev:pr-docker-tag",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:pr-docker-tag",
 				},
 			},
 		},
@@ -91,7 +91,7 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/otherrepo-dev:pr-docker-tag",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:pr-docker-tag",
 				},
 			},
 		},
@@ -108,9 +108,9 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ferretdb/documentdb-dev:ferretdb",
-					"ghcr.io/ferretdb/documentdb-dev:ferretdb",
-					"quay.io/ferretdb/documentdb-dev:ferretdb",
+					"ferretdb/postgres-documentdb-dev:ferretdb",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:ferretdb",
+					"quay.io/ferretdb/postgres-documentdb-dev:ferretdb",
 				},
 			},
 		},
@@ -126,7 +126,7 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/otherrepo-dev:ferretdb",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:ferretdb",
 				},
 			},
 		},
@@ -166,20 +166,20 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ferretdb/documentdb-dev:16-0.102.0-ferretdb",
-					"ferretdb/documentdb-dev:latest",
-					"ghcr.io/ferretdb/documentdb-dev:16-0.102.0-ferretdb",
-					"ghcr.io/ferretdb/documentdb-dev:latest",
-					"quay.io/ferretdb/documentdb-dev:16-0.102.0-ferretdb",
-					"quay.io/ferretdb/documentdb-dev:latest",
+					"ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb",
+					"ferretdb/postgres-documentdb-dev:latest",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:latest",
+					"quay.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb",
+					"quay.io/ferretdb/postgres-documentdb-dev:latest",
 				},
 				productionImages: []string{
-					"ferretdb/documentdb:16-0.102.0-ferretdb",
-					"ferretdb/documentdb:latest",
-					"ghcr.io/ferretdb/documentdb:16-0.102.0-ferretdb",
-					"ghcr.io/ferretdb/documentdb:latest",
-					"quay.io/ferretdb/documentdb:16-0.102.0-ferretdb",
-					"quay.io/ferretdb/documentdb:latest",
+					"ferretdb/postgres-documentdb:16-0.102.0-ferretdb",
+					"ferretdb/postgres-documentdb:latest",
+					"ghcr.io/ferretdb/postgres-documentdb:16-0.102.0-ferretdb",
+					"ghcr.io/ferretdb/postgres-documentdb:latest",
+					"quay.io/ferretdb/postgres-documentdb:16-0.102.0-ferretdb",
+					"quay.io/ferretdb/postgres-documentdb:latest",
 				},
 			},
 		},
@@ -195,12 +195,12 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/otherrepo-dev:16-0.102.0-ferretdb",
-					"ghcr.io/otherorg/otherrepo-dev:latest",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:16-0.102.0-ferretdb",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:latest",
 				},
 				productionImages: []string{
-					"ghcr.io/otherorg/otherrepo:16-0.102.0-ferretdb",
-					"ghcr.io/otherorg/otherrepo:latest",
+					"ghcr.io/otherorg/postgres-otherrepo:16-0.102.0-ferretdb",
+					"ghcr.io/otherorg/postgres-otherrepo:latest",
 				},
 			},
 		},
@@ -217,26 +217,26 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ferretdb/documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ferretdb/documentdb-dev:16.7-0.102.0-ferretdb-2.0.0-rc2",
-					"ferretdb/documentdb-dev:latest",
-					"ghcr.io/ferretdb/documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/ferretdb/documentdb-dev:16.7-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/ferretdb/documentdb-dev:latest",
-					"quay.io/ferretdb/documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
-					"quay.io/ferretdb/documentdb-dev:16.7-0.102.0-ferretdb-2.0.0-rc2",
-					"quay.io/ferretdb/documentdb-dev:latest",
+					"ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
+					"ferretdb/postgres-documentdb-dev:16.7-0.102.0-ferretdb-2.0.0-rc2",
+					"ferretdb/postgres-documentdb-dev:latest",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:16.7-0.102.0-ferretdb-2.0.0-rc2",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:latest",
+					"quay.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
+					"quay.io/ferretdb/postgres-documentdb-dev:16.7-0.102.0-ferretdb-2.0.0-rc2",
+					"quay.io/ferretdb/postgres-documentdb-dev:latest",
 				},
 				productionImages: []string{
-					"ferretdb/documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ferretdb/documentdb:16.7-0.102.0-ferretdb-2.0.0-rc2",
-					"ferretdb/documentdb:latest",
-					"ghcr.io/ferretdb/documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/ferretdb/documentdb:16.7-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/ferretdb/documentdb:latest",
-					"quay.io/ferretdb/documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
-					"quay.io/ferretdb/documentdb:16.7-0.102.0-ferretdb-2.0.0-rc2",
-					"quay.io/ferretdb/documentdb:latest",
+					"ferretdb/postgres-documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
+					"ferretdb/postgres-documentdb:16.7-0.102.0-ferretdb-2.0.0-rc2",
+					"ferretdb/postgres-documentdb:latest",
+					"ghcr.io/ferretdb/postgres-documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
+					"ghcr.io/ferretdb/postgres-documentdb:16.7-0.102.0-ferretdb-2.0.0-rc2",
+					"ghcr.io/ferretdb/postgres-documentdb:latest",
+					"quay.io/ferretdb/postgres-documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
+					"quay.io/ferretdb/postgres-documentdb:16.7-0.102.0-ferretdb-2.0.0-rc2",
+					"quay.io/ferretdb/postgres-documentdb:latest",
 				},
 			},
 		},
@@ -252,14 +252,14 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/otherrepo-dev:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/otherorg/otherrepo-dev:16.7-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/otherorg/otherrepo-dev:latest",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:16-0.102.0-ferretdb-2.0.0-rc2",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:16.7-0.102.0-ferretdb-2.0.0-rc2",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:latest",
 				},
 				productionImages: []string{
-					"ghcr.io/otherorg/otherrepo:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/otherorg/otherrepo:16.7-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/otherorg/otherrepo:latest",
+					"ghcr.io/otherorg/postgres-otherrepo:16-0.102.0-ferretdb-2.0.0-rc2",
+					"ghcr.io/otherorg/postgres-otherrepo:16.7-0.102.0-ferretdb-2.0.0-rc2",
+					"ghcr.io/otherorg/postgres-otherrepo:latest",
 				},
 			},
 		},
@@ -276,20 +276,20 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ferretdb/documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ferretdb/documentdb-dev:latest",
-					"ghcr.io/ferretdb/documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/ferretdb/documentdb-dev:latest",
-					"quay.io/ferretdb/documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
-					"quay.io/ferretdb/documentdb-dev:latest",
+					"ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
+					"ferretdb/postgres-documentdb-dev:latest",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:latest",
+					"quay.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb-2.0.0-rc2",
+					"quay.io/ferretdb/postgres-documentdb-dev:latest",
 				},
 				productionImages: []string{
-					"ferretdb/documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ferretdb/documentdb:latest",
-					"ghcr.io/ferretdb/documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/ferretdb/documentdb:latest",
-					"quay.io/ferretdb/documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
-					"quay.io/ferretdb/documentdb:latest",
+					"ferretdb/postgres-documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
+					"ferretdb/postgres-documentdb:latest",
+					"ghcr.io/ferretdb/postgres-documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
+					"ghcr.io/ferretdb/postgres-documentdb:latest",
+					"quay.io/ferretdb/postgres-documentdb:16-0.102.0-ferretdb-2.0.0-rc2",
+					"quay.io/ferretdb/postgres-documentdb:latest",
 				},
 			},
 		},
@@ -305,12 +305,12 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/otherrepo-dev:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/otherorg/otherrepo-dev:latest",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:16-0.102.0-ferretdb-2.0.0-rc2",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:latest",
 				},
 				productionImages: []string{
-					"ghcr.io/otherorg/otherrepo:16-0.102.0-ferretdb-2.0.0-rc2",
-					"ghcr.io/otherorg/otherrepo:latest",
+					"ghcr.io/otherorg/postgres-otherrepo:16-0.102.0-ferretdb-2.0.0-rc2",
+					"ghcr.io/otherorg/postgres-otherrepo:latest",
 				},
 			},
 		},
@@ -350,9 +350,9 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ferretdb/documentdb-dev:ferretdb",
-					"ghcr.io/ferretdb/documentdb-dev:ferretdb",
-					"quay.io/ferretdb/documentdb-dev:ferretdb",
+					"ferretdb/postgres-documentdb-dev:ferretdb",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:ferretdb",
+					"quay.io/ferretdb/postgres-documentdb-dev:ferretdb",
 				},
 			},
 		},
@@ -368,7 +368,7 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/otherrepo-dev:ferretdb",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:ferretdb",
 				},
 			},
 		},
@@ -385,9 +385,9 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ferretdb/documentdb-dev:ferretdb",
-					"ghcr.io/ferretdb/documentdb-dev:ferretdb",
-					"quay.io/ferretdb/documentdb-dev:ferretdb",
+					"ferretdb/postgres-documentdb-dev:ferretdb",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:ferretdb",
+					"quay.io/ferretdb/postgres-documentdb-dev:ferretdb",
 				},
 			},
 		},
@@ -403,7 +403,7 @@ func TestDefineDockerTags(t *testing.T) {
 			},
 			expected: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/otherrepo-dev:ferretdb",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:ferretdb",
 				},
 			},
 		},
@@ -425,18 +425,18 @@ func TestImageURL(t *testing.T) {
 	// expected URLs should work
 	assert.Equal(
 		t,
-		"https://ghcr.io/ferretdb/documentdb-dev:pr-docker-tag",
-		imageURL("ghcr.io/ferretdb/documentdb-dev:pr-docker-tag"),
+		"https://ghcr.io/ferretdb/postgres-documentdb-dev:pr-docker-tag",
+		imageURL("ghcr.io/ferretdb/postgres-documentdb-dev:pr-docker-tag"),
 	)
 	assert.Equal(
 		t,
-		"https://quay.io/ferretdb/documentdb-dev:pr-docker-tag",
-		imageURL("quay.io/ferretdb/documentdb-dev:pr-docker-tag"),
+		"https://quay.io/ferretdb/postgres-documentdb-dev:pr-docker-tag",
+		imageURL("quay.io/ferretdb/postgres-documentdb-dev:pr-docker-tag"),
 	)
 	assert.Equal(
 		t,
-		"https://hub.docker.com/r/ferretdb/documentdb-dev/tags",
-		imageURL("ferretdb/documentdb-dev:pr-docker-tag"),
+		"https://hub.docker.com/r/ferretdb/postgres-documentdb-dev/tags",
+		imageURL("ferretdb/postgres-documentdb-dev:pr-docker-tag"),
 	)
 }
 
@@ -460,33 +460,33 @@ func TestDockerTagsResults(t *testing.T) {
 
 	result := &images{
 		developmentImages: []string{
-			"ghcr.io/ferretdb/documentdb-dev:16-0.102.0-ferretdb",
-			"ghcr.io/ferretdb/documentdb-dev:latest",
+			"ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb",
+			"ghcr.io/ferretdb/postgres-documentdb-dev:latest",
 		},
 		productionImages: []string{
-			"quay.io/ferretdb/documentdb:latest",
+			"quay.io/ferretdb/postgres-documentdb:latest",
 		},
 	}
 
 	setDockerTagsResults(action, result)
 
 	expectedStdout := strings.ReplaceAll(`
- |Type        |Image                                                                                                                |
- |----        |-----                                                                                                                |
- |Development |['ghcr.io/ferretdb/documentdb-dev:16-0.102.0-ferretdb'](https://ghcr.io/ferretdb/documentdb-dev:16-0.102.0-ferretdb) |
- |Development |['ghcr.io/ferretdb/documentdb-dev:latest'](https://ghcr.io/ferretdb/documentdb-dev:latest)                           |
- |Production  |['quay.io/ferretdb/documentdb:latest'](https://quay.io/ferretdb/documentdb:latest)                                   |
+ |Type        |Image                                                                                                                                  |
+ |----        |-----                                                                                                                                  |
+ |Development |['ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb'](https://ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb) |
+ |Development |['ghcr.io/ferretdb/postgres-documentdb-dev:latest'](https://ghcr.io/ferretdb/postgres-documentdb-dev:latest)                           |
+ |Production  |['quay.io/ferretdb/postgres-documentdb:latest'](https://quay.io/ferretdb/postgres-documentdb:latest)                                   |
 
 `[1:], "'", "`",
 	)
 	assert.Equal(t, expectedStdout, stdout.String(), "stdout does not match")
 
 	expectedSummary := strings.ReplaceAll(`
- |Type        |Image                                                                                                                |
- |----        |-----                                                                                                                |
- |Development |['ghcr.io/ferretdb/documentdb-dev:16-0.102.0-ferretdb'](https://ghcr.io/ferretdb/documentdb-dev:16-0.102.0-ferretdb) |
- |Development |['ghcr.io/ferretdb/documentdb-dev:latest'](https://ghcr.io/ferretdb/documentdb-dev:latest)                           |
- |Production  |['quay.io/ferretdb/documentdb:latest'](https://quay.io/ferretdb/documentdb:latest)                                   |
+ |Type        |Image                                                                                                                                  |
+ |----        |-----                                                                                                                                  |
+ |Development |['ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb'](https://ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb) |
+ |Development |['ghcr.io/ferretdb/postgres-documentdb-dev:latest'](https://ghcr.io/ferretdb/postgres-documentdb-dev:latest)                           |
+ |Production  |['quay.io/ferretdb/postgres-documentdb:latest'](https://quay.io/ferretdb/postgres-documentdb:latest)                                   |
 
 `[1:], "'", "`",
 	)
@@ -496,10 +496,10 @@ func TestDockerTagsResults(t *testing.T) {
 
 	expectedOutput := `
 development_images<<_GitHubActionsFileCommandDelimeter_
---tag=ghcr.io/ferretdb/documentdb-dev:16-0.102.0-ferretdb --tag=ghcr.io/ferretdb/documentdb-dev:latest
+--tag=ghcr.io/ferretdb/postgres-documentdb-dev:16-0.102.0-ferretdb --tag=ghcr.io/ferretdb/postgres-documentdb-dev:latest
 _GitHubActionsFileCommandDelimeter_
 production_images<<_GitHubActionsFileCommandDelimeter_
---tag=quay.io/ferretdb/documentdb:latest
+--tag=quay.io/ferretdb/postgres-documentdb:latest
 _GitHubActionsFileCommandDelimeter_
 `[1:]
 	b, err = io.ReadAll(outputF)
