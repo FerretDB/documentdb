@@ -10,7 +10,7 @@ function show_help {
     echo "  This script builds extension packages using Docker."
     echo ""
     echo "Mandatory Arguments:"
-    echo "  --os                 OS to build packages for. Possible values: [deb11, deb12, ubuntu22.04, ubuntu24.04]"
+    echo "  --os                 OS to build packages for. Possible values: [deb11, deb12, ubuntu22.04, ubuntu24.04, postgres]"
     echo "  --pg                 PG version to build packages for. Possible values: [15, 16, 17]"
     echo "  --version            The debian conformed version of documentdb to build. Example: 0.102.0~ferretdb~2.0.0~rc.2"
     echo ""
@@ -34,7 +34,7 @@ while [[ $# -gt 0 ]]; do
         --os)
             shift
             case $1 in
-                deb11|deb12|ubuntu22.04|ubuntu24.04)
+                deb11|deb12|ubuntu22.04|ubuntu24.04|postgres)
                     OS=$1
                     ;;
                 *)
@@ -108,6 +108,9 @@ case $OS in
         ;;
     ubuntu24.04)
         DOCKER_IMAGE="ubuntu:24.04"
+        ;;
+    postgres)
+        DOCKER_IMAGE="postgres:${PG}"
         ;;
 esac
 
