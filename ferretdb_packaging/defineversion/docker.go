@@ -33,14 +33,14 @@ func defineDockerVersion(controlDefaultVersion, pgVersion string, getenv githuba
 	switch event := getenv("GITHUB_EVENT_NAME"); event {
 	case "pull_request", "pull_request_target":
 		branch := strings.ToLower(getenv("GITHUB_HEAD_REF"))
-		res = defineDockerVersionForPR(owner, repo, branch)
+		res = defineDockerVersionForPR(pgVersion, owner, repo, branch)
 
 	case "push", "schedule", "workflow_run":
 		refName := strings.ToLower(getenv("GITHUB_REF_NAME"))
 
 		switch refType := strings.ToLower(getenv("GITHUB_REF_TYPE")); refType {
 		case "branch":
-			res, err = defineDockerVersionForBranch(owner, repo, refName)
+			res, err = defineDockerVersionForBranch(pgVersion, owner, repo, refName)
 
 		case "tag":
 			var major, minor, patch int
@@ -79,14 +79,14 @@ func defineDockerVersion(controlDefaultVersion, pgVersion string, getenv githuba
 }
 
 // defineDockerVersionForPR defines Docker image names and tags for pull requests.
-func defineDockerVersionForPR(owner, repo, branch string) *images {
+func defineDockerVersionForPR(pgVersion, owner, repo, branch string) *images {
 	// for branches like "dependabot/submodules/XXX"
 	parts := strings.Split(branch, "/")
 	branch = parts[len(parts)-1]
 
 	res := &images{
 		developmentImages: []string{
-			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:pr-%s", owner, repo, branch),
+			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-pr-%s", owner, repo, pgVersion, branch),
 		},
 	}
 
@@ -96,14 +96,14 @@ func defineDockerVersionForPR(owner, repo, branch string) *images {
 }
 
 // defineDockerVersionForBranch defines Docker image names and tags for branch builds.
-func defineDockerVersionForBranch(owner, repo, branch string) (*images, error) {
+func defineDockerVersionForBranch(pgVersion, owner, repo, branch string) (*images, error) {
 	if branch != "ferretdb" {
 		return nil, fmt.Errorf("unhandled branch %q", branch)
 	}
 
 	res := &images{
 		developmentImages: []string{
-			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:ferretdb", owner, repo),
+			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-ferretdb", owner, repo, pgVersion),
 		},
 	}
 
@@ -117,8 +117,8 @@ func defineDockerVersionForBranch(owner, repo, branch string) (*images, error) {
 		return res, nil
 	}
 
-	res.developmentImages = append(res.developmentImages, "quay.io/ferretdb/postgres-documentdb-dev:ferretdb")
-	res.developmentImages = append(res.developmentImages, "ferretdb/postgres-documentdb-dev:ferretdb")
+	res.developmentImages = append(res.developmentImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb-dev:%s-ferretdb", pgVersion))
+	res.developmentImages = append(res.developmentImages, fmt.Sprintf("ferretdb/postgres-documentdb-dev:%s-ferretdb", pgVersion))
 
 	return res, nil
 }
