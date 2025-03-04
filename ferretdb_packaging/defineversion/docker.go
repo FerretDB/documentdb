@@ -121,6 +121,8 @@ func defineDockerVersionForTag(pgVersion, owner, repo, tag string) (*images, err
 
 	tags := []string{
 		fmt.Sprintf("%s-%d.%d.%d-%s", pgVersion, major, minor, patch, prerelease),
+		fmt.Sprintf("%s-%d.%d.%d", pgVersion, major, minor, patch),
+		fmt.Sprintf("%s", pgVersion),
 	}
 
 	if pgVersion == "17" {
