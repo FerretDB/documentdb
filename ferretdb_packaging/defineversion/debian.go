@@ -119,6 +119,9 @@ func defineDebianVersionForTag(tag string) (string, error) {
 func debianSummary(action *githubactions.Action, version string) {
 	output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", version)
 
-	action.AddStepSummary(output)
+	// Only 3 summaries are shown in the GitHub Actions UI by default,
+	// and Docker summaries are more important (and include Debian version anyway).
+	// action.AddStepSummary(output)
+
 	action.Infof("%s", output)
 }
