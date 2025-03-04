@@ -59,9 +59,11 @@ func TestDockerSummary(t *testing.T) {
 		},
 	}
 
-	dockerSummary(action, result)
+	setSummary(action, "0.100.0~ferretdb", result)
 
 	expectedStdout := strings.ReplaceAll(`
+Debian package version ('upstream_version' only): '0.100.0~ferretdb'
+
  |Type        |Docker image                                                                                                                           |
  |----        |------------                                                                                                                           |
  |Development |['ghcr.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb'](https://ghcr.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb) |
@@ -73,6 +75,8 @@ func TestDockerSummary(t *testing.T) {
 	assert.Equal(t, expectedStdout, stdout.String(), "stdout does not match")
 
 	expectedSummary := strings.ReplaceAll(`
+Debian package version ('upstream_version' only): '0.100.0~ferretdb'
+
  |Type        |Docker image                                                                                                                           |
  |----        |------------                                                                                                                           |
  |Development |['ghcr.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb'](https://ghcr.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb) |

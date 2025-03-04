@@ -33,28 +33,17 @@ func defineDockerVersion(controlDefaultVersion, pgVersion string, getenv githuba
 	switch event := getenv("GITHUB_EVENT_NAME"); event {
 	case "pull_request", "pull_request_target":
 		branch := strings.ToLower(getenv("GITHUB_HEAD_REF"))
-		res = defineDockerVersionForPR(owner, repo, branch)
+		res = defineDockerVersionForPR(pgVersion, owner, repo, branch)
 
 	case "push", "schedule", "workflow_run":
 		refName := strings.ToLower(getenv("GITHUB_REF_NAME"))
 
 		switch refType := strings.ToLower(getenv("GITHUB_REF_TYPE")); refType {
 		case "branch":
-			res, err = defineDockerVersionForBranch(owner, repo, refName)
+			res, err = defineDockerVersionForBranch(pgVersion, owner, repo, refName)
 
 		case "tag":
-			var major, minor, patch int
-			var prerelease string
-			if major, minor, patch, prerelease, err = parseGitTag(refName); err != nil {
-				return nil, err
-			}
-
-			tags := []string{
-				fmt.Sprintf("%s-%d.%d.%d-%s", pgVersion, major, minor, patch, prerelease),
-				"latest",
-			}
-
-			res = defineDockerVersionForTag(owner, repo, tags)
+			res, err = defineDockerVersionForTag(pgVersion, owner, repo, refName)
 
 		default:
 			err = fmt.Errorf("unhandled ref type %q for event %q", refType, event)
@@ -78,15 +67,15 @@ func defineDockerVersion(controlDefaultVersion, pgVersion string, getenv githuba
 	return res, nil
 }
 
-// defineDockerVersionForPR defines Docker image names and tags for pull requests.
-func defineDockerVersionForPR(owner, repo, branch string) *images {
+// defineDockerVersionForPR defines Docker image names and tags for PR.
+func defineDockerVersionForPR(pgVersion, owner, repo, branch string) *images {
 	// for branches like "dependabot/submodules/XXX"
 	parts := strings.Split(branch, "/")
 	branch = parts[len(parts)-1]
 
 	res := &images{
 		developmentImages: []string{
-			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:pr-%s", owner, repo, branch),
+			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-pr-%s", owner, repo, pgVersion, branch),
 		},
 	}
 
@@ -95,15 +84,15 @@ func defineDockerVersionForPR(owner, repo, branch string) *images {
 	return res
 }
 
-// defineDockerVersionForBranch defines Docker image names and tags for branch builds.
-func defineDockerVersionForBranch(owner, repo, branch string) (*images, error) {
+// defineDockerVersionForBranch defines Docker image names and tags for branch.
+func defineDockerVersionForBranch(pgVersion, owner, repo, branch string) (*images, error) {
 	if branch != "ferretdb" {
 		return nil, fmt.Errorf("unhandled branch %q", branch)
 	}
 
 	res := &images{
 		developmentImages: []string{
-			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:ferretdb", owner, repo),
+			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-ferretdb", owner, repo, pgVersion),
 		},
 	}
 
@@ -117,15 +106,30 @@ func defineDockerVersionForBranch(owner, repo, branch string) (*images, error) {
 		return res, nil
 	}
 
-	res.developmentImages = append(res.developmentImages, "quay.io/ferretdb/postgres-documentdb-dev:ferretdb")
-	res.developmentImages = append(res.developmentImages, "ferretdb/postgres-documentdb-dev:ferretdb")
+	res.developmentImages = append(res.developmentImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb-dev:%s-ferretdb", pgVersion))
+	res.developmentImages = append(res.developmentImages, fmt.Sprintf("ferretdb/postgres-documentdb-dev:%s-ferretdb", pgVersion))
 
 	return res, nil
 }
 
-// defineDockerVersionForTag defines Docker image names and tags for prerelease tag builds.
-func defineDockerVersionForTag(owner, repo string, tags []string) *images {
-	res := new(images)
+// defineDockerVersionForBranch defines Docker image names and tags for tag.
+func defineDockerVersionForTag(pgVersion, owner, repo, tag string) (*images, error) {
+	major, minor, patch, prerelease, err := parseGitTag(tag)
+	if err != nil {
+		return nil, err
+	}
+
+	tags := []string{
+		fmt.Sprintf("%s-%d.%d.%d-%s", pgVersion, major, minor, patch, prerelease),
+		fmt.Sprintf("%s-%d.%d.%d", pgVersion, major, minor, patch),
+		fmt.Sprintf("%s", pgVersion),
+	}
+
+	if pgVersion == "17" {
+		tags = append(tags, "latest")
+	}
+
+	var res images
 
 	for _, t := range tags {
 		res.developmentImages = append(res.developmentImages, fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s", owner, repo, t))
@@ -134,12 +138,12 @@ func defineDockerVersionForTag(owner, repo string, tags []string) *images {
 
 	// forks don't have Quay.io and Docker Hub orgs
 	if owner != "ferretdb" {
-		return res
+		return &res, nil
 	}
 
 	// we don't have Quay.io and Docker Hub repos for other GitHub repos
 	if repo != "documentdb" {
-		return res
+		return &res, nil
 	}
 
 	for _, t := range tags {
@@ -150,7 +154,7 @@ func defineDockerVersionForTag(owner, repo string, tags []string) *images {
 		res.productionImages = append(res.productionImages, fmt.Sprintf("ferretdb/postgres-documentdb:%s", t))
 	}
 
-	return res
+	return &res, nil
 }
 
 // dockerImageURL returns HTML page URL for the given image name and tag.
@@ -168,9 +172,12 @@ func dockerImageURL(name string) string {
 	return fmt.Sprintf("https://hub.docker.com/r/%s/tags", name)
 }
 
-// dockerSummary sets action summary.
-func dockerSummary(action *githubactions.Action, version *images) {
+// setSummary sets action summary.
+func setSummary(action *githubactions.Action, debian string, version *images) {
 	var buf strings.Builder
+
+	fmt.Fprintf(&buf, "Debian package version (`upstream_version` only): `%s`\n\n", debian)
+
 	w := tabwriter.NewWriter(&buf, 1, 1, 1, ' ', tabwriter.Debug)
 	fmt.Fprintf(w, "\tType\tDocker image\t\n")
 	fmt.Fprintf(w, "\t----\t------------\t\n")

@@ -87,7 +87,7 @@ func TestDefineVersion(t *testing.T) {
 			expectedDebian: "0.100.0~pr~define~version",
 			expectedDocker: &images{
 				developmentImages: []string{
-					"ghcr.io/ferretdb/postgres-documentdb-dev:pr-define-version",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:17-pr-define-version",
 				},
 			},
 		},
@@ -103,7 +103,7 @@ func TestDefineVersion(t *testing.T) {
 			expectedDebian: "0.100.0~pr~define~version",
 			expectedDocker: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/postgres-otherrepo-dev:pr-define-version",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:17-pr-define-version",
 				},
 			},
 		},
@@ -120,7 +120,7 @@ func TestDefineVersion(t *testing.T) {
 			expectedDebian: "0.100.0~pr~define~version",
 			expectedDocker: &images{
 				developmentImages: []string{
-					"ghcr.io/ferretdb/postgres-documentdb-dev:pr-define-version",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:17-pr-define-version",
 				},
 			},
 		},
@@ -136,7 +136,7 @@ func TestDefineVersion(t *testing.T) {
 			expectedDebian: "0.100.0~pr~define~version",
 			expectedDocker: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/postgres-otherrepo-dev:pr-define-version",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:17-pr-define-version",
 				},
 			},
 		},
@@ -150,12 +150,12 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
-			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~ferretdb",
 			expectedDocker: &images{
 				developmentImages: []string{
-					"ferretdb/postgres-documentdb-dev:ferretdb",
-					"ghcr.io/ferretdb/postgres-documentdb-dev:ferretdb",
-					"quay.io/ferretdb/postgres-documentdb-dev:ferretdb",
+					"ferretdb/postgres-documentdb-dev:17-ferretdb",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:17-ferretdb",
+					"quay.io/ferretdb/postgres-documentdb-dev:17-ferretdb",
 				},
 			},
 		},
@@ -168,10 +168,10 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
-			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~ferretdb",
 			expectedDocker: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/postgres-otherrepo-dev:ferretdb",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb",
 				},
 			},
 		},
@@ -211,18 +211,30 @@ func TestDefineVersion(t *testing.T) {
 			expectedDebian: "0.100.0~ferretdb~2.0.0",
 			expectedDocker: &images{
 				developmentImages: []string{
+					"ferretdb/postgres-documentdb-dev:17",
+					"ferretdb/postgres-documentdb-dev:17-0.100.0",
 					"ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb-2.0.0",
 					"ferretdb/postgres-documentdb-dev:latest",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:17",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:17-0.100.0",
 					"ghcr.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb-2.0.0",
 					"ghcr.io/ferretdb/postgres-documentdb-dev:latest",
+					"quay.io/ferretdb/postgres-documentdb-dev:17",
+					"quay.io/ferretdb/postgres-documentdb-dev:17-0.100.0",
 					"quay.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb-2.0.0",
 					"quay.io/ferretdb/postgres-documentdb-dev:latest",
 				},
 				productionImages: []string{
+					"ferretdb/postgres-documentdb:17",
+					"ferretdb/postgres-documentdb:17-0.100.0",
 					"ferretdb/postgres-documentdb:17-0.100.0-ferretdb-2.0.0",
 					"ferretdb/postgres-documentdb:latest",
+					"ghcr.io/ferretdb/postgres-documentdb:17",
+					"ghcr.io/ferretdb/postgres-documentdb:17-0.100.0",
 					"ghcr.io/ferretdb/postgres-documentdb:17-0.100.0-ferretdb-2.0.0",
 					"ghcr.io/ferretdb/postgres-documentdb:latest",
+					"quay.io/ferretdb/postgres-documentdb:17",
+					"quay.io/ferretdb/postgres-documentdb:17-0.100.0",
 					"quay.io/ferretdb/postgres-documentdb:17-0.100.0-ferretdb-2.0.0",
 					"quay.io/ferretdb/postgres-documentdb:latest",
 				},
@@ -240,10 +252,14 @@ func TestDefineVersion(t *testing.T) {
 			expectedDebian: "0.100.0~ferretdb~2.0.0",
 			expectedDocker: &images{
 				developmentImages: []string{
+					"ghcr.io/otherorg/postgres-otherrepo-dev:17",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:17-0.100.0",
 					"ghcr.io/otherorg/postgres-otherrepo-dev:17-0.100.0-ferretdb-2.0.0",
 					"ghcr.io/otherorg/postgres-otherrepo-dev:latest",
 				},
 				productionImages: []string{
+					"ghcr.io/otherorg/postgres-otherrepo:17",
+					"ghcr.io/otherorg/postgres-otherrepo:17-0.100.0",
 					"ghcr.io/otherorg/postgres-otherrepo:17-0.100.0-ferretdb-2.0.0",
 					"ghcr.io/otherorg/postgres-otherrepo:latest",
 				},
@@ -259,12 +275,12 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
-			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~ferretdb",
 			expectedDocker: &images{
 				developmentImages: []string{
-					"ferretdb/postgres-documentdb-dev:ferretdb",
-					"ghcr.io/ferretdb/postgres-documentdb-dev:ferretdb",
-					"quay.io/ferretdb/postgres-documentdb-dev:ferretdb",
+					"ferretdb/postgres-documentdb-dev:17-ferretdb",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:17-ferretdb",
+					"quay.io/ferretdb/postgres-documentdb-dev:17-ferretdb",
 				},
 			},
 		},
@@ -277,10 +293,10 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
-			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~ferretdb",
 			expectedDocker: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/postgres-otherrepo-dev:ferretdb",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb",
 				},
 			},
 		},
@@ -294,12 +310,12 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
-			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~ferretdb",
 			expectedDocker: &images{
 				developmentImages: []string{
-					"ferretdb/postgres-documentdb-dev:ferretdb",
-					"ghcr.io/ferretdb/postgres-documentdb-dev:ferretdb",
-					"quay.io/ferretdb/postgres-documentdb-dev:ferretdb",
+					"ferretdb/postgres-documentdb-dev:17-ferretdb",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:17-ferretdb",
+					"quay.io/ferretdb/postgres-documentdb-dev:17-ferretdb",
 				},
 			},
 		},
@@ -312,10 +328,10 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
-			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~ferretdb",
 			expectedDocker: &images{
 				developmentImages: []string{
-					"ghcr.io/otherorg/postgres-otherrepo-dev:ferretdb",
+					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb",
 				},
 			},
 		},
