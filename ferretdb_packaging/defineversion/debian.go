@@ -95,12 +95,11 @@ func defineDebianVersionForPR(controlDefaultVersion, branch string) string {
 // defineDebianVersionForBranch returns valid Debian package version for branch.
 // See [defineDebianVersion].
 func defineDebianVersionForBranch(controlDefaultVersion, branch string) (string, error) {
-	switch branch {
-	case "ferretdb":
-		return fmt.Sprintf("%s~branch~%s", controlDefaultVersion, branch), nil
-	default:
+	if branch != "ferretdb" {
 		return "", fmt.Errorf("unhandled branch %q", branch)
 	}
+
+	return fmt.Sprintf("%s~ferretdb", controlDefaultVersion), nil
 }
 
 // defineDebianVersionForTag returns valid Debian package version for tag.
@@ -113,15 +112,4 @@ func defineDebianVersionForTag(tag string) (string, error) {
 
 	res := fmt.Sprintf("%d.%d.%d-%s", major, minor, patch, prerelease)
 	return disallowedDebian.ReplaceAllString(res, "~"), nil
-}
-
-// debianSummary sets action summary.
-func debianSummary(action *githubactions.Action, version string) {
-	output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", version)
-
-	// Only 3 summaries are shown in the GitHub Actions UI by default,
-	// and Docker summaries are more important (and include Debian version anyway).
-	// action.AddStepSummary(output)
-
-	action.Infof("%s", output)
 }

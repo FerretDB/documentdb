@@ -121,25 +121,30 @@ func main() {
 		action.Fatalf("%s", err)
 	}
 
-	debianSummary(action, debian)
 	action.SetOutput("debian_version", debian)
 
-	if !*debianOnlyF {
-		dockerSummary(action, docker)
-
-		action.SetOutput("docker_development_images", strings.Join(docker.developmentImages, ","))
-		action.SetOutput("docker_production_images", strings.Join(docker.productionImages, ","))
-
-		developmentTagFlags := make([]string, len(docker.developmentImages))
-		for i, image := range docker.developmentImages {
-			developmentTagFlags[i] = fmt.Sprintf("--tag %s", image)
-		}
-		action.SetOutput("docker_development_tag_flags", strings.Join(developmentTagFlags, " "))
-
-		productionTagFlags := make([]string, len(docker.productionImages))
-		for i, image := range docker.productionImages {
-			productionTagFlags[i] = fmt.Sprintf("--tag %s", image)
-		}
-		action.SetOutput("docker_production_tag_flags", strings.Join(productionTagFlags, " "))
+	if *debianOnlyF {
+		// Only 3 summaries are shown in the GitHub Actions UI by default,
+		// and Docker summaries are more important (and include Debian version anyway).
+		output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", debian)
+		action.Infof("%s", output)
+		return
 	}
+
+	setSummary(action, debian, docker)
+
+	action.SetOutput("docker_development_images", strings.Join(docker.developmentImages, ","))
+	action.SetOutput("docker_production_images", strings.Join(docker.productionImages, ","))
+
+	developmentTagFlags := make([]string, len(docker.developmentImages))
+	for i, image := range docker.developmentImages {
+		developmentTagFlags[i] = fmt.Sprintf("--tag %s", image)
+	}
+	action.SetOutput("docker_development_tag_flags", strings.Join(developmentTagFlags, " "))
+
+	productionTagFlags := make([]string, len(docker.productionImages))
+	for i, image := range docker.productionImages {
+		productionTagFlags[i] = fmt.Sprintf("--tag %s", image)
+	}
+	action.SetOutput("docker_production_tag_flags", strings.Join(productionTagFlags, " "))
 }

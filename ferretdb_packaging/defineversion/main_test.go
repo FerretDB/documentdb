@@ -150,7 +150,7 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
-			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~ferretdb",
 			expectedDocker: &images{
 				developmentImages: []string{
 					"ferretdb/postgres-documentdb-dev:17-ferretdb",
@@ -168,7 +168,7 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
-			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~ferretdb",
 			expectedDocker: &images{
 				developmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb",
@@ -275,7 +275,7 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
-			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~ferretdb",
 			expectedDocker: &images{
 				developmentImages: []string{
 					"ferretdb/postgres-documentdb-dev:17-ferretdb",
@@ -293,7 +293,7 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
-			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~ferretdb",
 			expectedDocker: &images{
 				developmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb",
@@ -310,7 +310,7 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
-			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~ferretdb",
 			expectedDocker: &images{
 				developmentImages: []string{
 					"ferretdb/postgres-documentdb-dev:17-ferretdb",
@@ -328,7 +328,7 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REF_TYPE":   "branch",
 				"GITHUB_REPOSITORY": "OtherOrg/OtherRepo",
 			},
-			expectedDebian: "0.100.0~branch~ferretdb",
+			expectedDebian: "0.100.0~ferretdb",
 			expectedDocker: &images{
 				developmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb",

@@ -172,9 +172,12 @@ func dockerImageURL(name string) string {
 	return fmt.Sprintf("https://hub.docker.com/r/%s/tags", name)
 }
 
-// dockerSummary sets action summary.
-func dockerSummary(action *githubactions.Action, version *images) {
+// setSummary sets action summary.
+func setSummary(action *githubactions.Action, debian string, version *images) {
 	var buf strings.Builder
+
+	fmt.Fprintf(&buf, "Debian package version (`upstream_version` only): `%s`\n\n", debian)
+
 	w := tabwriter.NewWriter(&buf, 1, 1, 1, ' ', tabwriter.Debug)
 	fmt.Fprintf(w, "\tType\tDocker image\t\n")
 	fmt.Fprintf(w, "\t----\t------------\t\n")
