@@ -95,12 +95,11 @@ func defineDebianVersionForPR(controlDefaultVersion, branch string) string {
 // defineDebianVersionForBranch returns valid Debian package version for branch.
 // See [defineDebianVersion].
 func defineDebianVersionForBranch(controlDefaultVersion, branch string) (string, error) {
-	switch branch {
-	case "ferretdb":
-		return fmt.Sprintf("%s~branch~%s", controlDefaultVersion, branch), nil
-	default:
+	if branch != "ferretdb" {
 		return "", fmt.Errorf("unhandled branch %q", branch)
 	}
+
+	return fmt.Sprintf("%s~ferretdb", controlDefaultVersion), nil
 }
 
 // defineDebianVersionForTag returns valid Debian package version for tag.
