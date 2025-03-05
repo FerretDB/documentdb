@@ -22,7 +22,7 @@ apt install -y \
     barman-cli-cloud
 
 if [ "${POSTGRES_VERSION}" -lt 17 ]; then
-    apt -y install postgresql-16-pgaudit
+    apt install -y postgresql-${POSTGRES_VERSION}-pgaudit
 fi
 
 EOF
