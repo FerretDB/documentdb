@@ -18,7 +18,8 @@ apt install -y \
     postgresql-${POSTGRES_VERSION}-pgvector \
     postgresql-${POSTGRES_VERSION}-postgis-3 \
     postgresql-${POSTGRES_VERSION}-rum \
-    postgresql-server-dev-${POSTGRES_VERSION}
+    postgresql-server-dev-${POSTGRES_VERSION} \
+    barman-cli-cloud
 EOF
 
 RUN --mount=target=/src,rw <<EOF
