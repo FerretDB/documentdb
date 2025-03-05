@@ -115,7 +115,7 @@ func defineVersion(controlDefaultVersion, pgVersion string, getenv githubactions
 			res, err = defineVersionForBranch(controlDefaultVersion, pgVersion, owner, repo, refName)
 
 		case "tag":
-			res, err = defineVersionForTag(pgVersion, owner, repo, refName)
+			res, err = defineVersionForTag(controlDefaultVersion, pgVersion, owner, repo, refName)
 
 		default:
 			err = fmt.Errorf("unhandled ref type %q for event %q", refType, event)
@@ -190,15 +190,20 @@ func defineVersionForBranch(controlDefaultVersion, pgVersion, owner, repo, branc
 
 // defineVersionForTag defines Docker image names and tags, and Debian package version for tag.
 // See [defineVersion].
-func defineVersionForTag(pgVersion, owner, repo, tag string) (*versions, error) {
+func defineVersionForTag(controlDefaultVersion, pgVersion, owner, repo, tag string) (*versions, error) {
 	major, minor, patch, prerelease, err := parseGitTag(tag)
 	if err != nil {
 		return nil, err
 	}
 
+	tagVersion := fmt.Sprintf("%d.%d.%d", major, minor, patch)
+	if tagVersion != controlDefaultVersion {
+		return nil, fmt.Errorf("git tag version %q does not match the control file default version %q", tagVersion, controlDefaultVersion)
+	}
+
 	tags := []string{
-		fmt.Sprintf("%s-%d.%d.%d-%s", pgVersion, major, minor, patch, prerelease),
-		fmt.Sprintf("%s-%d.%d.%d", pgVersion, major, minor, patch),
+		fmt.Sprintf("%s-%s-%s", pgVersion, tagVersion, prerelease),
+		fmt.Sprintf("%s-%s", pgVersion, tagVersion),
 		fmt.Sprintf("%s", pgVersion),
 	}
 
@@ -207,7 +212,7 @@ func defineVersionForTag(pgVersion, owner, repo, tag string) (*versions, error) 
 	}
 
 	res := versions{
-		debian: disallowedDebian.ReplaceAllString(fmt.Sprintf("%d.%d.%d-%s", major, minor, patch, prerelease), "~"),
+		debian: disallowedDebian.ReplaceAllString(fmt.Sprintf("%s-%s", tagVersion, prerelease), "~"),
 	}
 
 	for _, t := range tags {
