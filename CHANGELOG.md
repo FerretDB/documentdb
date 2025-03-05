@@ -1,3 +1,11 @@
+### DocumentDB v0.102.0-ferretdb-2.0.0 (GA) (March 5, 2025) ###
+
+This version works best with [FerretDB v2.0.0 (GA)](https://github.com/FerretDB/FerretDB/releases/tag/v2.0.0).
+
+Debian and Ubuntu `.deb` packages are provided [here](https://github.com/FerretDB/documentdb/releases/tag/v0.102.0-ferretdb-2.0.0).
+Docker images are available [here](https://github.com/FerretDB/documentdb/pkgs/container/postgres-documentdb).
+We always recommend specifying the full version (e.g., `:17-0.102.0-ferretdb-2.0.0`) to avoid unexpected updates.
+
 ### DocumentDB v0.102.0-ferretdb-2.0.0-rc.5 (March 4, 2025) ###
 
 This version works best with [FerretDB v2.0.0-rc.5](https://github.com/FerretDB/FerretDB/releases/tag/v2.0.0-rc.5).
