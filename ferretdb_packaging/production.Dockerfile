@@ -21,6 +21,7 @@ apt install -y \
     postgresql-server-dev-${POSTGRES_VERSION} \
     barman-cli-cloud
 
+# Remove verification after https://github.com/pgaudit/pgaudit/issues/257 is resolved and pgaudit builds with PG17
 if [ "${POSTGRES_VERSION}" -lt 17 ]; then
     apt install -y postgresql-${POSTGRES_VERSION}-pgaudit
 fi
