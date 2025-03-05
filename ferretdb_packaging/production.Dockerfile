@@ -20,6 +20,11 @@ apt install -y \
     postgresql-${POSTGRES_VERSION}-rum \
     postgresql-server-dev-${POSTGRES_VERSION} \
     barman-cli-cloud
+
+if [ "${POSTGRES_VERSION}" -lt 17 ]; then
+    apt -y install postgresql-16-pgaudit
+fi
+
 EOF
 
 RUN --mount=target=/src,rw <<EOF
