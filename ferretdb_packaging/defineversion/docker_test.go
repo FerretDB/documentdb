@@ -49,17 +49,17 @@ func TestDockerSummary(t *testing.T) {
 	})
 	action := githubactions.New(githubactions.WithGetenv(getenv), githubactions.WithWriter(&stdout))
 
-	result := &images{
-		developmentImages: []string{
+	result := &versions{
+		dockerDevelopmentImages: []string{
 			"ghcr.io/ferretdb/postgres-documentdb-dev:17-0.100.0-ferretdb",
 			"ghcr.io/ferretdb/postgres-documentdb-dev:latest",
 		},
-		productionImages: []string{
+		dockerProductionImages: []string{
 			"quay.io/ferretdb/postgres-documentdb:latest",
 		},
 	}
 
-	setSummary(action, "0.100.0~ferretdb", result)
+	setSummary(action, result)
 
 	expectedStdout := strings.ReplaceAll(`
 Debian package version ('upstream_version' only): '0.100.0~ferretdb'

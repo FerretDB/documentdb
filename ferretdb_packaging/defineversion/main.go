@@ -17,6 +17,13 @@ import (
 // but with a leading `v`.
 var semVerTag = regexp.MustCompile(`^v(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$`)
 
+// versions represents Docker image names and tags, and Debian package version extracted from the environment.
+type versions struct {
+	dockerDevelopmentImages []string
+	dockerProductionImages  []string
+	debianVersion           string
+}
+
 // parseGitTag parses git tag in specific format and returns SemVer components.
 //
 // Expected format is v0.100.0-ferretdb-2.0.0-rc.2,
@@ -74,19 +81,155 @@ func debugEnv(action *githubactions.Action) {
 	}
 }
 
-// defineVersion returns Debian package version and Docker tags.
-func defineVersion(controlDefaultVersion, pgVersion string, getenv githubactions.GetenvFunc) (string, *images, error) {
-	debian, err := defineDebianVersion(controlDefaultVersion, pgVersion, getenv)
-	if err != nil {
-		return "", nil, err
+// defineVersions extracts Docker image names and tags, and Debian package version using the environment variables defined by GitHub Actions.
+//
+// The Debian package version is based on `default_version` in the control file.
+// See https://www.debian.org/doc/debian-policy/ch-controlfields.html#version.
+// We use `upstream_version` only.
+// For that reason, we can't use `-`, so we replace it with `~`.
+func defineVersions(controlDefaultVersion, pgVersion string, getenv githubactions.GetenvFunc) (*versions, error) {
+	repo := getenv("GITHUB_REPOSITORY")
+
+	// to support GitHub forks
+	parts := strings.Split(strings.ToLower(repo), "/")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("failed to split %q into owner and name", repo)
+	}
+	owner := parts[0]
+	repo = parts[1]
+
+	var res *versions
+	var err error
+
+	switch event := getenv("GITHUB_EVENT_NAME"); event {
+	case "pull_request", "pull_request_target":
+		branch := strings.ToLower(getenv("GITHUB_HEAD_REF"))
+		res = defineVersionForPR(controlDefaultVersion, pgVersion, owner, repo, branch)
+
+	case "push", "schedule", "workflow_run":
+		refName := strings.ToLower(getenv("GITHUB_REF_NAME"))
+
+		switch refType := strings.ToLower(getenv("GITHUB_REF_TYPE")); refType {
+		case "branch":
+			res, err = defineVersionForBranch(controlDefaultVersion, pgVersion, owner, repo, refName)
+
+		case "tag":
+			res, err = defineDockerVersionForTag(pgVersion, owner, repo, refName)
+
+		default:
+			err = fmt.Errorf("unhandled ref type %q for event %q", refType, event)
+		}
+
+	default:
+		err = fmt.Errorf("unhandled event type %q", event)
 	}
 
-	docker, err := defineDockerVersion(controlDefaultVersion, pgVersion, getenv)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
 
-	return debian, docker, nil
+	if res == nil {
+		return nil, fmt.Errorf("both res and err are nil")
+	}
+
+	slices.Sort(res.dockerDevelopmentImages)
+	slices.Sort(res.dockerProductionImages)
+
+	return res, nil
+}
+
+// defineVersionForPR defines Docker image names and tags, and Debian package version for PR.
+func defineVersionForPR(controlDefaultVersion, pgVersion, owner, repo, branch string) *versions {
+	// for branches like "dependabot/submodules/XXX"
+	parts := strings.Split(branch, "/")
+	branch = parts[len(parts)-1]
+
+	res := &versions{
+		dockerDevelopmentImages: []string{
+			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-pr-%s", owner, repo, pgVersion, branch),
+		},
+		debianVersion: disallowedDebian.ReplaceAllString(fmt.Sprintf("%s-pr-%s", controlDefaultVersion, branch), "~"),
+	}
+
+	// PRs are only for testing; no Quay.io and Docker Hub repos
+
+	return res
+}
+
+// defineVersionForBranch defines Docker image names and tags, and Debian package version for branch.
+func defineVersionForBranch(controlDefaultVersion, pgVersion, owner, repo, branch string) (*versions, error) {
+	if branch != "ferretdb" {
+		return nil, fmt.Errorf("unhandled branch %q", branch)
+	}
+
+	res := &versions{
+		dockerDevelopmentImages: []string{
+			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-ferretdb", owner, repo, pgVersion),
+		},
+		debianVersion: fmt.Sprintf("%s~ferretdb", controlDefaultVersion),
+	}
+
+	// forks don't have Quay.io and Docker Hub orgs
+	if owner != "ferretdb" {
+		return res, nil
+	}
+
+	// we don't have Quay.io and Docker Hub repos for other GitHub repos
+	if repo != "documentdb" {
+		return res, nil
+	}
+
+	res.dockerDevelopmentImages = append(res.dockerDevelopmentImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb-dev:%s-ferretdb", pgVersion))
+	res.dockerDevelopmentImages = append(res.dockerDevelopmentImages, fmt.Sprintf("ferretdb/postgres-documentdb-dev:%s-ferretdb", pgVersion))
+
+	return res, nil
+}
+
+// defineDockerVersionForBranch defines Docker image names and tags, and Debian package version for tag.
+func defineDockerVersionForTag(pgVersion, owner, repo, tag string) (*versions, error) {
+	major, minor, patch, prerelease, err := parseGitTag(tag)
+	if err != nil {
+		return nil, err
+	}
+
+	tags := []string{
+		fmt.Sprintf("%s-%d.%d.%d-%s", pgVersion, major, minor, patch, prerelease),
+		fmt.Sprintf("%s-%d.%d.%d", pgVersion, major, minor, patch),
+		fmt.Sprintf("%s", pgVersion),
+	}
+
+	if pgVersion == "17" {
+		tags = append(tags, "latest")
+	}
+
+	res := versions{
+		debianVersion: disallowedDebian.ReplaceAllString(fmt.Sprintf("%d.%d.%d-%s", major, minor, patch, prerelease), "~"),
+	}
+
+	for _, t := range tags {
+		res.dockerDevelopmentImages = append(res.dockerDevelopmentImages, fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s", owner, repo, t))
+		res.dockerProductionImages = append(res.dockerProductionImages, fmt.Sprintf("ghcr.io/%s/postgres-%s:%s", owner, repo, t))
+	}
+
+	// forks don't have Quay.io and Docker Hub orgs
+	if owner != "ferretdb" {
+		return &res, nil
+	}
+
+	// we don't have Quay.io and Docker Hub repos for other GitHub repos
+	if repo != "documentdb" {
+		return &res, nil
+	}
+
+	for _, t := range tags {
+		res.dockerDevelopmentImages = append(res.dockerDevelopmentImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb-dev:%s", t))
+		res.dockerProductionImages = append(res.dockerProductionImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb:%s", t))
+
+		res.dockerDevelopmentImages = append(res.dockerDevelopmentImages, fmt.Sprintf("ferretdb/postgres-documentdb-dev:%s", t))
+		res.dockerProductionImages = append(res.dockerProductionImages, fmt.Sprintf("ferretdb/postgres-documentdb:%s", t))
+	}
+
+	return &res, nil
 }
 
 func main() {
@@ -116,34 +259,34 @@ func main() {
 		action.Fatalf("%s", err)
 	}
 
-	debian, docker, err := defineVersion(controlDefaultVersion, *pgVersionF, action.Getenv)
+	res, err := defineVersions(controlDefaultVersion, *pgVersionF, action.Getenv)
 	if err != nil {
 		action.Fatalf("%s", err)
 	}
 
-	action.SetOutput("debian_version", debian)
+	action.SetOutput("debian_version", res.debianVersion)
 
 	if *debianOnlyF {
 		// Only 3 summaries are shown in the GitHub Actions UI by default,
 		// and Docker summaries are more important (and include Debian version anyway).
-		output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", debian)
+		output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", res.debianVersion)
 		action.Infof("%s", output)
 		return
 	}
 
-	setSummary(action, debian, docker)
+	setSummary(action, res)
 
-	action.SetOutput("docker_development_images", strings.Join(docker.developmentImages, ","))
-	action.SetOutput("docker_production_images", strings.Join(docker.productionImages, ","))
+	action.SetOutput("docker_development_images", strings.Join(res.dockerDevelopmentImages, ","))
+	action.SetOutput("docker_production_images", strings.Join(res.dockerProductionImages, ","))
 
-	developmentTagFlags := make([]string, len(docker.developmentImages))
-	for i, image := range docker.developmentImages {
+	developmentTagFlags := make([]string, len(res.dockerDevelopmentImages))
+	for i, image := range res.dockerDevelopmentImages {
 		developmentTagFlags[i] = fmt.Sprintf("--tag %s", image)
 	}
 	action.SetOutput("docker_development_tag_flags", strings.Join(developmentTagFlags, " "))
 
-	productionTagFlags := make([]string, len(docker.productionImages))
-	for i, image := range docker.productionImages {
+	productionTagFlags := make([]string, len(res.dockerProductionImages))
+	for i, image := range res.dockerProductionImages {
 		productionTagFlags[i] = fmt.Sprintf("--tag %s", image)
 	}
 	action.SetOutput("docker_production_tag_flags", strings.Join(productionTagFlags, " "))
