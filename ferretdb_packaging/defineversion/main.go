@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"text/tabwriter"
 
 	"github.com/sethvargo/go-githubactions"
 )
@@ -21,7 +22,7 @@ var semVerTag = regexp.MustCompile(`^v(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d
 type versions struct {
 	dockerDevelopmentImages []string
 	dockerProductionImages  []string
-	debianVersion           string
+	debian                  string
 }
 
 // parseGitTag parses git tag in specific format and returns SemVer components.
@@ -81,13 +82,13 @@ func debugEnv(action *githubactions.Action) {
 	}
 }
 
-// defineVersions extracts Docker image names and tags, and Debian package version using the environment variables defined by GitHub Actions.
+// defineVersion extracts Docker image names and tags, and Debian package version using the environment variables defined by GitHub Actions.
 //
 // The Debian package version is based on `default_version` in the control file.
 // See https://www.debian.org/doc/debian-policy/ch-controlfields.html#version.
 // We use `upstream_version` only.
 // For that reason, we can't use `-`, so we replace it with `~`.
-func defineVersions(controlDefaultVersion, pgVersion string, getenv githubactions.GetenvFunc) (*versions, error) {
+func defineVersion(controlDefaultVersion, pgVersion string, getenv githubactions.GetenvFunc) (*versions, error) {
 	repo := getenv("GITHUB_REPOSITORY")
 
 	// to support GitHub forks
@@ -114,7 +115,7 @@ func defineVersions(controlDefaultVersion, pgVersion string, getenv githubaction
 			res, err = defineVersionForBranch(controlDefaultVersion, pgVersion, owner, repo, refName)
 
 		case "tag":
-			res, err = defineDockerVersionForTag(pgVersion, owner, repo, refName)
+			res, err = defineVersionForTag(pgVersion, owner, repo, refName)
 
 		default:
 			err = fmt.Errorf("unhandled ref type %q for event %q", refType, event)
@@ -139,6 +140,7 @@ func defineVersions(controlDefaultVersion, pgVersion string, getenv githubaction
 }
 
 // defineVersionForPR defines Docker image names and tags, and Debian package version for PR.
+// See [defineVersion].
 func defineVersionForPR(controlDefaultVersion, pgVersion, owner, repo, branch string) *versions {
 	// for branches like "dependabot/submodules/XXX"
 	parts := strings.Split(branch, "/")
@@ -148,7 +150,7 @@ func defineVersionForPR(controlDefaultVersion, pgVersion, owner, repo, branch st
 		dockerDevelopmentImages: []string{
 			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-pr-%s", owner, repo, pgVersion, branch),
 		},
-		debianVersion: disallowedDebian.ReplaceAllString(fmt.Sprintf("%s-pr-%s", controlDefaultVersion, branch), "~"),
+		debian: disallowedDebian.ReplaceAllString(fmt.Sprintf("%s-pr-%s", controlDefaultVersion, branch), "~"),
 	}
 
 	// PRs are only for testing; no Quay.io and Docker Hub repos
@@ -157,6 +159,7 @@ func defineVersionForPR(controlDefaultVersion, pgVersion, owner, repo, branch st
 }
 
 // defineVersionForBranch defines Docker image names and tags, and Debian package version for branch.
+// See [defineVersion].
 func defineVersionForBranch(controlDefaultVersion, pgVersion, owner, repo, branch string) (*versions, error) {
 	if branch != "ferretdb" {
 		return nil, fmt.Errorf("unhandled branch %q", branch)
@@ -166,7 +169,7 @@ func defineVersionForBranch(controlDefaultVersion, pgVersion, owner, repo, branc
 		dockerDevelopmentImages: []string{
 			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-ferretdb", owner, repo, pgVersion),
 		},
-		debianVersion: fmt.Sprintf("%s~ferretdb", controlDefaultVersion),
+		debian: fmt.Sprintf("%s~ferretdb", controlDefaultVersion),
 	}
 
 	// forks don't have Quay.io and Docker Hub orgs
@@ -185,8 +188,9 @@ func defineVersionForBranch(controlDefaultVersion, pgVersion, owner, repo, branc
 	return res, nil
 }
 
-// defineDockerVersionForBranch defines Docker image names and tags, and Debian package version for tag.
-func defineDockerVersionForTag(pgVersion, owner, repo, tag string) (*versions, error) {
+// defineVersionForTag defines Docker image names and tags, and Debian package version for tag.
+// See [defineVersion].
+func defineVersionForTag(pgVersion, owner, repo, tag string) (*versions, error) {
 	major, minor, patch, prerelease, err := parseGitTag(tag)
 	if err != nil {
 		return nil, err
@@ -203,7 +207,7 @@ func defineDockerVersionForTag(pgVersion, owner, repo, tag string) (*versions, e
 	}
 
 	res := versions{
-		debianVersion: disallowedDebian.ReplaceAllString(fmt.Sprintf("%d.%d.%d-%s", major, minor, patch, prerelease), "~"),
+		debian: disallowedDebian.ReplaceAllString(fmt.Sprintf("%d.%d.%d-%s", major, minor, patch, prerelease), "~"),
 	}
 
 	for _, t := range tags {
@@ -230,6 +234,32 @@ func defineDockerVersionForTag(pgVersion, owner, repo, tag string) (*versions, e
 	}
 
 	return &res, nil
+}
+
+// setSummary sets action summary.
+func setSummary(action *githubactions.Action, version *versions) {
+	var buf strings.Builder
+
+	fmt.Fprintf(&buf, "Debian package version (`upstream_version` only): `%s`\n\n", version.debian)
+
+	w := tabwriter.NewWriter(&buf, 1, 1, 1, ' ', tabwriter.Debug)
+	fmt.Fprintf(w, "\tType\tDocker image\t\n")
+	fmt.Fprintf(w, "\t----\t------------\t\n")
+
+	for _, image := range version.dockerDevelopmentImages {
+		u := dockerImageURL(image)
+		_, _ = fmt.Fprintf(w, "\tDevelopment\t[`%s`](%s)\t\n", image, u)
+	}
+
+	for _, image := range version.dockerProductionImages {
+		u := dockerImageURL(image)
+		_, _ = fmt.Fprintf(w, "\tProduction\t[`%s`](%s)\t\n", image, u)
+	}
+
+	_ = w.Flush()
+
+	action.AddStepSummary(buf.String())
+	action.Infof("%s", buf.String())
 }
 
 func main() {
@@ -259,17 +289,17 @@ func main() {
 		action.Fatalf("%s", err)
 	}
 
-	res, err := defineVersions(controlDefaultVersion, *pgVersionF, action.Getenv)
+	res, err := defineVersion(controlDefaultVersion, *pgVersionF, action.Getenv)
 	if err != nil {
 		action.Fatalf("%s", err)
 	}
 
-	action.SetOutput("debian_version", res.debianVersion)
+	action.SetOutput("debian_version", res.debian)
 
 	if *debianOnlyF {
 		// Only 3 summaries are shown in the GitHub Actions UI by default,
 		// and Docker summaries are more important (and include Debian version anyway).
-		output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", res.debianVersion)
+		output := fmt.Sprintf("Debian package version (`upstream_version` only): `%s`", res.debian)
 		action.Infof("%s", output)
 		return
 	}
