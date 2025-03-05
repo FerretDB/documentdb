@@ -278,7 +278,7 @@ func TestDefineVersion(t *testing.T) {
 				"GITHUB_REPOSITORY": "FerretDB/documentdb",
 			},
 			controlDefaultVersion: "0.101.0",
-			expectedErr:           fmt.Errorf(`git tag version "v0.100.0-ferretdb-2.0.0" does not match the control file default version "0.101.0"`),
+			expectedErr:           fmt.Errorf(`git tag version "0.100.0" does not match the control file default version "0.101.0"`),
 		},
 
 		"schedule": {
