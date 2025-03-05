@@ -382,6 +382,7 @@ func TestSummary(t *testing.T) {
 		dockerProductionImages: []string{
 			"quay.io/ferretdb/postgres-documentdb:latest",
 		},
+		debian: "0.100.0~ferretdb",
 	}
 
 	setSummary(action, result)
