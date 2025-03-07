@@ -69,15 +69,13 @@ func TestParseGitTag(t *testing.T) {
 }
 
 func TestDefineVersion(t *testing.T) {
-	const (
-		controlDefaultVersion = "0.100.0"
-		pgVersion             = "17"
-	)
+	const pgVersion = "17"
 
 	for name, tc := range map[string]struct {
-		env         map[string]string
-		expected    *versions
-		expectedErr error
+		env                   map[string]string
+		controlDefaultVersion string // defaults to "0.100.0"
+		expected              *versions
+		expectedErr           error
 	}{
 		"pull_request": {
 			env: map[string]string{
@@ -270,6 +268,19 @@ func TestDefineVersion(t *testing.T) {
 			},
 		},
 
+		"push/tag/release-wrong-control-default-version": {
+			env: map[string]string{
+				"GITHUB_BASE_REF":   "",
+				"GITHUB_EVENT_NAME": "push",
+				"GITHUB_HEAD_REF":   "",
+				"GITHUB_REF_NAME":   "v0.100.0-ferretdb-2.0.0",
+				"GITHUB_REF_TYPE":   "tag",
+				"GITHUB_REPOSITORY": "FerretDB/documentdb",
+			},
+			controlDefaultVersion: "0.101.0",
+			expectedErr:           fmt.Errorf(`git tag version "0.100.0" does not match the control file default version "0.101.0"`),
+		},
+
 		"schedule": {
 			env: map[string]string{
 				"GITHUB_BASE_REF":   "",
@@ -341,6 +352,11 @@ func TestDefineVersion(t *testing.T) {
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			controlDefaultVersion := tc.controlDefaultVersion
+			if controlDefaultVersion == "" {
+				controlDefaultVersion = "0.100.0"
+			}
+
 			docker, err := defineVersion(controlDefaultVersion, pgVersion, getEnvFunc(t, tc.env))
 			if tc.expected == nil {
 				require.Error(t, tc.expectedErr)
