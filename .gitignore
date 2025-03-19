@@ -43,6 +43,9 @@
 *.idb
 *.pdb
 
+# FerretDB packaging
+*.deb
+
 # Kernel Module Compile Results
 *.mod*
 *.cmd
