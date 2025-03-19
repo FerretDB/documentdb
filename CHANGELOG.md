@@ -31,6 +31,20 @@ Docker images are available [here](https://github.com/FerretDB/FerretDB/pkgs/con
 * Support joining between postgres and documentdb tables *[Feature]* (#61)
 * Support current_op command *[Feature]* (#59)
 * Support for list_databases command *[Feature]* (#45)
+* Disable analyze statistics for unique index uuid columns which improves resource usage *[Perf]*
+* Support collation with $expr *[Feature]*
+* Support collation with aggregation $project *[Feature]*
+* Support collation with `$cmp`, `$eq`, `$ne`, `$lt`, `$lte`, `$gt`, `$gte` comparison operators *[Feature]*
+* Support collation with `$in` array operator *[Feature]*
+* Support unique index truncation by default with new operator class *[Feature]*
+* Support collation in aggregation `$redact` stage *[Feature]*
+* Support collation in aggregation `find` *[Feature]*
+* Support collation in aggregation `$set` stage *[Feature]*
+* Support collation in aggregation `$addFields` stage *[Feature]*
+* Support collation with `$setEquals`, `$setUnion`, `$setIntersection`, `$setDifference`, `$setIsSubet` in the aggregation pipeline *[Feature]*
+* Support collation in aggregation `$replaceRoot` stage *[Feature]*
+* Top level aggregate command `let` variables support for `$geoNear` stage *[Feature]*
+* Enable Backend Command support for Statement Timeout *[Feature]*
 
 ### documentdb v0.101-0 (February 12, 2025) ###
 * Push $graphlookup recursive CTE JOIN filters to index *[Perf]*
