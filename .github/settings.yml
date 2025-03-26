@@ -1,0 +1,38 @@
+---
+# https://github.com/repository-settings/app
+
+repository:
+  allow_squash_merge: true
+  allow_merge_commit: true
+  allow_rebase_merge: false
+  allow_auto_merge: true
+  allow_update_branch: true
+  delete_branch_on_merge: true
+  enable_automated_security_fixes: true
+  enable_vulnerability_alerts: true
+
+# https://docs.github.com/en/rest/issues/labels
+labels:
+  - name: conflict
+    color: "#FF0000"
+    description: PRs that have merge conflicts
+
+  - name: deps
+    color: "#D4C5F9"
+    description: PRs that update dependencies
+
+  - name: do not merge
+    color: "#0052CC"
+    description: PRs that should not be merged
+
+  - name: not ready
+    color: "#000000"
+    description: Issues that are not ready to be worked on; PRs that should skip CI
+
+  - name: packages
+    color: "#9B022C"
+    description: PRs that should build packages
+
+  - name: trust
+    color: "#00FF00"
+    description: PRs that can access Actions secrets
