@@ -60,6 +60,9 @@ typedef enum CacheValidityValue
 static void InvalidateDocumentDBApiCache(Datum argument, Oid relationId);
 static Oid GetBinaryOperatorId(Oid *operatorId, Oid leftTypeOid, char *operatorName,
 							   Oid rightTypeOid);
+static Oid GetInternalBinaryOperatorId(Oid *operatorId, Oid leftTypeOid,
+									   char *operatorName,
+									   Oid rightTypeOid);
 static Oid GetCoreBinaryOperatorId(Oid *operatorId, Oid leftTypeOid, char *operatorName,
 								   Oid rightTypeOid);
 static Oid GetBinaryOperatorFunctionIdWithSchema(Oid *operatorFuncId, char *operatorName,
@@ -428,6 +431,12 @@ typedef struct DocumentDBApiOidCacheData
 	/* OID of the $eq function function for bson_values */
 	Oid BsonValueEqualMatchFunctionId;
 
+	/* OID of the <bson> ##= <bsonindexbounds> operator */
+	Oid BsonIndexBoundsEqualOperatorId;
+
+	/* OID of the bson_dollar_eq(<bson>, <bsonindexbounds>) */
+	Oid BsonIndedBoundsEqualOperatorFuncId;
+
 	/* OID of the $gt function function for bson_values */
 	Oid BsonValueGreaterMatchFunctionId;
 
@@ -551,6 +560,9 @@ typedef struct DocumentDBApiOidCacheData
 
 	/* Oid of the extract_interval postgres function which extracts a given date part from interval. */
 	Oid PostgresDatePartFromInterval;
+
+	/* OID of the uuid_in postgres method which converts a string to uuid */
+	Oid PostgresUUIDInFunctionIdOid;
 
 	/* OID of Rum Index access methods */
 	Oid RumIndexAmId;
@@ -1061,6 +1073,12 @@ typedef struct DocumentDBApiOidCacheData
 
 	/* Oid of array type for bson */
 	Oid BsonArrayTypeOid;
+
+	/* OID of the bson index bounds type */
+	Oid BsonIndexBoundsTypeOid;
+
+	/* OID of the bsonindexbounds[] type */
+	Oid BsonIndexBoundsArrayTypeOid;
 
 	/* Oid of ApiInternalSchemaName.bson_query_match with collation and let */
 	Oid BsonQueryMatchWithLetAndCollationFunctionId;
@@ -2086,6 +2104,27 @@ BsonValueEqualMatchFunctionId(void)
 
 
 /*
+ * Returns the OID of the <bson> ##= <bsonindexbounds> operator.
+ */
+Oid
+BsonIndexBoundsEqualOperatorId(void)
+{
+	return GetInternalBinaryOperatorId(
+		&Cache.BsonIndexBoundsEqualOperatorId,
+		BsonTypeId(), "##=", BsonIndexBoundsTypeId());
+}
+
+
+Oid
+BsonIndexBoundsEqualOperatorFuncId(void)
+{
+	return GetBinaryOperatorFunctionIdWithSchema(
+		&Cache.BsonIndedBoundsEqualOperatorFuncId,
+		"bson_dollar_eq", BsonTypeId(), BsonIndexBoundsTypeId(), ApiInternalSchemaNameV2);
+}
+
+
+/*
  * Returns the OID of the <bson_value_t> $gt <bson> function.
  */
 Oid
@@ -2574,6 +2613,16 @@ PostgresDatePartFromInterval(void)
 {
 	return GetPostgresInternalFunctionId(&Cache.PostgresDatePartFromInterval,
 										 "interval_part");
+}
+
+
+/*
+ * Returns the OID of the "uuid_in" internal postgres method
+ */
+Oid
+PostgresUUIDInFunctionId(void)
+{
+	return GetPostgresInternalFunctionId(&Cache.PostgresUUIDInFunctionIdOid, "uuid_in");
 }
 
 
@@ -6010,6 +6059,25 @@ GetBinaryOperatorId(Oid *operatorId, Oid leftTypeOid, char *operatorName,
 }
 
 
+static Oid
+GetInternalBinaryOperatorId(Oid *operatorId, Oid leftTypeOid, char *operatorName,
+							Oid rightTypeOid)
+{
+	InitializeDocumentDBApiExtensionCache();
+
+	if (*operatorId == InvalidOid)
+	{
+		List *operatorNameList = list_make2(makeString(ApiInternalSchemaNameV2),
+											makeString(operatorName));
+
+		*operatorId =
+			OpernameGetOprid(operatorNameList, leftTypeOid, rightTypeOid);
+	}
+
+	return *operatorId;
+}
+
+
 /*
  * Gets the BinaryOperatorId similar to the function above, except in the CORE schema
  * and not the API catalog schema.
@@ -6381,6 +6449,37 @@ GetBsonArrayTypeOid(void)
 	}
 
 	return Cache.BsonArrayTypeOid;
+}
+
+
+Oid
+BsonIndexBoundsTypeId(void)
+{
+	InitializeDocumentDBApiExtensionCache();
+
+	if (Cache.BsonIndexBoundsTypeOid == InvalidOid)
+	{
+		List *bsonTypeNameList = list_make2(makeString(ApiInternalSchemaNameV2),
+											makeString("bsonindexbounds"));
+		TypeName *bsonTypeName = makeTypeNameFromNameList(bsonTypeNameList);
+		Cache.BsonIndexBoundsTypeOid = typenameTypeId(NULL, bsonTypeName);
+	}
+
+	return Cache.BsonIndexBoundsTypeOid;
+}
+
+
+Oid
+GetBsonIndexBoundsArrayTypeOid(void)
+{
+	InitializeDocumentDBApiExtensionCache();
+
+	if (Cache.BsonIndexBoundsArrayTypeOid == InvalidOid)
+	{
+		Cache.BsonIndexBoundsArrayTypeOid = get_array_type(BsonIndexBoundsTypeId());
+	}
+
+	return Cache.BsonIndexBoundsArrayTypeOid;
 }
 
 

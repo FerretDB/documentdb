@@ -9,6 +9,11 @@
 #include "udfs/aggregation/group_aggregates_support--0.102-0.sql"
 #include "udfs/aggregation/group_aggregates--0.102-0.sql"
 
+#include "types/bsonindexbounds--0.102-0.sql"
+#include "udfs/index_mgmt/bson_indexbounds_functions--0.102-0.sql"
+#include "operators/bson_btree_pfe_operators--0.102-0.sql"
+#include "operators/bsonindexbounds_btree_pfe_family--0.102-0.sql"
+
 -- Schedule TTL Cron job to prune TTL indexes on every documentdb instance.
 DO LANGUAGE plpgsql $cmd$
 BEGIN
@@ -21,3 +26,7 @@ $cmd$;
 DROP AGGREGATE IF EXISTS __API_CATALOG_SCHEMA__.BSON_OUT(__CORE_SCHEMA__.bson, text, text, text, text);
 DROP FUNCTION IF EXISTS __API_CATALOG_SCHEMA__.bson_out_transition;
 DROP FUNCTION IF EXISTS __API_CATALOG_SCHEMA__.bson_out_final;
+
+-- ALTER creation_time column for all the documentdb tables
+#include "udfs/schema_mgmt/data_table_upgrade--0.102-0.sql"
+SELECT __API_SCHEMA_INTERNAL_V2__.apply_extension_data_table_upgrade(0, 102, 0);
