@@ -1,29 +1,35 @@
+### DocumentDB v0.102.0-ferretdb-2.1.0 (April 2, 2025) ###
+
+> [!CAUTION]
+> Please note that due to incompatibilities in our previous releases, they can't be updated in place,
+> even with a manual `ALTER EXTENSION UPDATE` query or other means.
+> A new clean installation into an empty data directory/volume is required.
+> All data should be backed up with `mongodump`/`mongoexport` before
+> and restored with `mongorestore`/`mongoimport` after.
+>
+> We expect future updates to be much smoother.
+
+This version works best with the upcoming FerretDB v2.1.0.
+
+Debian and Ubuntu `.deb` packages are provided [on the release page](https://github.com/FerretDB/documentdb/releases/tag/v0.102.0-ferretdb-2.1.0).
+See installation instructions [in our documentation](https://docs.ferretdb.io/installation/documentdb/deb/).
+
+Docker images are available [in the registry](https://github.com/FerretDB/documentdb/pkgs/container/postgres-documentdb).
+See installation instructions [in our documentation](https://docs.ferretdb.io/installation/documentdb/docker/).
+We always recommend specifying the full image tag (e.g., `17-0.102.0-ferretdb-2.1.0`, not just `17` or `17-0.102.0`) to avoid unexpected updates.
+
 ### DocumentDB v0.102.0-ferretdb-2.0.0 (GA) (March 5, 2025) ###
 
 This version works best with [FerretDB v2.0.0 (GA)](https://github.com/FerretDB/FerretDB/releases/tag/v2.0.0).
 
-Debian and Ubuntu `.deb` packages are provided [here](https://github.com/FerretDB/documentdb/releases/tag/v0.102.0-ferretdb-2.0.0).
-Docker images are available [here](https://github.com/FerretDB/documentdb/pkgs/container/postgres-documentdb).
-We always recommend specifying the full version (e.g., `:17-0.102.0-ferretdb-2.0.0`) to avoid unexpected updates.
+Debian and Ubuntu `.deb` packages are provided [on the release page](https://github.com/FerretDB/documentdb/releases/tag/v0.102.0-ferretdb-2.0.0).
+See installation instructions [in our documentation](https://docs.ferretdb.io/installation/documentdb/deb/).
 
-### DocumentDB v0.102.0-ferretdb-2.0.0-rc.5 (March 4, 2025) ###
+Docker images are available [in the registry](https://github.com/FerretDB/documentdb/pkgs/container/postgres-documentdb).
+See installation instructions [in our documentation](https://docs.ferretdb.io/installation/documentdb/docker/).
+We always recommend specifying the full image tag (e.g., `17-0.102.0-ferretdb-2.0.0`, not just `17` or `17-0.102.0`) to avoid unexpected updates.
 
-This version works best with [FerretDB v2.0.0-rc.5](https://github.com/FerretDB/FerretDB/releases/tag/v2.0.0-rc.5).
-
-Debian and Ubuntu `.deb` packages are provided [here](https://github.com/FerretDB/documentdb/releases/tag/v0.102.0-ferretdb-2.0.0-rc.5).
-Docker images are available [here](https://github.com/FerretDB/documentdb/pkgs/container/postgres-documentdb).
-
-Please note that naming schemes for both `.deb` packages and Docker image tags have been changed.
-We always recommend specifying the full version (e.g., `:17-0.102.0-ferretdb-2.0.0-rc.5`) to avoid unexpected updates.
-
-### DocumentDB v0.102.0-ferretdb-2.0.0-rc.2 (February 24, 2025) ###
-
-This version works best with [FerretDB v2.0.0-rc.2](https://github.com/FerretDB/FerretDB/releases/tag/v2.0.0-rc.2).
-
-Debian and Ubuntu `.deb` packages are now [provided](https://github.com/FerretDB/documentdb/releases/tag/v0.102.0-ferretdb-2.0.0-rc.2).
-Docker images are available [here](https://github.com/FerretDB/FerretDB/pkgs/container/postgres-documentdb).
-
-### documentdb v0.102-0 (Unreleased) ###
+### documentdb v0.102-0 (March 26, 2025) ###
 * Support index pushdown for vector search queries *[Bugfix]*
 * Support exact search for vector search queries *[Feature]*
 * Inline $match with let in $lookup pipelines as JOIN Filter *[Perf]*
@@ -34,11 +40,11 @@ Docker images are available [here](https://github.com/FerretDB/FerretDB/pkgs/con
 * Disable analyze statistics for unique index uuid columns which improves resource usage *[Perf]*
 * Support collation with `$expr`, `$in`, `$cmp`, `$eq`, `$ne`, `$lt`, `$lte`, `$gt`, `$gte` comparison operators (Opt-in) *[Feature]*
 * Support collation in `find`, aggregation `$project`, `$redact`, `$set`, `$addFields`, `$replaceRoot` stages (Opt-in) *[Feature]*
-* Support collation with `$setEquals`, `$setUnion`, `$setIntersection`, `$setDifference`, `$setIsSubet` in the aggregation pipeline (Opt-in) *[Feature]*
+* Support collation with `$setEquals`, `$setUnion`, `$setIntersection`, `$setDifference`, `$setIsSubset` in the aggregation pipeline (Opt-in) *[Feature]*
 * Support unique index truncation by default with new operator class *[Feature]*
 * Top level aggregate command `let` variables support for `$geoNear` stage *[Feature]*
 * Enable Backend Command support for Statement Timeout *[Feature]*
-* Support type aggregation operator `$toUUID`. *[Feature]* 
+* Support type aggregation operator `$toUUID`. *[Feature]*
 * Support Partial filter pushdown for `$in` predicates *[Perf]*
 * Support the $dateFromString operator with full functionality *[Feature]*
 * Support extended syntax for `$getField` aggregation operator. Now the value of 'field' could be an expression that resolves to a string. *[Feature]*
