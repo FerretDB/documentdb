@@ -8,7 +8,7 @@ on:
 jobs:
   analyze:
     name: Analyze
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
     permissions:
       actions: read
       contents: read
@@ -54,7 +54,7 @@ jobs:
         postgresql-15-cron \
         postgresql-15-pgvector \
         postgresql-15-postgis-3 \
-        postgresql-15-rum 
+        postgresql-15-rum
         export CLEAN_SETUP=1
         export INSTALL_DEPENDENCIES_ROOT=/tmp/install_setup
         mkdir -p /tmp/install_setup
@@ -71,4 +71,3 @@ jobs:
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v3
-
