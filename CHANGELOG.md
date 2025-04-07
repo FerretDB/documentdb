@@ -1,3 +1,8 @@
+### documentdb v0.103-0 (Unreleased) ###
+* Support `$convert` on `binData` to `binData`, `string` to `binData` and `binData` to `string` (except with `format: auto`) *[Feature]*
+* Fix list_databases for databases with size > 2 GB *[Bugfix]* (#119)
+* Support ARM64 architecture when building docker container *[Preview]*
+
 ### DocumentDB v0.102.0-ferretdb-2.1.0 (April 2, 2025) ###
 
 > [!CAUTION]
