@@ -7,8 +7,6 @@ docker-init:
 		--bootstrap=true \
 		--use=false \
 		--config=./buildkitd.toml \
-		--driver-opt network=host \
-		--driver-opt env.JAEGER_TRACE=127.0.0.1:6831 \
 		--driver-opt env.BUILDKIT_STEP_LOG_MAX_SIZE=-1 \
 		--driver-opt env.BUILDKIT_STEP_LOG_MAX_SPEED=-1 \
 		|| true
