@@ -15,7 +15,7 @@ var controlDefaultVer = regexp.MustCompile(`(?m)^default_version = '(?P<major>[0
 var disallowedDebian = regexp.MustCompile(`[^A-Za-z0-9\.+~]`)
 
 // getControlDefaultVersion returns the default_version field from the control file
-// in SemVer format (0.100-0 -> 0.100.0).
+// in SemVer format (0.103-0 -> 0.103.0).
 func getControlDefaultVersion(f string) (string, error) {
 	b, err := os.ReadFile(f)
 	if err != nil {
