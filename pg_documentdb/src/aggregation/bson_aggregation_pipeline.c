@@ -2568,6 +2568,12 @@ static Query *
 HandleBucket(const bson_value_t *existingValue, Query *query,
 			 AggregationPipelineBuildContext *context)
 {
+	if (IsCollationApplicable(context->collationString))
+	{
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("collation is not supported in $bucket stage yet.")));
+	}
+
 	ReportFeatureUsage(FEATURE_STAGE_BUCKET);
 
 	bson_value_t groupSpec = { 0 };
@@ -2645,6 +2651,13 @@ HandleFill(const bson_value_t *existingValue, Query *query,
 		   AggregationPipelineBuildContext *context)
 {
 	ReportFeatureUsage(FEATURE_STAGE_FILL);
+
+	if (IsCollationApplicable(context->collationString))
+	{
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg(
+							"collation is not supported in the $fill stage yet.")));
+	}
 
 	bool hasSortBy = false;
 	bool onlyHasValueFill = true;
@@ -3647,15 +3660,24 @@ AddShardKeyAndIdFilters(const bson_value_t *existingValue, Query *query,
 	bool hasShardKeyFilters = false;
 	if (context->mongoCollection->shardKey != NULL)
 	{
+		bool shardKeyFiltersCollationAware = false;
 		Expr *shardKeyFilters =
 			CreateShardKeyFiltersForQuery(existingValue,
 										  context->mongoCollection->shardKey,
 										  context->mongoCollection->collectionId,
-										  var->varno);
+										  var->varno,
+										  &shardKeyFiltersCollationAware);
 		if (shardKeyFilters != NULL)
 		{
-			hasShardKeyFilters = true;
-			existingQuals = lappend(existingQuals, shardKeyFilters);
+			/* add the shard key filter if the query's shard key value is */
+			/* not collation-sensitive. */
+			/* If it is, we ignore the filter and distribute the execution. */
+			if (!shardKeyFiltersCollationAware ||
+				!IsCollationApplicable(context->collationString))
+			{
+				hasShardKeyFilters = true;
+				existingQuals = lappend(existingQuals, shardKeyFilters);
+			}
 		}
 	}
 	else
@@ -4026,6 +4048,13 @@ HandleGeoNear(const bson_value_t *existingValue, Query *query,
 			  AggregationPipelineBuildContext *context)
 {
 	ReportFeatureUsage(FEATURE_STAGE_GEONEAR);
+
+	if (IsCollationApplicable(context->collationString))
+	{
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg(
+							"collation is not supported in the $geoNear stage yet.")));
+	}
 
 	if (context->stageNum != 0)
 	{
@@ -4483,6 +4512,13 @@ HandleSortByCount(const bson_value_t *existingValue, Query *query,
 				  AggregationPipelineBuildContext *context)
 {
 	ReportFeatureUsage(FEATURE_STAGE_SORT_BY_COUNT);
+
+	if (IsCollationApplicable(context->collationString))
+	{
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg(
+							"collation is not supported in the $sortByCount stage yet.")));
+	}
 
 	/* Do validations */
 	bool isInvalidSpec = false;
@@ -5212,6 +5248,12 @@ Query *
 HandleGroup(const bson_value_t *existingValue, Query *query,
 			AggregationPipelineBuildContext *context)
 {
+	if (IsCollationApplicable(context->collationString))
+	{
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("collation is not supported in $group stage yet.")));
+	}
+
 	ReportFeatureUsage(FEATURE_STAGE_GROUP);
 
 	/* Part 1, let's do the group */
