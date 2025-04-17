@@ -1337,6 +1337,66 @@ PhaseToUserMessage(const char *phaseString)
 	{
 		return "Validating index.";
 	}
+	else if (strstr(phaseString, "scanning table") != NULL)
+	{
+		return "Scanning Table (building index).";
+	}
+	else if (strstr(phaseString, "sorting tuples (workers)") != NULL)
+	{
+		return "Concurrently Sorting tuples (building index).";
+	}
+	else if (strstr(phaseString, "sorting tuples") != NULL)
+	{
+		return "Sorting tuples (building index).";
+	}
+	else if (strstr(phaseString, "merging tuples") != NULL)
+	{
+		return "Merging tuples (building index).";
+	}
+	else if (strcmp(phaseString, "cleaning up") == 0)
+	{
+		return "Cleaning up.";
+	}
+	else if (strcmp(phaseString, "concurrent cleanup") == 0)
+	{
+		return "Concurrent cleanup.";
+	}
+	else if (strcmp(phaseString, "finalizing") == 0)
+	{
+		return "Finalizing.";
+	}
+	else if (strcmp(phaseString, "aborting") == 0)
+	{
+		return "Aborting.";
+	}
+	else if (strcmp(phaseString, "waiting for workers to join") == 0)
+	{
+		return "Waiting for workers to join.";
+	}
+	else if (strcmp(phaseString, "waiting for worker to finish") == 0)
+	{
+		return "Waiting for worker to finish.";
+	}
+	else if (strcmp(phaseString, "waiting for worker to start") == 0)
+	{
+		return "Waiting for worker to start.";
+	}
+	else if (strcmp(phaseString, "waiting for worker to abort") == 0)
+	{
+		return "Waiting for worker to abort.";
+	}
+	else if (strcmp(phaseString, "waiting for worker to finalize") == 0)
+	{
+		return "Waiting for worker to finalize.";
+	}
+	else if (strcmp(phaseString, "waiting for worker to clean up") == 0)
+	{
+		return "Waiting for worker to clean up.";
+	}
+	else if (strcmp(phaseString, "(null)") == 0)
+	{
+		return "(null)";
+	}
 	else
 	{
 		ereport(WARNING, (errmsg("Index build is in an unknown phase %s",
@@ -1361,7 +1421,8 @@ WriteIndexBuildProgressAndGetMessage(SingleWorkerActivity *activity,
 	/* NULLIF(blocks_total) ensures that "Progress" is NULL if blocks_total is 0 so we don't get div by zero errors and row_get_bson skips the field. */
 	appendStringInfo(str,
 					 "WITH c1 AS (SELECT phase, blocks_done, blocks_total, (blocks_done * 100.0 / NULLIF(blocks_total, 0)) AS \"Progress\", "
-					 " tuples_done AS \"documents_done\", tuples_total AS \"documents_total\", ");
+					 " tuples_done AS \"terms_done\", tuples_total AS \"terms_total\", "
+					 " (tuples_done * 100.0 / NULLIF(tuples_total, 0)) AS \"terms_progress\", ");
 
 	if (DefaultInlineWriteOperations)
 	{

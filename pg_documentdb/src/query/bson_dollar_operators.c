@@ -28,7 +28,7 @@
 #include "types/decimal128.h"
 #include "collation/collation.h"
 #include "utils/version_utils.h"
-
+#include "aggregation/bson_query.h"
 
 /*
  * Custom bson_orderBy options to allow specific types when sorting.
@@ -3108,7 +3108,9 @@ static void
 PopulateRangeStateFromQuery(DollarRangeParams *params, const
 							pgbson *filter)
 {
-	*params = *ParseQueryDollarRange((pgbson *) filter);
+	pgbsonelement filterElement = { 0 };
+	PgbsonToSinglePgbsonElement(filter, &filterElement);
+	*params = *ParseQueryDollarRange(&filterElement);
 	Assert(params != NULL);
 }
 
@@ -3422,9 +3424,7 @@ PopulateDollarInStateFromQuery(BsonDollarInQueryState *dollarInState,
 			bool found = false;
 
 			if (IsCollationApplicable(collationString) &&
-				(arrayValue->value_type == BSON_TYPE_UTF8 ||
-				 arrayValue->value_type == BSON_TYPE_ARRAY ||
-				 arrayValue->value_type == BSON_TYPE_DOCUMENT))
+				IsBsonTypeCollationAware(arrayValue->value_type))
 			{
 				char *sortKey = NULL;
 
@@ -3454,7 +3454,6 @@ PopulateDollarInStateFromQuery(BsonDollarInQueryState *dollarInState,
 										"operator $in or operators that can be optimized to $in is not supported with collation, when $in contains nested objects : %s",
 										collationString)));
 				}
-
 
 				bson_value_t *bsonValue = palloc0(sizeof(bson_value_t));
 				bsonValue->value_type = BSON_TYPE_UTF8;

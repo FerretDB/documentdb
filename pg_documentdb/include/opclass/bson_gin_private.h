@@ -85,6 +85,9 @@ typedef enum IndexTraverseOption
 
 	/* the path is a match and should be added to the index. */
 	IndexTraverse_Match,
+
+	/* The path is a match and child paths are also matches */
+	IndexTraverse_MatchAndRecurse,
 } IndexTraverseOption;
 
 
@@ -144,6 +147,9 @@ typedef struct
 
 	/* Whether or not to generate the not found term for a path */
 	bool generateNotFoundTerm;
+
+	/* Whether or not to skip generating the path undefined term on null */
+	bool skipGeneratedPathUndefinedTermOnLiteralNull;
 
 	/* metadata including truncation limit for index terms. */
 	IndexTermCreateMetadata termMetadata;
