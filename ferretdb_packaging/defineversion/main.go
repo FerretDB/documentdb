@@ -27,9 +27,9 @@ type versions struct {
 
 // parseGitTag parses git tag in specific format and returns SemVer components.
 //
-// Expected format is v0.100.0-ferretdb-2.0.0-rc.2,
-// where v0.100.0 is a DocumentDB version (0.100-0 -> 0.100.0),
-// and ferretdb-2.0.0-rc.2 is a compatible FerretDB version.
+// Expected format is v0.103.0-ferretdb-2.2.0-beta.1,
+// where v0.103.0 is a DocumentDB version (0.103-0 -> 0.103.0),
+// and ferretdb-2.2.0-beta.1 is a compatible FerretDB version.
 func parseGitTag(tag string) (major, minor, patch int, prerelease string, err error) {
 	match := semVerTag.FindStringSubmatch(tag)
 	if match == nil || len(match) != semVerTag.NumSubexp()+1 {
