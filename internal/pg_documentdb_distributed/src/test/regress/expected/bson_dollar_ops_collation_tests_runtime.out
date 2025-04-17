@@ -579,7 +579,7 @@ EXPLAIN(VERBOSE ON, COSTS OFF)SELECT document FROM bson_aggregation_find('db', '
 
 END;
 -- (6) currently unsupported scenarions: 
--- (6.A) $in with nested objects
+-- unsupported: $in with nested objects
 BEGIN;
 SET LOCAL documentdb_core.enablecollation TO on;
 SELECT document FROM bson_aggregation_find('db', '{ "find": "ci_search", "filter": { "a" : {"$in" : [{ "B" : "caT"}, { "c" : "caT"}] }}, "sort": { "_id": 1 }, "skip": 0, "limit": 100, "collation": { "locale": "en", "strength" : 1} }');
@@ -590,6 +590,113 @@ SET LOCAL documentdb_core.enablecollation TO on;
 SELECT document FROM bson_aggregation_find('db', '{ "find": "ci_search", "filter": { "a" : {"$in" : [[{ "B" : "caT"}], [{ "c" : "caT"}]] }}, "sort": { "_id": 1 }, "skip": 0, "limit": 100, "collation": { "locale": "en", "strength" : 1} }');
 ERROR:  operator $in or operators that can be optimized to $in is not supported with collation, when $in contains nested objects
 END;
+-- unsupported: $bucket
+SELECT document FROM bson_aggregation_pipeline('db', 
+'{
+    "aggregate": "ci_search",
+    "pipeline": [
+        {
+            "$bucket": {
+                "groupBy": "$price",
+                "boundaries": [0, 10, 20, 30],
+                "default": "Other",
+                "output": {
+                    "categoryMatch": {
+                        "$sum": {
+                            "$cond": [
+                                { "$eq": ["$a", "PETS"] },
+                                1,
+                                0
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    ],
+    "collation": { "locale": "en", "strength": 1 }
+}');
+ERROR:  collation is not supported in $bucket stage yet.
+-- unsupported: $geoNear
+SELECT document FROM bson_aggregation_pipeline('db',
+'{ "aggregate": "ci_search",
+   "pipeline": [
+     {
+       "$geoNear": {
+         "near": { "type": "Point", "coordinates": [ 0 , 10 ] },
+         "distanceField": "dist.calculated",
+         "maxDistance": 2,
+         "query": { "a": "cAT" }
+       }
+     }
+   ],
+   "collation": { "locale": "en", "strength": 1 }
+}');
+ERROR:  collation is not supported in the $geoNear stage yet.
+-- unsupported: $fill
+SELECT document FROM bson_aggregation_pipeline('db', 
+'{
+    "aggregate": "ci_search",
+    "pipeline": [
+        {
+            "$fill": {
+                "sortBy": { "timestamp": 1 },
+                "partitionBy": "$status",
+                "output": {
+                     "$cond": {
+                        "if": { "$eq": ["$a", "cAt"] },
+                        "then": { "type": "feline" },
+                        "else": { "type": "other" }
+                      }
+                }
+            }
+        }
+    ],
+    "collation": { "locale": "en", "strength": 1 }
+}');
+ERROR:  collation is not supported in the $fill stage yet.
+-- unsupported: $group
+SELECT document FROM bson_aggregation_pipeline('db',
+'{ "aggregate": "ci_search",
+   "pipeline": [
+     { "$group": {
+         "_id": "$a",
+         "set": { "$addToSet": "$a" }
+     }}
+   ],
+   "collation": { "locale": "en", "strength": 1 }
+}');
+ERROR:  collation is not supported in $group stage yet.
+-- unsupported: $setWindowFields
+SELECT document FROM bson_aggregation_pipeline('db',
+'{ "aggregate": "ci_search",
+   "pipeline": [
+     { "$setWindowFields": {
+         "sortBy": { "_id": 1 },
+         "output": {
+             "total": { "$eq": ["$a", "cAt"] }
+         }
+     }}
+   ],
+   "collation": { "locale": "en", "strength": 1 }
+}');
+ERROR:  collation is not supported in the $setWindowFields stage yet.
+-- unsupported: $sortByCount
+SELECT document FROM bson_aggregation_pipeline('db',
+'{ "aggregate": "ci_search",
+   "pipeline": [
+     { "$sortByCount": {
+         "input": "$a",
+         "as": "a",
+         "by": { "$cond": { 
+           "if": { "$eq": [ "$a", "caT" ] }, 
+           "then": [{"x": 30}] , 
+           "else": [{"x": 30}] }}
+     }}
+   ],
+   "collation": { "locale": "en", "strength": 1 }
+}');
+ERROR:  collation is not supported in the $sortByCount stage yet.
 -- (6.B)
 BEGIN;
 SET LOCAL documentdb_core.enablecollation TO on;
@@ -2246,7 +2353,7 @@ SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_p
  { "_id" : "bat", "a" : "bat", "newField" : false }
 (6 rows)
 
--- replaceRoot
+-- $replaceRoot
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_proj", "pipeline": [ { "$replaceRoot": { "newRoot": { "a": "$a", "newField": { "$eq": ["$a", "CAT"] } } } } ], "cursor": {}, "collation": { "locale": "en", "strength" : 1} }');
               document               
 ---------------------------------------------------------------------
@@ -2290,6 +2397,53 @@ SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_p
  { "a" : "hen", "newField" : true }
  { "a" : "bat", "newField" : false }
 (6 rows)
+
+-- $replaceWith
+SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_proj", "pipeline": [ { "$replaceWith": { "a": "$a", "newField": { "$eq": ["$a", "CAT"] } } } ], "cursor": {}, "collation": { "locale": "en", "strength" : 1} }');
+              document               
+---------------------------------------------------------------------
+ { "a" : "cat", "newField" : true }
+ { "a" : "dog", "newField" : false }
+ { "a" : "cAt", "newField" : true }
+ { "a" : "dOg", "newField" : false }
+ { "a" : "hen", "newField" : false }
+ { "a" : "bat", "newField" : false }
+(6 rows)
+
+SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_proj", "pipeline": [ { "$replaceWith": { "a": "$a", "newField": { "$ne": ["$a", "CAT"] } } } ], "cursor": {}, "collation": { "locale": "en", "strength" : 3} }');
+              document              
+---------------------------------------------------------------------
+ { "a" : "cat", "newField" : true }
+ { "a" : "dog", "newField" : true }
+ { "a" : "cAt", "newField" : true }
+ { "a" : "dOg", "newField" : true }
+ { "a" : "hen", "newField" : true }
+ { "a" : "bat", "newField" : true }
+(6 rows)
+
+SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_proj", "pipeline": [ { "$replaceWith": { "a": "$a", "newField": { "$lte": ["$a", "DoG"] } } } ], "cursor": {}, "collation": { "locale": "fr", "strength" : 1} }');
+              document               
+---------------------------------------------------------------------
+ { "a" : "cat", "newField" : true }
+ { "a" : "dog", "newField" : true }
+ { "a" : "cAt", "newField" : true }
+ { "a" : "dOg", "newField" : true }
+ { "a" : "hen", "newField" : false }
+ { "a" : "bat", "newField" : true }
+(6 rows)
+
+-- $documents
+SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": 1, "pipeline": [ { "$documents": { "$cond": { "if": { "$eq": [ "CaT", "cAt" ] }, "then": [{"result": "case insensitive"}] , "else": [{"res": "case sensitive"}] }} } ], "cursor": {}, "collation": { "locale": "en", "strength" : 1} }');
+        documents_aggregate        
+---------------------------------------------------------------------
+ { "result" : "case insensitive" }
+(1 row)
+
+SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": 1, "pipeline": [ { "$documents": { "$cond": { "if": { "$eq": [ "CaT", "cAt" ] }, "then": [{"result": "case insensitive"}] , "else": [{"res": "case sensitive"}] }} } ], "cursor": {}, "collation": { "locale": "en", "strength" : 3} }');
+     documents_aggregate      
+---------------------------------------------------------------------
+ { "res" : "case sensitive" }
+(1 row)
 
 -- find
 SELECT document FROM bson_aggregation_find('db', '{ "find": "coll_agg_proj", "projection": { "a": 1, "newField": { "$eq": ["$a", "CAT"] } }, "sort": { "_id": 1 }, "skip": 0, "limit": 5, "collation": { "locale": "en", "strength" : 1} }');
@@ -2342,7 +2496,7 @@ SELECT document FROM bson_aggregation_find('db', '{ "find": "coll_agg_proj", "pr
  { "_id" : "bat", "a" : "bat", "newField" : false }
 (5 rows)
 
--- redact
+-- $redact
 SELECT documentdb_api.insert_one('db','coll_redact','{ "_id": 1, "level": "public", "content": "content 1", "details": { "level": "public", "value": "content 1.1", "moreDetails": { "level": "restricted", "info": "content 1.1.1" } } }', NULL);
 NOTICE:  creating collection
                               insert_one                              

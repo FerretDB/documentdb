@@ -101,14 +101,14 @@ SELECT document FROM bson_aggregation_find('db', '{ "find": "ci_search", "filter
 SELECT document FROM bson_aggregation_find('db', '{ "find": "ci_search", "filter": { "a" : {"$in" : ["cat", "DOG" ] }}, "sort": { "_id": 1 }, "skip": 0, "limit": 100, "collation": { "locale": "en", "strength" : 1} }');
 END;
 
+
 BEGIN;
 SET LOCAL documentdb_core.enablecollation TO on;
 EXPLAIN(VERBOSE ON, COSTS OFF)SELECT document FROM bson_aggregation_find('db', '{ "find": "ci_search", "filter": { "a" : {"$in" : [[{ "b" : "caT"}], [{ "c" : "caT"}]] }}, "sort": { "_id": 1 }, "skip": 0, "limit": 100, "collation": { "locale": "en", "strength" : 1} }');
 END;
 
-
 -- (6) currently unsupported scenarions: 
--- (6.A) $in with nested objects
+-- unsupported: $in with nested objects
 BEGIN;
 SET LOCAL documentdb_core.enablecollation TO on;
 SELECT document FROM bson_aggregation_find('db', '{ "find": "ci_search", "filter": { "a" : {"$in" : [{ "B" : "caT"}, { "c" : "caT"}] }}, "sort": { "_id": 1 }, "skip": 0, "limit": 100, "collation": { "locale": "en", "strength" : 1} }');
@@ -118,6 +118,114 @@ BEGIN;
 SET LOCAL documentdb_core.enablecollation TO on;
 SELECT document FROM bson_aggregation_find('db', '{ "find": "ci_search", "filter": { "a" : {"$in" : [[{ "B" : "caT"}], [{ "c" : "caT"}]] }}, "sort": { "_id": 1 }, "skip": 0, "limit": 100, "collation": { "locale": "en", "strength" : 1} }');
 END;
+
+-- unsupported: $bucket
+SELECT document FROM bson_aggregation_pipeline('db', 
+'{
+    "aggregate": "ci_search",
+    "pipeline": [
+        {
+            "$bucket": {
+                "groupBy": "$price",
+                "boundaries": [0, 10, 20, 30],
+                "default": "Other",
+                "output": {
+                    "categoryMatch": {
+                        "$sum": {
+                            "$cond": [
+                                { "$eq": ["$a", "PETS"] },
+                                1,
+                                0
+                            ]
+                        }
+                    }
+                }
+            }
+        }
+    ],
+    "collation": { "locale": "en", "strength": 1 }
+}');
+
+-- unsupported: $geoNear
+SELECT document FROM bson_aggregation_pipeline('db',
+'{ "aggregate": "ci_search",
+   "pipeline": [
+     {
+       "$geoNear": {
+         "near": { "type": "Point", "coordinates": [ 0 , 10 ] },
+         "distanceField": "dist.calculated",
+         "maxDistance": 2,
+         "query": { "a": "cAT" }
+       }
+     }
+   ],
+   "collation": { "locale": "en", "strength": 1 }
+}');
+
+-- unsupported: $fill
+SELECT document FROM bson_aggregation_pipeline('db', 
+'{
+    "aggregate": "ci_search",
+    "pipeline": [
+        {
+            "$fill": {
+                "sortBy": { "timestamp": 1 },
+                "partitionBy": "$status",
+                "output": {
+                     "$cond": {
+                        "if": { "$eq": ["$a", "cAt"] },
+                        "then": { "type": "feline" },
+                        "else": { "type": "other" }
+                      }
+                }
+            }
+        }
+    ],
+    "collation": { "locale": "en", "strength": 1 }
+}');
+
+-- unsupported: $group
+SELECT document FROM bson_aggregation_pipeline('db',
+'{ "aggregate": "ci_search",
+   "pipeline": [
+     { "$group": {
+         "_id": "$a",
+         "set": { "$addToSet": "$a" }
+     }}
+   ],
+   "collation": { "locale": "en", "strength": 1 }
+}');
+
+-- unsupported: $setWindowFields
+SELECT document FROM bson_aggregation_pipeline('db',
+'{ "aggregate": "ci_search",
+   "pipeline": [
+     { "$setWindowFields": {
+         "sortBy": { "_id": 1 },
+         "output": {
+             "total": { "$eq": ["$a", "cAt"] }
+         }
+     }}
+   ],
+   "collation": { "locale": "en", "strength": 1 }
+}');
+
+-- unsupported: $sortByCount
+SELECT document FROM bson_aggregation_pipeline('db',
+'{ "aggregate": "ci_search",
+   "pipeline": [
+     { "$sortByCount": {
+         "input": "$a",
+         "as": "a",
+         "by": { "$cond": { 
+           "if": { "$eq": [ "$a", "caT" ] }, 
+           "then": [{"x": 30}] , 
+           "else": [{"x": 30}] }}
+     }}
+   ],
+   "collation": { "locale": "en", "strength": 1 }
+}');
+
 -- (6.B)
 BEGIN;
 SET LOCAL documentdb_core.enablecollation TO on;
@@ -522,11 +630,20 @@ SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_p
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_proj", "pipeline": [ { "$project": { "a": 1, "newField": { "$gte": ["$a", "CAT"] } } } ], "cursor": {}, "collation": { "locale": "fr", "strength" : 3} }');
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_proj", "pipeline": [ { "$project": { "a": 1, "newField": { "$gte": ["$a", "CAT"] } } } ], "cursor": {}, "collation": { "locale": "fr", "strength" : 1} }');
 
--- replaceRoot
+-- $replaceRoot
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_proj", "pipeline": [ { "$replaceRoot": { "newRoot": { "a": "$a", "newField": { "$eq": ["$a", "CAT"] } } } } ], "cursor": {}, "collation": { "locale": "en", "strength" : 1} }');
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_proj", "pipeline": [ { "$replaceRoot": { "newRoot": { "a": "$a", "newField": { "$ne": ["$a", "CAT"] } } } } ], "cursor": {}, "collation": { "locale": "en", "strength" : 3} }');
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_proj", "pipeline": [ { "$replaceRoot": { "newRoot": { "a": "$a", "newField": { "$lte": ["$a", "DoG"] } } } } ], "cursor": {}, "collation": { "locale": "fr", "strength" : 1} }');
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_proj", "pipeline": [ { "$replaceRoot": { "newRoot": { "a": "$a", "newField": { "$gte": ["$a", "doG"] } } } } ], "cursor": {}, "collation": { "locale": "en", "strength" : 3} }');
+
+-- $replaceWith
+SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_proj", "pipeline": [ { "$replaceWith": { "a": "$a", "newField": { "$eq": ["$a", "CAT"] } } } ], "cursor": {}, "collation": { "locale": "en", "strength" : 1} }');
+SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_proj", "pipeline": [ { "$replaceWith": { "a": "$a", "newField": { "$ne": ["$a", "CAT"] } } } ], "cursor": {}, "collation": { "locale": "en", "strength" : 3} }');
+SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "coll_agg_proj", "pipeline": [ { "$replaceWith": { "a": "$a", "newField": { "$lte": ["$a", "DoG"] } } } ], "cursor": {}, "collation": { "locale": "fr", "strength" : 1} }');
+
+-- $documents
+SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": 1, "pipeline": [ { "$documents": { "$cond": { "if": { "$eq": [ "CaT", "cAt" ] }, "then": [{"result": "case insensitive"}] , "else": [{"res": "case sensitive"}] }} } ], "cursor": {}, "collation": { "locale": "en", "strength" : 1} }');
+SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": 1, "pipeline": [ { "$documents": { "$cond": { "if": { "$eq": [ "CaT", "cAt" ] }, "then": [{"result": "case insensitive"}] , "else": [{"res": "case sensitive"}] }} } ], "cursor": {}, "collation": { "locale": "en", "strength" : 3} }');
 
 -- find
 SELECT document FROM bson_aggregation_find('db', '{ "find": "coll_agg_proj", "projection": { "a": 1, "newField": { "$eq": ["$a", "CAT"] } }, "sort": { "_id": 1 }, "skip": 0, "limit": 5, "collation": { "locale": "en", "strength" : 1} }');
@@ -535,7 +652,7 @@ SELECT document FROM bson_aggregation_find('db', '{ "find": "coll_agg_proj", "pr
 SELECT document FROM bson_aggregation_find('db', '{ "find": "coll_agg_proj", "projection": { "a": 1, "newField": { "$gte": ["$a", "CAT"] } }, "sort": { "_id": 1 }, "skip": 0, "limit": 5, "collation": { "locale": "en", "strength" : 1} }');
 SELECT document FROM bson_aggregation_find('db', '{ "find": "coll_agg_proj", "projection": { "a": 1, "newField": { "$gte": ["$a", "CAT"] } }, "sort": { "_id": 1 }, "skip": 0, "limit": 5, "collation": { "locale": "en", "strength" : 3} }');
 
--- redact
+-- $redact
 SELECT documentdb_api.insert_one('db','coll_redact','{ "_id": 1, "level": "public", "content": "content 1", "details": { "level": "public", "value": "content 1.1", "moreDetails": { "level": "restricted", "info": "content 1.1.1" } } }', NULL);
 SELECT documentdb_api.insert_one('db','coll_redact','{ "_id": 2, "level": "restricted", "content": "content 2", "details": { "level": "public", "value": "content 2.1", "moreDetails": { "level": "restricted", "info": "content 2.1.1" } } }', NULL);
 SELECT documentdb_api.insert_one('db','coll_redact','{ "_id": 3, "level": "public", "content": "content 3", "details": { "level": "restricted", "value": "content 3.1", "moreDetails": { "level": "public", "info": "content 3.1.1" } } }', NULL);
