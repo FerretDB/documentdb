@@ -406,7 +406,7 @@ BuildResponseMessage(DbStatsResult *result)
 	PgbsonWriterAppendDouble(&writer, "indexSize", 9, result->indexSize);
 	PgbsonWriterAppendDouble(&writer, "totalSize", 9, result->totalSize);
 	PgbsonWriterAppendInt32(&writer, "scaleFactor", 11, result->scaleFactor);
-	PgbsonWriterAppendInt32(&writer, "ok", 2, result->ok);
+	PgbsonWriterAppendDouble(&writer, "ok", 2, result->ok);
 
 	return PgbsonWriterGetPgbson(&writer);
 }
