@@ -191,7 +191,7 @@ command_coll_mod(PG_FUNCTION_ARGS)
 
 	pgbson_writer writer;
 	PgbsonWriterInit(&writer);
-	PgbsonWriterAppendInt32(&writer, "ok", 2, 1);
+	PgbsonWriterAppendDouble(&writer, "ok", 2, 1);
 
 	if (specFlags == HAS_NO_OPTIONS)
 	{

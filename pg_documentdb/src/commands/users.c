@@ -112,7 +112,7 @@ documentdb_extension_create_user(PG_FUNCTION_ARGS)
 		{
 			pgbson_writer finalWriter;
 			PgbsonWriterInit(&finalWriter);
-			PgbsonWriterAppendInt32(&finalWriter, "ok", 2, 0);
+			PgbsonWriterAppendDouble(&finalWriter, "ok", 2, 0);
 			PgbsonWriterAppendUtf8(&finalWriter, "errmsg", strlen("errmsg"),
 								   "External identity providers are not supported");
 			PgbsonWriterAppendInt32(&finalWriter, "code", strlen("code"), 115);
@@ -171,7 +171,7 @@ documentdb_extension_create_user(PG_FUNCTION_ARGS)
 
 	pgbson_writer finalWriter;
 	PgbsonWriterInit(&finalWriter);
-	PgbsonWriterAppendInt32(&finalWriter, "ok", 2, 1);
+	PgbsonWriterAppendDouble(&finalWriter, "ok", 2, 1);
 	PG_RETURN_POINTER(PgbsonWriterGetPgbson(&finalWriter));
 }
 
@@ -441,7 +441,7 @@ documentdb_extension_drop_user(PG_FUNCTION_ARGS)
 		{
 			pgbson_writer finalWriter;
 			PgbsonWriterInit(&finalWriter);
-			PgbsonWriterAppendInt32(&finalWriter, "ok", 2, 0);
+			PgbsonWriterAppendDouble(&finalWriter, "ok", 2, 0);
 			PgbsonWriterAppendUtf8(&finalWriter, "errmsg", strlen("errmsg"),
 								   "External identity providers are not supported");
 			PgbsonWriterAppendInt32(&finalWriter, "code", strlen("code"), 115);
@@ -473,7 +473,7 @@ documentdb_extension_drop_user(PG_FUNCTION_ARGS)
 
 	pgbson_writer finalWriter;
 	PgbsonWriterInit(&finalWriter);
-	PgbsonWriterAppendInt32(&finalWriter, "ok", 2, 1);
+	PgbsonWriterAppendDouble(&finalWriter, "ok", 2, 1);
 	PG_RETURN_POINTER(PgbsonWriterGetPgbson(&finalWriter));
 }
 
@@ -667,7 +667,7 @@ UpdateNativeUser(UpdateUserSpec *spec)
 
 	pgbson_writer finalWriter;
 	PgbsonWriterInit(&finalWriter);
-	PgbsonWriterAppendInt32(&finalWriter, "ok", 2, 1);
+	PgbsonWriterAppendDouble(&finalWriter, "ok", 2, 1);
 	PG_RETURN_POINTER(PgbsonWriterGetPgbson(&finalWriter));
 }
 
@@ -737,7 +737,7 @@ documentdb_extension_get_users(PG_FUNCTION_ARGS)
 
 	if (userInfoDatum == (Datum) 0)
 	{
-		PgbsonWriterAppendInt32(&finalWriter, "ok", 2, 1);
+		PgbsonWriterAppendDouble(&finalWriter, "ok", 2, 1);
 		pgbson *result = PgbsonWriterGetPgbson(&finalWriter);
 		PG_RETURN_POINTER(result);
 	}
@@ -846,7 +846,7 @@ documentdb_extension_get_users(PG_FUNCTION_ARGS)
 		PgbsonWriterEndArray(&finalWriter, &userArrayWriter);
 	}
 
-	PgbsonWriterAppendInt32(&finalWriter, "ok", 2, 1);
+	PgbsonWriterAppendDouble(&finalWriter, "ok", 2, 1);
 	pgbson *result = PgbsonWriterGetPgbson(&finalWriter);
 	PG_RETURN_POINTER(result);
 }

@@ -914,7 +914,7 @@ BuildEmptyResponseMessage(CollStatsResult *result)
 	PgbsonWriterAppendInt32(&writer, "totalIndexSize", 14, 0);
 	PgbsonWriterAppendDocument(&writer, "indexSizes", 10, PgbsonInitEmpty());
 	PgbsonWriterAppendInt32(&writer, "scaleFactor", 11, result->scaleFactor);
-	PgbsonWriterAppendInt32(&writer, "ok", 2, result->ok);
+	PgbsonWriterAppendDouble(&writer, "ok", 2, result->ok);
 
 	return PgbsonWriterGetPgbson(&writer);
 }
@@ -931,7 +931,7 @@ BuildResponseMessage(CollStatsResult *result)
 
 	PgbsonWriterAppendUtf8(&writer, "ns", 2, result->ns);
 	WriteCoreStorageStats(result, &writer);
-	PgbsonWriterAppendInt32(&writer, "ok", 2, result->ok);
+	PgbsonWriterAppendDouble(&writer, "ok", 2, result->ok);
 
 	return PgbsonWriterGetPgbson(&writer);
 }
