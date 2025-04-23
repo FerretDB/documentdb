@@ -1,0 +1,5 @@
+documentdb (DOCUMENTDB_VERSION) unstable; urgency=low
+
+  * Initial release.
+
+ -- FerretDB Packages <packages@ferretdb.io>  Fri, 24 Jan 2025 12:00:00 +0000
