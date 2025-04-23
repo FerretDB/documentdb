@@ -5,12 +5,31 @@ concurrency:
 
 on:
   workflow_dispatch:
+  pull_request_target:
+    types:
+      - unlabeled # if GitHub Actions stuck, add and remove "not ready" label to force rebuild
+      - opened
+      - reopened
+      - synchronize
   push:
     branches:
       - 'main'
+      - 'ferretdb'
+    tags:
+      - "*"
+    schedule:
+      - cron: "10 8 * * 1"
     paths-ignore:
       - '.devcontainer/**'
       - '*.md'
+
+env:
+  GOPATH: /home/runner/go
+  GOCACHE: /home/runner/go/cache
+  GOLANGCI_LINT_CACHE: /home/runner/go/cache/lint
+  GOMODCACHE: /home/runner/go/mod
+  GOPROXY: https://proxy.golang.org
+  GOTOOLCHAIN: local
 
 jobs:
   build-deb-packages:
@@ -30,9 +49,54 @@ jobs:
           - 16
           - 17
 
+    if: >
+      github.event_name != 'pull_request_target' ||
+      (
+        contains(github.event.pull_request.labels.*.name, 'trust') &&
+        !contains(github.event.pull_request.labels.*.name, 'not ready') &&
+        contains(github.event.pull_request.labels.*.name, 'packages')
+      )
+
+    timeout-minutes: 40
+    permissions: {}
+
     steps:
+      # TODO https://github.com/FerretDB/github-actions/issues/211
       - name: Checkout repository
+        if: github.event_name != 'pull_request_target'
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # for `generate_extension_version.sh` to work
+
+      # TODO https://github.com/FerretDB/github-actions/issues/211
+      - name: Checkout pull request code
+        if: github.event_name == 'pull_request_target'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # for `generate_extension_version.sh` to work
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Fetch annotated tags
+        run: |
+          git fetch --tags --force
+          git status
+
+      - name: Name branch
+        if: github.event_name == 'pull_request_target'
+        env:
+          BRANCH: ${{ github.head_ref }} # see https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
+        run: git checkout -b $BRANCH
+
+      - name: Setup Go
+        uses: FerretDB/github-actions/setup-go@main
+
+      - name: Define version
+        id: version
+        run: |
+          cd ferretdb_packaging
+          go mod tidy
+          go mod verify
+          go run ./defineversion -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }} -debian-only
 
       - name: Extract and Format Default Version
         id: extract_version
@@ -44,13 +108,154 @@ jobs:
 
       - name: Build Debian Package
         run: |
-          ./packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg_version }} --version ${{ env.DOCUMENTDB_VERSION }}
+          ./packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg_version }} --version ${{ env.DOCUMENTDB_VERSION }} --test-clean-install
 
       - name: Upload Debian Package as Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: archive-${{ matrix.os }}-${{ matrix.arch }}-pg${{ matrix.pg_version }}-documentdb-${{ env.DOCUMENTDB_VERSION }}
+          name: ${{ matrix.os }}-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
           path: packaging/*.deb
-          retention-days: 7
+          retention-days: 1
           if-no-files-found: error
           compression-level: 0
+          overwrite: false
+
+      - name: Check dirty
+        run: |
+          git status
+          git diff --exit-code
+
+  build-docker:
+    name: Build Docker (Pg${{ matrix.pg }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    needs: build-deb-packages
+
+    if: >
+      github.event_name != 'pull_request_target' ||
+      (
+        contains(github.event.pull_request.labels.*.name, 'trust') &&
+        !contains(github.event.pull_request.labels.*.name, 'not ready') &&
+        contains(github.event.pull_request.labels.*.name, 'packages')
+      )
+
+    permissions:
+      packages: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        pg: [15, 16, 17]
+
+    steps:
+      # TODO https://github.com/FerretDB/github-actions/issues/211
+      - name: Checkout code
+        if: github.event_name != 'pull_request_target'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # for `generate_extension_version.sh` to work
+
+      # TODO https://github.com/FerretDB/github-actions/issues/211
+      - name: Checkout pull request code
+        if: github.event_name == 'pull_request_target'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # for `generate_extension_version.sh` to work
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Fetch annotated tags
+        run: |
+          git fetch --tags --force
+          git status
+
+      - name: Name branch
+        if: github.event_name == 'pull_request_target'
+        env:
+          BRANCH: ${{ github.head_ref }} # see https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions#using-an-intermediate-environment-variable
+        run: git checkout -b $BRANCH
+
+      - name: Setup Go
+        uses: FerretDB/github-actions/setup-go@main
+
+      - name: Define version
+        id: version
+        run: |
+          cd ferretdb_packaging
+          go mod tidy
+          go mod verify
+          go run ./defineversion -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }}
+
+      - name: Download deb12-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
+        uses: actions/download-artifact@v4
+        with:
+          name: deb12-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
+          path: packaging
+
+      - name: Initialize Docker builder
+        run: make -C ferretdb_packaging docker-init
+
+      - name: Build local development Docker image
+        if: steps.version.outputs.docker_development_tag_flags != ''
+        run: >
+          make -C ferretdb_packaging docker-build
+          POSTGRES_VERSION=${{ matrix.pg }}
+          DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
+          FILE=development
+          OUTPUT='type=docker'
+          TAGS='${{ steps.version.outputs.docker_development_tag_flags }}'
+
+      - name: Build local production Docker image
+        if: steps.version.outputs.docker_production_tag_flags != ''
+        run: >
+          make -C ferretdb_packaging docker-build
+          POSTGRES_VERSION=${{ matrix.pg }}
+          DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
+          FILE=production
+          OUTPUT='type=docker'
+          TAGS='${{ steps.version.outputs.docker_production_tag_flags }}'
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ferretdbbot
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Quay.io
+        uses: docker/login-action@v3
+        with:
+          registry: quay.io
+          username: ferretdb+ferretdbbot
+          password: ${{ secrets.QUAY_TOKEN }}
+
+      - name: Build and push development Docker images
+        if: steps.version.outputs.docker_development_tag_flags != ''
+        run: >
+          make -C ferretdb_packaging docker-build
+          POSTGRES_VERSION=${{ matrix.pg }}
+          DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
+          FILE=development
+          OUTPUT='type=image,push=true'
+          TAGS='${{ steps.version.outputs.docker_development_tag_flags }}'
+
+      - name: Build and push production Docker images
+        if: steps.version.outputs.docker_production_tag_flags != ''
+        run: >
+          make -C ferretdb_packaging docker-build
+          POSTGRES_VERSION=${{ matrix.pg }}
+          DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
+          FILE=production
+          OUTPUT='type=image,push=true'
+          TAGS='${{ steps.version.outputs.docker_production_tag_flags }}'
+
+      - name: Check dirty
+        run: |
+          git status
+          git diff --exit-code
