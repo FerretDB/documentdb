@@ -316,10 +316,10 @@ func TestDefineVersion(t *testing.T) {
 			},
 		},
 
-		"workflow_run": {
+		"workflow_dispatch": {
 			env: map[string]string{
 				"GITHUB_BASE_REF":   "",
-				"GITHUB_EVENT_NAME": "workflow_run",
+				"GITHUB_EVENT_NAME": "workflow_dispatch",
 				"GITHUB_HEAD_REF":   "",
 				"GITHUB_REF_NAME":   "ferretdb",
 				"GITHUB_REF_TYPE":   "branch",
@@ -334,10 +334,10 @@ func TestDefineVersion(t *testing.T) {
 				debian: "0.100.0~ferretdb",
 			},
 		},
-		"workflow_run-other": {
+		"workflow_dispatch-other": {
 			env: map[string]string{
 				"GITHUB_BASE_REF":   "",
-				"GITHUB_EVENT_NAME": "workflow_run",
+				"GITHUB_EVENT_NAME": "workflow_dispatch",
 				"GITHUB_HEAD_REF":   "",
 				"GITHUB_REF_NAME":   "ferretdb",
 				"GITHUB_REF_TYPE":   "branch",
