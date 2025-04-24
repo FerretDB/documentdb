@@ -87,18 +87,20 @@ jobs:
     steps:
       # TODO https://github.com/FerretDB/github-actions/issues/211
       - name: Checkout repository
-        if: github.event_name != 'pull_request_target'
+        # FIXME do not merge this, it's for testing only
+        # if: github.event_name != 'pull_request_target'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # for `generate_extension_version.sh` to work
 
-      # TODO https://github.com/FerretDB/github-actions/issues/211
-      - name: Checkout pull request code
-        if: github.event_name == 'pull_request_target'
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # for `generate_extension_version.sh` to work
-          ref: ${{ github.event.pull_request.head.sha }}
+      # FIXME do not merge this, it's for testing only
+      ## TODO https://github.com/FerretDB/github-actions/issues/211
+      #- name: Checkout pull request code
+      #  if: github.event_name == 'pull_request_target'
+      #  uses: actions/checkout@v4
+      #  with:
+      #    fetch-depth: 0 # for `generate_extension_version.sh` to work
+      #    ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Fetch annotated tags
         run: |
