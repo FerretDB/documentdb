@@ -120,9 +120,9 @@ jobs:
           go mod verify
           go run ./defineversion -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg_version }} -debian-only
 
-      - name: Build Debian Package
-        run: |
-          ./packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg_version }} --version ${{ env.DOCUMENTDB_VERSION }} --test-clean-install
+      - name: Build ${{ steps.version.outputs.debian_version }}
+        if: steps.version.outputs.debian_version != ''
+        run: ./ferretdb_packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg_version }} --version ${{ steps.version.outputs.debian_version }} --test-clean-install
 
       - name: Upload Debian Package as Artifact
         uses: actions/upload-artifact@v4
