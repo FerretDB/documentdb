@@ -29,7 +29,7 @@ concurrency:
 on:
   # FIXME do not merge this, it's for testing only
   # pull_request_target:
-  request_target:
+  pull_request:
      types:
       - unlabeled # if GitHub Actions stuck, add and remove "not ready" label to force rebuild
       - opened
