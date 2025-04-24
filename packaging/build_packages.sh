@@ -130,11 +130,11 @@ echo "Output directory: $abs_output_dir"
 mkdir -p $abs_output_dir
 
 # Build the Docker image while showing the output to the console
-docker build -t $TAG -f packaging/Dockerfile_build_deb_packages \
+docker build --platform linux/amd64 -t $TAG -f packaging/Dockerfile_build_deb_packages \
     --build-arg BASE_IMAGE=$DOCKER_IMAGE --build-arg POSTGRES_VERSION=$PG --build-arg DOCUMENTDB_VERSION=$DOCUMENTDB_VERSION .
 
 # Run the Docker container to build the packages
-docker run --rm --env OS=$OS -v $abs_output_dir:/output $TAG
+docker run --platform linux/amd64 --rm --env OS=$OS -v $abs_output_dir:/output $TAG
 
 echo "Packages built successfully!!"
 
@@ -147,11 +147,11 @@ if [[ $TEST_CLEAN_INSTALL == true ]]; then
     echo "Debian package path: $deb_package_rel_path"
 
     # Build the Docker image while showing the output to the console
-    docker build -t documentdb-test-packages:latest -f packaging/test_packages/Dockerfile_test_install_deb_packages \
+    docker build --platform linux/amd64 -t documentdb-test-packages:latest -f packaging/test_packages/Dockerfile_test_install_deb_packages \
         --build-arg BASE_IMAGE=$DOCKER_IMAGE --build-arg POSTGRES_VERSION=$PG --build-arg DEB_PACKAGE_REL_PATH=$deb_package_rel_path .
 
     # Run the Docker container to test the packages
-    docker run --rm documentdb-test-packages:latest
+    docker run --platform linux/amd64 --rm documentdb-test-packages:latest
 
     echo "Clean installation test successful!!"
 fi

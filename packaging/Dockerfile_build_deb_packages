@@ -1,5 +1,5 @@
 ARG BASE_IMAGE=debian:bookworm
-FROM ${BASE_IMAGE}
+FROM --platform=linux/amd64 ${BASE_IMAGE}
 ARG DEBIAN_FRONTEND=noninteractive
 
 ARG POSTGRES_VERSION=16
