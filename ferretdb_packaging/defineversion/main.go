@@ -107,7 +107,7 @@ func defineVersion(controlDefaultVersion, pgVersion string, getenv githubactions
 		branch := strings.ToLower(getenv("GITHUB_HEAD_REF"))
 		res = defineVersionForPR(controlDefaultVersion, pgVersion, owner, repo, branch)
 
-	case "push", "schedule", "workflow_dispatch":
+	case "push", "schedule", "workflow_run":
 		refName := strings.ToLower(getenv("GITHUB_REF_NAME"))
 
 		switch refType := strings.ToLower(getenv("GITHUB_REF_TYPE")); refType {
