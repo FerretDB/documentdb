@@ -29,8 +29,8 @@ concurrency:
 on:
   # FIXME do not merge this, it's for testing only
   # pull_request_target:
-  pull_request:
-    types:
+  request_target:
+     types:
       - unlabeled # if GitHub Actions stuck, add and remove "not ready" label to force rebuild
       - opened
       - reopened
@@ -85,20 +85,18 @@ jobs:
     steps:
       # TODO https://github.com/FerretDB/github-actions/issues/211
       - name: Checkout repository
-        # FIXME do not merge this, it's for testing only
-        # if: github.event_name != 'pull_request_target'
+        if: github.event_name != 'pull_request_target'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # for `generate_extension_version.sh` to work
 
-      # FIXME do not merge this, it's for testing only
-      ## TODO https://github.com/FerretDB/github-actions/issues/211
-      #- name: Checkout pull request code
-      #  if: github.event_name == 'pull_request_target'
-      #  uses: actions/checkout@v4
-      #  with:
-      #    fetch-depth: 0 # for `generate_extension_version.sh` to work
-      #    ref: ${{ github.event.pull_request.head.sha }}
+      # TODO https://github.com/FerretDB/github-actions/issues/211
+      - name: Checkout pull request code
+        if: github.event_name == 'pull_request_target'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # for `generate_extension_version.sh` to work
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Fetch annotated tags
         run: |
