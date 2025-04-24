@@ -21,10 +21,6 @@ labels:
     color: "#D4C5F9"
     description: PRs that update dependencies
 
-  - name: do not merge
-    color: "#0052CC"
-    description: PRs that should not be merged
-
   - name: not ready
     color: "#000000"
     description: Issues that are not ready to be worked on; PRs that should skip CI
