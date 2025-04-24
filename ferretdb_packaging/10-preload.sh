@@ -15,7 +15,6 @@ documentdb.enableSortbyIdPushDownToPrimaryKey = true
 documentdb.enableSchemaValidation             = true
 documentdb.enableBypassDocumentValidation     = true
 
-
 documentdb.enableUserCrud                     = true
 documentdb.maxUserLimit                       = 100
 EOT
