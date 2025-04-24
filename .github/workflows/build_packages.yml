@@ -124,7 +124,7 @@ jobs:
 
       - name: Build ${{ steps.version.outputs.debian_version }}
         if: steps.version.outputs.debian_version != ''
-        run: ./ferretdb_packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg_version }} --version ${{ steps.version.outputs.debian_version }} --test-clean-install
+        run: ./packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg_version }} --version ${{ steps.version.outputs.debian_version }} --test-clean-install
 
       - name: Upload Debian Package as Artifact
         uses: actions/upload-artifact@v4
