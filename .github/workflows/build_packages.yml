@@ -62,10 +62,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu22.04, ubuntu24.04, deb11, deb12]
-        arch: [amd64]
+        arch: [amd64, arm64]
         include:
           - arch: amd64
             runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
         pg_version:
           - 15
           - 16
@@ -127,7 +129,7 @@ jobs:
       - name: Upload Debian Package as Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
+          name: ${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
           path: packaging/*.deb
           retention-days: 1
           if-no-files-found: error
@@ -200,10 +202,10 @@ jobs:
           go mod verify
           go run ./defineversion -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg_version }}
 
-      - name: Download deb12-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
+      - name: Download deb12-${{ matrix.pg_version }}-arm64-${{ steps.version.outputs.debian_version }}
         uses: actions/download-artifact@v4
         with:
-          name: deb12-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
+          name: deb12-${{ matrix.pg_version }}-arm64-${{ steps.version.outputs.debian_version }}
           path: packaging
 
       - name: Initialize Docker builder

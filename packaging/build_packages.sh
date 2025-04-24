@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Function to display help message
 function show_help {
-    echo "Usage: $0 --os <OS> --pg <PG_VERSION> [--test-clean-install] [--output-dir <DIR>] [-h|--help]"
+    echo "Usage: $0 --os <OS> --pg <PG_VERSION> [--test-clean-install --test-arch <ARCH>] [--output-dir <DIR>] [-h|--help]"
     echo ""
     echo "Description:"
     echo "  This script builds extension packages using Docker."
@@ -16,6 +16,7 @@ function show_help {
     echo "Optional Arguments:"
     echo "  --version            The version of documentdb to build. Examples: [0.100.0, 0.101.0]"
     echo "  --test-clean-install Test installing the packages in a clean Docker container."
+    echo "  --test-arch          If --test-clean-install is set, optionally specify architecture. Possible values: [amd64, arm64]"
     echo "  --output-dir         Relative path from the repo root of the directory where to drop the packages. The directory will be created if it doesn't exist. Default: packaging"
     echo "  -h, --help           Display this help message."
     exit 0
@@ -27,6 +28,7 @@ PG=""
 DOCUMENTDB_VERSION=""
 TEST_CLEAN_INSTALL=false
 OUTPUT_DIR="packaging"  # Default value for output directory
+TEST_ARCH=""
 
 # Process arguments to convert long options to short ones
 while [[ $# -gt 0 ]]; do
@@ -59,6 +61,17 @@ while [[ $# -gt 0 ]]; do
             ;;
         --test-clean-install)
             TEST_CLEAN_INSTALL=true
+            ;;
+        --test-arch)
+            shift
+            case $1 in
+                amd64|arm64)
+                    TEST_ARCH=$1
+                    ;;
+                *)
+                    echo "Invalid --test-arch value. Allowed values are [amd64, arm64]"
+                    ;;
+            esac
             ;;
         --output-dir)
             shift
@@ -117,6 +130,15 @@ case $OS in
         ;;
 esac
 
+case $TEST_ARCH in
+    arm64)
+        TEST_PLATFORM="--platform linux/arm64"
+        ;;
+    amd64)
+        TEST_PLATFORM="--platform linux/amd64"
+        ;;
+esac
+
 TAG=documentdb-build-packages-$OS-pg$PG:latest
 
 repo_root=$(git rev-parse --show-toplevel)
@@ -130,11 +152,11 @@ echo "Output directory: $abs_output_dir"
 mkdir -p $abs_output_dir
 
 # Build the Docker image while showing the output to the console
-docker build --platform linux/amd64 -t $TAG -f packaging/Dockerfile_build_deb_packages \
+docker build -t $TAG -f packaging/Dockerfile_build_deb_packages \
     --build-arg BASE_IMAGE=$DOCKER_IMAGE --build-arg POSTGRES_VERSION=$PG --build-arg DOCUMENTDB_VERSION=$DOCUMENTDB_VERSION .
 
 # Run the Docker container to build the packages
-docker run --platform linux/amd64 --rm --env OS=$OS -v $abs_output_dir:/output $TAG
+docker run --rm --env OS=$OS -v $abs_output_dir:/output $TAG
 
 echo "Packages built successfully!!"
 
@@ -147,11 +169,11 @@ if [[ $TEST_CLEAN_INSTALL == true ]]; then
     echo "Debian package path: $deb_package_rel_path"
 
     # Build the Docker image while showing the output to the console
-    docker build --platform linux/amd64 -t documentdb-test-packages:latest -f packaging/test_packages/Dockerfile_test_install_deb_packages \
+    docker build $TEST_PLATFORM -t documentdb-test-packages:latest -f packaging/test_packages/Dockerfile_test_install_deb_packages \
         --build-arg BASE_IMAGE=$DOCKER_IMAGE --build-arg POSTGRES_VERSION=$PG --build-arg DEB_PACKAGE_REL_PATH=$deb_package_rel_path .
 
     # Run the Docker container to test the packages
-    docker run --platform linux/amd64 --rm documentdb-test-packages:latest
+    docker run $TEST_PLATFORM --rm documentdb-test-packages:latest
 
     echo "Clean installation test successful!!"
 fi
