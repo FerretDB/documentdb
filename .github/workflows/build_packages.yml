@@ -1,3 +1,26 @@
+---
+# This and other workflows that use `pull_request_target` event are dangerous
+# and should be handled with a lot of care to avoid security problems.
+# We use this event to give pull requests access to secrets with permissions to login into Docker registries.
+# But rogue PR authors could try to steal our secrets.
+# We prevent that with the following:
+#
+# * We require approval for PRs from first-time contributors. That's a built-in feature for all actions.
+# * For workflows that checkout source code,
+#   we require the `trust` label to be assigned to PRs by FerretDB maintainers after reviewing changes.
+#   Only a few trusted people have permission to do that.
+# * Thanks to the way `pull_request_target` trigger works,
+#   PR changes in the workflow itself are not run until they are merged.
+# * We use short-lived automatic `GITHUB_TOKEN`s instead of a long-living personal access tokens (PAT) where possible.
+# * Both `GITHUB_TOKEN`s and PATs have minimal permissions.
+# * We publish Docker images from PRs as separate packages that should not be run by users.
+# * We limit what third-party actions can be used.
+#
+# Relevant GitHub documentation is a bit scattered. The first article gives a good overview:
+# * https://securitylab.github.com/research/github-actions-preventing-pwn-requests/
+# * https://docs.github.com/en/actions/security-guides/automatic-token-authentication
+# * https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions
+
 name: Build deb packages
 concurrency:
   group: build-packages-${{ github.event.pull_request.number || github.ref }}
@@ -13,15 +36,14 @@ on:
       - synchronize
   push:
     branches:
-      - 'main'
       - 'ferretdb'
     tags:
       - "*"
-    schedule:
-      - cron: "10 8 * * 1"
     paths-ignore:
       - '.devcontainer/**'
       - '*.md'
+  schedule:
+    - cron: "10 8 * * 1"
 
 env:
   GOPATH: /home/runner/go
@@ -46,6 +68,7 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
         pg_version:
+          - 15
           - 16
           - 17
 
@@ -96,15 +119,7 @@ jobs:
           cd ferretdb_packaging
           go mod tidy
           go mod verify
-          go run ./defineversion -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }} -debian-only
-
-      - name: Extract and Format Default Version
-        id: extract_version
-        run: |
-          DOCUMENTDB_VERSION=$(grep -E "^default_version" pg_documentdb_core/documentdb_core.control | sed -E "s/.*'([0-9]+\.[0-9]+-[0-9]+)'.*/\1/")
-          DOCUMENTDB_VERSION=$(echo $DOCUMENTDB_VERSION | sed "s/-/./g")
-          echo "Extracted Version: $DOCUMENTDB_VERSION"
-          echo "DOCUMENTDB_VERSION=$DOCUMENTDB_VERSION" >> $GITHUB_ENV
+          go run ./defineversion -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg_version }} -debian-only
 
       - name: Build Debian Package
         run: |
@@ -113,7 +128,7 @@ jobs:
       - name: Upload Debian Package as Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
+          name: ${{ matrix.os }}-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
           path: packaging/*.deb
           retention-days: 1
           if-no-files-found: error
@@ -126,7 +141,7 @@ jobs:
           git diff --exit-code
 
   build-docker:
-    name: Build Docker (Pg${{ matrix.pg }})
+    name: Build Docker (Pg${{ matrix.pg_version }})
     runs-on: ubuntu-24.04
     timeout-minutes: 40
 
@@ -184,12 +199,12 @@ jobs:
           cd ferretdb_packaging
           go mod tidy
           go mod verify
-          go run ./defineversion -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }}
+          go run ./defineversion -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg_version }}
 
-      - name: Download deb12-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
+      - name: Download deb12-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
         uses: actions/download-artifact@v4
         with:
-          name: deb12-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
+          name: deb12-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
           path: packaging
 
       - name: Initialize Docker builder
@@ -199,7 +214,7 @@ jobs:
         if: steps.version.outputs.docker_development_tag_flags != ''
         run: >
           make -C ferretdb_packaging docker-build
-          POSTGRES_VERSION=${{ matrix.pg }}
+          POSTGRES_VERSION=${{ matrix.pg_version }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
           FILE=development
           OUTPUT='type=docker'
@@ -209,7 +224,7 @@ jobs:
         if: steps.version.outputs.docker_production_tag_flags != ''
         run: >
           make -C ferretdb_packaging docker-build
-          POSTGRES_VERSION=${{ matrix.pg }}
+          POSTGRES_VERSION=${{ matrix.pg_version }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
           FILE=production
           OUTPUT='type=docker'
@@ -239,7 +254,7 @@ jobs:
         if: steps.version.outputs.docker_development_tag_flags != ''
         run: >
           make -C ferretdb_packaging docker-build
-          POSTGRES_VERSION=${{ matrix.pg }}
+          POSTGRES_VERSION=${{ matrix.pg_version }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
           FILE=development
           OUTPUT='type=image,push=true'
@@ -249,7 +264,7 @@ jobs:
         if: steps.version.outputs.docker_production_tag_flags != ''
         run: >
           make -C ferretdb_packaging docker-build
-          POSTGRES_VERSION=${{ matrix.pg }}
+          POSTGRES_VERSION=${{ matrix.pg_version }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
           FILE=production
           OUTPUT='type=image,push=true'
