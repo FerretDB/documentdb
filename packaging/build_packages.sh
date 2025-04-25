@@ -26,7 +26,7 @@ function show_help {
 OS=""
 PG=""
 DOCUMENTDB_VERSION=""
-PLATFORM=""
+PLATFORM_FLAG=""
 TEST_CLEAN_INSTALL=false
 OUTPUT_DIR="packaging"  # Default value for output directory
 
@@ -62,8 +62,11 @@ while [[ $# -gt 0 ]]; do
         --platform)
             shift
             case $1 in
-                linux/amd64|linux/arm64)
-                    PLATFORM=$1
+                linux/arm64)
+                    PLATFORM_FLAG="--platform linux/arm64"
+                    ;;
+                linux/amd64)
+                    PLATFORM_FLAG="--platform linux/amd64"
                     ;;
                 *)
                     echo "Invalid --platform value. Allowed values are [linux/amd64, linux/arm64]"
@@ -121,15 +124,6 @@ case $OS in
         ;;
     ubuntu24.04)
         DOCKER_IMAGE="ubuntu:24.04"
-        ;;
-esac
-
-case $PLATFORM in
-    linux/arm64)
-        PLATFORM_FLAG="--platform linux/arm64"
-        ;;
-    linux/amd64)
-        PLATFORM_FLAG="--platform linux/amd64"
         ;;
 esac
 
