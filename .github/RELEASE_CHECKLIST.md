@@ -8,9 +8,9 @@
 
 ## Git tag
 
-1. Make a signed tag `vX.Y.Z-ferretdb-A.B.C(-p)` (like `v0.102.0-ferretdb-2.0.0-rc.5`),
-   where `X.Y.Z` is the SemVar formatted version of DocumentDB (like `0.102.0`),
-   and `A.B.C(-p)` is the compatible FerretDB version (like `2.0.0-rc.5`).
+1. Make a signed tag with `git tag -s --cleanup=verbatim vX.Y.Z-ferretdb-A.B.C(-p)` (like `v0.103.0-ferretdb-2.2.0-beta.1`),
+   where `X.Y.Z` is the SemVar formatted version of DocumentDB (like `0.103.0`),
+   and `A.B.C(-p)` is the compatible FerretDB version (like `2.2.0-beta.1`).
 2. Check `git status` output.
 3. Push it!
 
