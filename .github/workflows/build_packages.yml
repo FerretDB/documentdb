@@ -197,10 +197,10 @@ jobs:
           go mod verify
           go run ./defineversion -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg_version }}
 
-      - name: Download deb12-arm64-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
+      - name: Download deb12-amd64-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
         uses: actions/download-artifact@v4
         with:
-          name: deb12-arm64-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
+          name: deb12-amd64-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
           path: packaging
 
       - name: Initialize Docker builder
