@@ -15,7 +15,7 @@ function show_help {
     echo ""
     echo "Optional Arguments:"
     echo "  --version            The version of documentdb to build. Examples: [0.100.0, 0.101.0]"
-    echo "  --platform           The platform to use for the docker builder. Possible values: [linux/amd64, linux/arm64]"
+    echo "  --platform           The platform of the docker builder to use. Possible values: [linux/amd64, linux/arm64]"
     echo "  --test-clean-install Test installing the packages in a clean Docker container."
     echo "  --output-dir         Relative path from the repo root of the directory where to drop the packages. The directory will be created if it doesn't exist. Default: packaging"
     echo "  -h, --help           Display this help message."
@@ -152,11 +152,11 @@ echo "Output directory: $abs_output_dir"
 mkdir -p $abs_output_dir
 
 # Build the Docker image while showing the output to the console
-docker build "$PLATFORM_FLAG" -t $TAG -f packaging/Dockerfile_build_deb_packages \
+docker build $PLATFORM_FLAG -t $TAG -f packaging/Dockerfile_build_deb_packages \
     --build-arg BASE_IMAGE=$DOCKER_IMAGE --build-arg POSTGRES_VERSION=$PG --build-arg DOCUMENTDB_VERSION=$DOCUMENTDB_VERSION .
 
 # Run the Docker container to build the packages
-docker run "$PLATFORM_FLAG" --rm --env OS=$OS -v $abs_output_dir:/output $TAG
+docker run $PLATFORM_FLAG --rm --env OS=$OS -v $abs_output_dir:/output $TAG
 
 echo "Packages built successfully!!"
 
@@ -169,11 +169,11 @@ if [[ $TEST_CLEAN_INSTALL == true ]]; then
     echo "Debian package path: $deb_package_rel_path"
 
     # Build the Docker image while showing the output to the console
-    docker build "$PLATFORM_FLAG" -t documentdb-test-packages:latest -f packaging/test_packages/Dockerfile_test_install_deb_packages \
+    docker build $PLATFORM_FLAG -t documentdb-test-packages:latest -f packaging/test_packages/Dockerfile_test_install_deb_packages \
         --build-arg BASE_IMAGE=$DOCKER_IMAGE --build-arg POSTGRES_VERSION=$PG --build-arg DEB_PACKAGE_REL_PATH=$deb_package_rel_path .
 
     # Run the Docker container to test the packages
-    docker run "$PLATFORM_FLAG" --rm documentdb-test-packages:latest
+    docker run $PLATFORM_FLAG --rm documentdb-test-packages:latest
 
     echo "Clean installation test successful!!"
 fi
