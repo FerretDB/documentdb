@@ -4,7 +4,7 @@ Run `./packaging/build_packages.sh -h` and follow the instructions.
 E.g. to build for Debian 12 and PostgreSQL 16, run:
 
 ```sh
-./packaging/build_packages.sh --os deb12 --pg 16
+./packaging/build_packages.sh --os deb12 --pg 16 --version 1.3.0
 ```
 
 Packages can be found at the `packages` directory by default, but it can be configured with the `--output-dir` option.
