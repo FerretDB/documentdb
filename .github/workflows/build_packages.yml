@@ -208,6 +208,12 @@ jobs:
           name: deb12-amd64-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
           path: packaging
 
+      - name: Download deb12-arm64-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
+        uses: actions/download-artifact@v4
+        with:
+          name: deb12-arm64-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
+          path: packaging
+
       - name: Initialize Docker builder
         run: make -C ferretdb_packaging docker-init
 
