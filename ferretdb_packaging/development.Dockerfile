@@ -26,11 +26,11 @@ set -ex
 
 cd /src
 
-cp packaging/deb12-postgresql-${POSTGRES_VERSION}-documentdb_${DOCUMENTDB_VERSION}_arm64.deb /tmp/documentdb.deb
+cp packaging/deb12-postgresql-${POSTGRES_VERSION}-documentdb_${DOCUMENTDB_VERSION}_amd64.deb /tmp/documentdb.deb
 dpkg -i /tmp/documentdb.deb
 rm /tmp/documentdb.deb
 
-cp packaging/deb12-postgresql-${POSTGRES_VERSION}-documentdb-dbgsym_${DOCUMENTDB_VERSION}_arm64.deb /tmp/documentdb-dbgsym.deb
+cp packaging/deb12-postgresql-${POSTGRES_VERSION}-documentdb-dbgsym_${DOCUMENTDB_VERSION}_amd64.deb /tmp/documentdb-dbgsym.deb
 dpkg -i /tmp/documentdb-dbgsym.deb
 rm /tmp/documentdb-dbgsym.deb
 
