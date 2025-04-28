@@ -15,7 +15,7 @@ function show_help {
     echo "  --version            The version of documentdb to build. Examples: [0.100.0, 0.101.0]"
     echo ""
     echo "Optional Arguments:"
-    echo "  --platform           The platform of the docker builder to use. Possible values: [linux/amd64, linux/arm64]"
+    echo "  --platform           The docker platform to use. Possible values: [linux/amd64, linux/arm64]"
     echo "  --test-clean-install Test installing the packages in a clean Docker container."
     echo "  --output-dir         Relative path from the repo root of the directory where to drop the packages. The directory will be created if it doesn't exist. Default: packaging"
     echo "  -h, --help           Display this help message."
