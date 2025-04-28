@@ -214,6 +214,9 @@ jobs:
           name: deb12-arm64-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
           path: packaging
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Initialize Docker builder
         run: make -C ferretdb_packaging docker-init
 
