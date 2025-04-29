@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Function to display help message
 function show_help {
-    echo "Usage: $0 --os <OS> --pg <PG_VERSION> [--test-clean-install] [--output-dir <DIR>] [-h|--help]"
+    echo "Usage: $0 --os <OS> --pg <PG> --version <DOCUMENTDB_VERSION> [--test-clean-install] [--output-dir <DIR>] [-h|--help]"
     echo ""
     echo "Description:"
     echo "  This script builds extension packages using Docker."
