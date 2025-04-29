@@ -194,6 +194,12 @@ jobs:
       - name: Setup Go
         uses: FerretDB/github-actions/setup-go@main
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Define version
         id: version
         run: |
@@ -213,9 +219,6 @@ jobs:
         with:
           name: deb12-arm64-${{ matrix.pg_version }}-${{ steps.version.outputs.debian_version }}
           path: packaging
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
 
       - name: Initialize Docker builder
         run: make -C ferretdb_packaging docker-init

@@ -70,6 +70,7 @@ while [[ $# -gt 0 ]]; do
                     ;;
                 *)
                     echo "Invalid --platform value. Allowed values are [linux/amd64, linux/arm64]"
+                    exit 1
                     ;;
             esac
             ;;
