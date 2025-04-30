@@ -46,7 +46,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cd ferretdb_packaging
+          cd packaging
           go mod tidy
           go mod verify
           go test ./...

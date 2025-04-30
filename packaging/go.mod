@@ -1,11 +1,11 @@
-module github.com/FerretDB/documentdb/ferretdb_packaging
+module github.com/FerretDB/documentdb/packaging
 
 go 1.24
 
 toolchain go1.24.2
 
 require (
-	github.com/sethvargo/go-githubactions v1.3.0
+	github.com/sethvargo/go-githubactions v1.3.1
 	github.com/stretchr/testify v1.10.0
 )
 
