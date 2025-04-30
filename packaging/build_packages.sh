@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Function to display help message
 function show_help {
-    echo "Usage: $0 --os <OS> --pg <PG_VERSION> [--platform <PLATFORM>] [--test-clean-install] [--output-dir <DIR>] [-h|--help]"
+    echo "Usage: $0 --os <OS> --pg <PG> --version <DOCUMENTDB_VERSION> [--platform <PLATFORM>] [--test-clean-install] [--output-dir <DIR>] [-h|--help]"
     echo ""
     echo "Description:"
     echo "  This script builds extension packages using Docker."
@@ -128,8 +128,6 @@ case $OS in
         ;;
 esac
 
-TAG=documentdb-build-packages-$OS-pg$PG:latest
-
 repo_root=$(git rev-parse --show-toplevel)
 abs_output_dir="$repo_root/$OUTPUT_DIR"
 cd $repo_root
@@ -152,7 +150,7 @@ echo "Packages built successfully!!"
 if [[ $TEST_CLEAN_INSTALL == true ]]; then
     echo "Testing clean installation in a Docker container..."
 
-    deb_package_name=$(ls $abs_output_dir | grep -E "${OS}-postgresql-$PG-documentdb_${DOCUMENTDB_VERSION}.*\.deb" | grep -v "dbg" | head -n 1)
+    deb_package_name=$(ls $abs_output_dir | grep -E "${OS}-postgresql-${PG}-documentdb_${DOCUMENTDB_VERSION}.*\.deb" | grep -v "dbg" | head -n 1)
     deb_package_rel_path="$OUTPUT_DIR/$deb_package_name"
 
     echo "Debian package path: $deb_package_rel_path"
