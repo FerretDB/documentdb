@@ -1,4 +1,4 @@
-module github.com/FerretDB/documentdb/packaging
+module github.com/FerretDB/documentdb/packaging/defineversion
 
 go 1.24
 
