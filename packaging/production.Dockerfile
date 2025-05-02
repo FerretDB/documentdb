@@ -37,7 +37,7 @@ set -ex
 
 cd /src
 
-cp ferretdb_packaging/10-preload.sh ferretdb_packaging/20-install.sql /docker-entrypoint-initdb.d/
+cp packaging/10-preload.sh packaging/20-install.sql /docker-entrypoint-initdb.d/
 
 EOF
 
