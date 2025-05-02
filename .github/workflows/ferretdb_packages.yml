@@ -106,14 +106,14 @@ jobs:
       - name: Define version
         id: version
         run: |
-          cd ferretdb_packaging
+          cd packaging/defineversion
           go mod tidy
           go mod verify
-          go run ./defineversion -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }} -debian-only
+          go run . -control-file ../../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }} -debian-only
 
       - name: Build ${{ steps.version.outputs.debian_version }}
         if: steps.version.outputs.debian_version != ''
-        run: ./ferretdb_packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg }} --version ${{ steps.version.outputs.debian_version }} --test-clean-install
+        run: ./packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg }} --version ${{ steps.version.outputs.debian_version }} --test-clean-install
 
       - name: Upload .deb packages
         uses: actions/upload-artifact@v4
@@ -186,10 +186,10 @@ jobs:
       - name: Define version
         id: version
         run: |
-          cd ferretdb_packaging
+          cd packaging/defineversion
           go mod tidy
           go mod verify
-          go run ./defineversion -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }}
+          go run . -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }}
 
       - name: Download deb12-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
         uses: actions/download-artifact@v4
@@ -198,12 +198,12 @@ jobs:
           path: packaging
 
       - name: Initialize Docker builder
-        run: make -C ferretdb_packaging docker-init
+        run: make -C packaging docker-init
 
       - name: Build local development Docker image
         if: steps.version.outputs.docker_development_tag_flags != ''
         run: >
-          make -C ferretdb_packaging docker-build
+          make -C packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
           FILE=development
@@ -213,7 +213,7 @@ jobs:
       - name: Build local production Docker image
         if: steps.version.outputs.docker_production_tag_flags != ''
         run: >
-          make -C ferretdb_packaging docker-build
+          make -C packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
           FILE=production
@@ -243,7 +243,7 @@ jobs:
       - name: Build and push development Docker images
         if: steps.version.outputs.docker_development_tag_flags != ''
         run: >
-          make -C ferretdb_packaging docker-build
+          make -C packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
           FILE=development
@@ -253,7 +253,7 @@ jobs:
       - name: Build and push production Docker images
         if: steps.version.outputs.docker_production_tag_flags != ''
         run: >
-          make -C ferretdb_packaging docker-build
+          make -C packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
           FILE=production
