@@ -53,8 +53,19 @@ concurrency:
 
 jobs:
   deb:
-    name: Build .debs (${{ matrix.os }}, Pg${{ matrix.pg }})
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [deb11, deb12, ubuntu22.04, ubuntu24.04]
+        pg: [15, 16, 17]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+
+    name: Build .debs (${{ matrix.os }}, ${{ matrix.arch }}, Pg${{ matrix.pg }})
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
 
     if: >
@@ -66,12 +77,6 @@ jobs:
       )
 
     permissions: {}
-
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [deb11, deb12, ubuntu22.04, ubuntu24.04]
-        pg: [15, 16, 17]
 
     steps:
       # TODO https://github.com/FerretDB/github-actions/issues/211
@@ -118,7 +123,7 @@ jobs:
       - name: Upload .deb packages
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
+          name: ${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
           path: packaging/*.deb
           retention-days: 1
           if-no-files-found: error
@@ -137,13 +142,15 @@ jobs:
 
     needs: deb
 
-    if: >
-      github.event_name != 'pull_request_target' ||
-      (
-        contains(github.event.pull_request.labels.*.name, 'trust') &&
-        !contains(github.event.pull_request.labels.*.name, 'not ready') &&
-        contains(github.event.pull_request.labels.*.name, 'packages')
-      )
+    if: false
+
+    # if: >
+    #   github.event_name != 'pull_request_target' ||
+    #   (
+    #     contains(github.event.pull_request.labels.*.name, 'trust') &&
+    #     !contains(github.event.pull_request.labels.*.name, 'not ready') &&
+    #     contains(github.event.pull_request.labels.*.name, 'packages')
+    #   )
 
     permissions:
       packages: write
