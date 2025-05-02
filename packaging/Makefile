@@ -24,7 +24,7 @@ docker-build:
 		--file=$(FILE).Dockerfile \
 		--build-arg='POSTGRES_VERSION=$(POSTGRES_VERSION)' \
 		--build-arg='DOCUMENTDB_VERSION=$(DOCUMENTDB_VERSION)' \
-		--platform=linux/amd64 \
+		--platform=linux/amd64,linux/arm64 \
 		--output='$(OUTPUT)' \
 		$(TAGS) \
 		..
