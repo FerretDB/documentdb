@@ -111,6 +111,8 @@ case $OS in
         ;;
 esac
 
+TAG=documentdb-build-packages-$OS-pg$PG:latest
+
 repo_root=$(git rev-parse --show-toplevel)
 abs_output_dir="$repo_root/$OUTPUT_DIR"
 cd $repo_root
