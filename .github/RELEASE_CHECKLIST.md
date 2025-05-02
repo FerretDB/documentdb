@@ -4,7 +4,8 @@
 
 1. Create draft release on GitHub to see a list of merged PRs.
 2. Update CHANGELOG.md manually. It will point to versions of DocumentDB and FerretDB that are not released yet.
-3. Send PR with changes, merge it.
+3. Update `packaging/debian_files/changelog`.
+4. Send PR with changes, merge it.
 
 ## Git tag
 
