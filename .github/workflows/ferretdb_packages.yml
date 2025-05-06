@@ -23,7 +23,9 @@
 
 name: Packages
 on:
-  pull_request_target:
+  # FIXME do not merge this, it's for testing only
+  # pull_request_target:
+  pull_request:
     types:
       - unlabeled # if GitHub Actions stuck, add and remove "not ready" label to force rebuild
       - opened
@@ -143,15 +145,13 @@ jobs:
 
     needs: deb
 
-    if: false
-
-    # if: >
-    #   github.event_name != 'pull_request_target' ||
-    #   (
-    #     contains(github.event.pull_request.labels.*.name, 'trust') &&
-    #     !contains(github.event.pull_request.labels.*.name, 'not ready') &&
-    #     contains(github.event.pull_request.labels.*.name, 'packages')
-    #   )
+    if: >
+      github.event_name != 'pull_request_target' ||
+      (
+        contains(github.event.pull_request.labels.*.name, 'trust') &&
+        !contains(github.event.pull_request.labels.*.name, 'not ready') &&
+        contains(github.event.pull_request.labels.*.name, 'packages')
+      )
 
     permissions:
       packages: write
