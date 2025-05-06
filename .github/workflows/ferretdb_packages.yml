@@ -67,7 +67,7 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
 
-    name: Build .debs (${{ matrix.os }}, ${{ matrix.arch }}, Pg${{ matrix.pg }})
+    name: .debs (${{ matrix.os }}, ${{ matrix.arch }}, Pg${{ matrix.pg }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
 
@@ -139,7 +139,7 @@ jobs:
           git diff --exit-code
 
   docker:
-    name: Build Docker (Pg${{ matrix.pg }})
+    name: Docker (Pg${{ matrix.pg }})
     runs-on: ubuntu-24.04
     timeout-minutes: 40
 
