@@ -204,6 +204,7 @@ jobs:
         with:
           pattern: deb12-*-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
           path: packaging
+          merge-multiple: true
 
       - name: List files
         run: ls -l packaging
