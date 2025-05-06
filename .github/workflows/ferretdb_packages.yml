@@ -197,7 +197,7 @@ jobs:
           cd packaging/defineversion
           go mod tidy
           go mod verify
-          go run . -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }}
+          go run . -control-file ../../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }}
 
       - name: Download deb12-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
         uses: actions/download-artifact@v4
