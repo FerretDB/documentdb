@@ -46,7 +46,7 @@ jobs:
 
       - name: Run tests
         run: |
-          cd packaging
+          cd packaging/defineversion
           go mod tidy
           go mod verify
           go test ./...
