@@ -26,6 +26,7 @@ set -ex
 
 cd /src
 
+# FIXME
 cp packaging/deb12-postgresql-${POSTGRES_VERSION}-documentdb_${DOCUMENTDB_VERSION}_amd64.deb /tmp/documentdb.deb
 dpkg -i /tmp/documentdb.deb
 rm /tmp/documentdb.deb
