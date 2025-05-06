@@ -205,27 +205,30 @@ jobs:
           pattern: deb12-*-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
           path: packaging
 
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
+
       - name: Initialize Docker builder
         run: make -C packaging docker-init
 
-      - name: Build local development Docker image
+      - name: Build local development Docker images
         if: steps.version.outputs.docker_development_tag_flags != ''
         run: >
           make -C packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
           FILE=development
-          OUTPUT='type=docker'
+          OUTPUT='type=image'
           TAGS='${{ steps.version.outputs.docker_development_tag_flags }}'
 
-      - name: Build local production Docker image
+      - name: Build local production Docker images
         if: steps.version.outputs.docker_production_tag_flags != ''
         run: >
           make -C packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
           FILE=production
-          OUTPUT='type=docker'
+          OUTPUT='type=image'
           TAGS='${{ steps.version.outputs.docker_production_tag_flags }}'
 
       - name: Login to Docker Hub
