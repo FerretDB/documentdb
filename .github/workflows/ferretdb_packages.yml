@@ -205,6 +205,9 @@ jobs:
           pattern: deb12-*-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
           path: packaging
 
+      - name: List files
+        run: ls -l packaging
+
       - name: Setup QEMU
         uses: docker/setup-qemu-action@v3
 
