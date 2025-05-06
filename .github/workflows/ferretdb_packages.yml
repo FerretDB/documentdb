@@ -23,9 +23,7 @@
 
 name: Packages
 on:
-  # FIXME do not merge this, it's for testing only
-  # pull_request_target:
-  pull_request:
+  pull_request_target:
     types:
       - unlabeled # if GitHub Actions stuck, add and remove "not ready" label to force rebuild
       - opened
