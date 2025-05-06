@@ -23,9 +23,7 @@
 
 name: Packages
 on:
-  # FIXME do not merge this, it's for testing only
-  # pull_request_target:
-  pull_request:
+  pull_request_target:
     types:
       - unlabeled # if GitHub Actions stuck, add and remove "not ready" label to force rebuild
       - opened
@@ -197,35 +195,42 @@ jobs:
           cd packaging/defineversion
           go mod tidy
           go mod verify
-          go run . -control-file ../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }}
+          go run . -control-file ../../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }}
 
       - name: Download deb12-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
         uses: actions/download-artifact@v4
         with:
-          name: deb12-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
+          pattern: deb12-*-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
           path: packaging
+          merge-multiple: true
+
+      - name: List files
+        run: ls -l packaging
+
+      - name: Setup QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Initialize Docker builder
         run: make -C packaging docker-init
 
-      - name: Build local development Docker image
+      - name: Build local development Docker images
         if: steps.version.outputs.docker_development_tag_flags != ''
         run: >
           make -C packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
           FILE=development
-          OUTPUT='type=docker'
+          OUTPUT='type=image'
           TAGS='${{ steps.version.outputs.docker_development_tag_flags }}'
 
-      - name: Build local production Docker image
+      - name: Build local production Docker images
         if: steps.version.outputs.docker_production_tag_flags != ''
         run: >
           make -C packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
           DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
           FILE=production
-          OUTPUT='type=docker'
+          OUTPUT='type=image'
           TAGS='${{ steps.version.outputs.docker_production_tag_flags }}'
 
       - name: Login to Docker Hub
