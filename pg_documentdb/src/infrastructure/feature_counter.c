@@ -215,10 +215,12 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	[FEATURE_COMMAND_DELETE] = "command_delete",
 	[FEATURE_COMMAND_FINDANDMODIFY] = "command_findAndModify",
 	[FEATURE_COMMAND_INSERT] = "command_insert",
+	[FEATURE_COMMAND_INSERT_BULK] = "command_insert_bulk",
 	[FEATURE_COMMAND_SHARD_COLLECTION] = "command_shard_collection",
 	[FEATURE_COMMAND_RESHARD_COLLECTION] = "command_reshard_collection",
 	[FEATURE_COMMAND_UNSHARD_COLLECTION] = "command_unshard_collection",
 	[FEATURE_COMMAND_UPDATE] = "command_update",
+	[FEATURE_COMMAND_UPDATE_BULK] = "command_update_bulk",
 	[FEATURE_COMMAND_VALIDATE_REPAIR] = "validate_repair",
 
 	[FEATURE_COMMAND_COLLMOD_VIEW] = "collMod_view",
@@ -311,11 +313,12 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	[FEATURE_STAGE_VECTOR_SEARCH_KNN] = "vector_search_knn",
 	[FEATURE_STAGE_VECTOR_SEARCH_MONGO] = "vector_search_mongo",
 
-	/* Feature usage stats */
-	[FEATURE_TTL_PURGER_CALLS] = "ttl_purger_calls",
-
 	/* Feature Mapping region - Update operators */
 	[FEATURE_UPDATE_OPERATOR_GEN_EMBEDDINGS] = "update_operator_vector_gen_embeddings",
+
+	/* Feature usage stats */
+	[FEATURE_USAGE_TTL_PURGER_CALLS] = "ttl_purger_calls",
+	[FEATURE_USAGE_INDEX_SCAN_WITH_LIMIT] = "index_scan_with_limit",
 
 	/* Feature mapping region - User CRUD*/
 	[FEATURE_USER_CREATE] = "user_create",

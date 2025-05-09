@@ -117,8 +117,6 @@ PGDLLEXPORT char *ApiInternalSchemaName = "documentdb_api_internal";
 PGDLLEXPORT char *ApiInternalSchemaNameV2 = "documentdb_api_internal";
 PGDLLEXPORT char *ExtensionObjectPrefix = "documentdb";
 PGDLLEXPORT char *ExtensionObjectPrefixV2 = "documentdb";
-PGDLLEXPORT char *CoreSchemaName = "documentdb_core";
-PGDLLEXPORT char *CoreSchemaNameV2 = "documentdb_core";
 PGDLLEXPORT char *FullBsonTypeName = "documentdb_core.bson";
 PGDLLEXPORT char *ApiExtensionName = "documentdb";
 PGDLLEXPORT char *ApiCatalogSchemaName = "documentdb_api_catalog";
@@ -885,11 +883,17 @@ typedef struct DocumentDBApiOidCacheData
 	/* OID of the bson_expression_get with let function */
 	Oid ApiCatalogBsonExpressionGetWithLetFunctionOid;
 
+	/* OID of the bson_expression_get with let and collation function */
+	Oid ApiCatalogBsonExpressionGetWithLetAndCollationFunctionOid;
+
 	/* OID of the bson_expression_partition_get function */
 	Oid ApiCatalogBsonExpressionPartitionGetFunctionOid;
 
 	/* OID of the bson_expression_partition_get with let function */
 	Oid ApiCatalogBsonExpressionPartitionGetWithLetFunctionOid;
+
+	/* OID of the bson_expression_partition_get with let and collation function */
+	Oid ApiCatalogBsonExpressionPartitionGetWithLetAndCollationFunctionOid;
 
 	/* OID of the bson_expression_map function */
 	Oid ApiCatalogBsonExpressionMapFunctionOid;
@@ -915,7 +919,7 @@ typedef struct DocumentDBApiOidCacheData
 	/* OID of the bson_const_fill window function */
 	Oid BsonConstFillFunctionOid;
 
-	/* OID of ApiInternalSchemaName.bson_dollar_lookup_join_filter function */
+	/* OID of ApiInternalSchemaNameV2.bson_dollar_lookup_join_filter function */
 	Oid BsonDollarLookupJoinFilterFunctionOid;
 
 	/* OID of the bson_lookup_unwind function */
@@ -4505,6 +4509,17 @@ BsonExpressionGetWithLetFunctionOid(void)
 
 
 Oid
+BsonExpressionGetWithLetAndCollationFunctionOid(void)
+{
+	return GetOperatorFunctionIdFiveArgs(
+		&Cache.ApiCatalogBsonExpressionGetWithLetAndCollationFunctionOid,
+		DocumentDBApiInternalSchemaName, "bson_expression_get",
+		DocumentDBCoreBsonTypeId(), DocumentDBCoreBsonTypeId(), BOOLOID,
+		DocumentDBCoreBsonTypeId(), TEXTOID);
+}
+
+
+Oid
 BsonExpressionPartitionGetFunctionOid(void)
 {
 	return GetOperatorFunctionIdThreeArgs(
@@ -4537,6 +4552,17 @@ BsonExpressionPartitionGetWithLetFunctionOid(void)
 		DocumentDBApiInternalSchemaName, "bson_expression_partition_get",
 		DocumentDBCoreBsonTypeId(), DocumentDBCoreBsonTypeId(), BOOLOID,
 		DocumentDBCoreBsonTypeId());
+}
+
+
+Oid
+BsonExpressionPartitionGetWithLetAndCollationFunctionOid(void)
+{
+	return GetOperatorFunctionIdFiveArgs(
+		&Cache.ApiCatalogBsonExpressionPartitionGetWithLetAndCollationFunctionOid,
+		DocumentDBApiInternalSchemaName, "bson_expression_partition_get",
+		DocumentDBCoreBsonTypeId(), DocumentDBCoreBsonTypeId(), BOOLOID,
+		DocumentDBCoreBsonTypeId(), TEXTOID);
 }
 
 
