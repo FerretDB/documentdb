@@ -1,4 +1,6 @@
-### documentdb v0.103-0 (Unreleased) ###
+### DocumentDB v0.103.0-ferretdb-2.2.0 (May 9, 2025) ###
+
+### documentdb v0.103-0 (May 9, 2025) ###
 * Support collation with aggregation and find on sharded collections *[Feature]*
 * Support `$convert` on `binData` to `binData`, `string` to `binData` and `binData` to `string` (except with `format: auto`) *[Feature]*
 * Fix list_databases for databases with size > 2 GB *[Bugfix]* (#119)
