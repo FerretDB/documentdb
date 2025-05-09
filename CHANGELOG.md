@@ -1,3 +1,10 @@
+### documentdb v0.104-0 (Unreleased) ###
+* Add string case support for `$toDate` operator
+* Support collation with `$indexOfArray` aggregation operator. *[Feature]*
+* Support collation with arrays and objects comparisons *[Feature]*
+* Support background index builds *[Bugfix]* (#36)
+* Enable user CRUD by default *[Feature]*
+
 ### DocumentDB v0.103.0-ferretdb-2.2.0 (May 9, 2025) ###
 
 This version works best with FerretDB v2.2.0.
@@ -19,6 +26,7 @@ to avoid unexpected updates.
 * Support half-precision vector indexing, vectors can have up to 4,000 dimensions *[Feature]*
 * Support ARM64 architecture when building docker container *[Preview]*
 * Support collation with `$documents` and `$replaceWith` stage of the aggregation pipeline *[Feature]*
+* Push pg_documentdb_gw for documentdb connections *[Feature]*
 
 ### DocumentDB v0.102.0-ferretdb-2.1.0 (April 2, 2025) ###
 

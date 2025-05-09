@@ -14,7 +14,7 @@
 #include <fmgr.h>
 
 #include "vector/vector_spec.h"
-
+#include "vector/vector_configs.h"
 
 /*
  * Type that holds data needed for
@@ -48,4 +48,8 @@ bool IsMatchingVectorIndex(Relation indexRelation, const char *queryVectorPath,
 						   FuncExpr **vectorExtractorFunc);
 
 Oid GetFullVectorOperatorId(VectorIndexDistanceMetric distanceMetric);
+
+bool IsHalfVectorCastFunction(FuncExpr *vectorCastFunc);
+
+bool IsPgvectorHalfVectorAvailable(void);
 #endif

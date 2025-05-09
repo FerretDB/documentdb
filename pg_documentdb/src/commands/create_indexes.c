@@ -187,6 +187,7 @@ extern bool SkipFailOnCollation;
 extern bool DisableStatisticsForUniqueColumns;
 extern bool EnableNewCompositeIndexOpclass;
 extern bool ForceWildcardReducedTerm;
+extern bool DefaultUseCompositeOpClass;
 
 char *AlternateIndexHandler = NULL;
 
@@ -2793,6 +2794,14 @@ ParseCosmosSearchOptionsDoc(const bson_iter_t *indexDefDocIter)
 			}
 
 			cosmosSearchOptions->commonOptions.numDimensions = BsonValueAsInt32(keyValue);
+
+			if (cosmosSearchOptions->commonOptions.numDimensions > VECTOR_MAX_DIMENSIONS)
+			{
+				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
+								errmsg(
+									"vector index dimensions must be less than or equal to %d",
+									VECTOR_MAX_DIMENSIONS)));
+			}
 		}
 		else if (strcmp(searchOptionsIterKey, "compression") == 0)
 		{
@@ -2819,28 +2828,30 @@ ParseCosmosSearchOptionsDoc(const bson_iter_t *indexDefDocIter)
 
 				/* check if the half vector type is supported, older versions of
 				 * pgvector do not support half vector type */
-				MemoryContext savedMemoryContext = CurrentMemoryContext;
-				PG_TRY();
+				if (!IsPgvectorHalfVectorAvailable())
 				{
-					if (HalfVectorTypeId() == InvalidOid)
-					{
-						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
-										errmsg(
-											"Compression type 'half' is not supported.")));
-					}
-				}
-				PG_CATCH();
-				{
-					MemoryContextSwitchTo(savedMemoryContext);
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
 									errmsg(
-										"Compression type 'half' is not supported.")));
+										"Compression type 'half' is not supported."),
+									errdetail_log(
+										"The half vector is not supported by pgvector, please check the version of pgvector")));
 				}
-				PG_END_TRY();
 
 				ReportFeatureUsage(FEATURE_CREATE_INDEX_VECTOR_COMPRESSION_HALF);
 				cosmosSearchOptions->commonOptions.compressionType =
 					VectorIndexCompressionType_Half;
+			}
+			else if (StringViewEqualsCString(&str, "pq"))
+			{
+				if (!EnableVectorCompressionPQ)
+				{
+					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
+									errmsg(
+										"Compression type 'pq' is not enabled.")));
+				}
+				ReportFeatureUsage(FEATURE_CREATE_INDEX_VECTOR_COMPRESSION_PQ);
+				cosmosSearchOptions->commonOptions.compressionType =
+					VectorIndexCompressionType_PQ;
 			}
 			else
 			{
@@ -2857,9 +2868,6 @@ ParseCosmosSearchOptionsDoc(const bson_iter_t *indexDefDocIter)
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
 						errmsg("cosmosSearch index kind must be specified")));
 	}
-
-	/* The max limit error is thrown by pgvector, will be caught by the gateway */
-	/* So we don't check the max limit here */
 
 	if (cosmosSearchOptions->commonOptions.numDimensions <= 1)
 	{
@@ -4518,11 +4526,11 @@ CreatePostgresIndexCreationCmd(uint64 collectionId, IndexDef *indexDef, int inde
 			enableLargeIndexKeys = true;
 		}
 
-		bool enableNewIndexOpClass = false;
-		if (EnableNewCompositeIndexOpclass &&
-			indexDef->enableCompositeTerm == BoolIndexOption_True)
+		bool enableNewIndexOpClass = EnableNewCompositeIndexOpclass &&
+									 DefaultUseCompositeOpClass;
+		if (indexDef->enableCompositeTerm != BoolIndexOption_Undefined)
 		{
-			enableNewIndexOpClass = true;
+			enableNewIndexOpClass = indexDef->enableCompositeTerm == BoolIndexOption_True;
 		}
 
 		bool supportsAlternateIndexHandler = false;
@@ -4660,11 +4668,11 @@ CreatePostgresIndexCreationCmd(uint64 collectionId, IndexDef *indexDef, int inde
 								   BoolIndexOption_False;
 		}
 
-		bool enableNewIndexOpClass = false;
-		if (EnableNewCompositeIndexOpclass &&
-			indexDef->enableCompositeTerm == BoolIndexOption_True)
+		bool enableNewIndexOpClass = EnableNewCompositeIndexOpclass &&
+									 DefaultUseCompositeOpClass;
+		if (indexDef->enableCompositeTerm != BoolIndexOption_Undefined)
 		{
-			enableNewIndexOpClass = true;
+			enableNewIndexOpClass = indexDef->enableCompositeTerm == BoolIndexOption_True;
 		}
 
 		/* Currently alternate index handler is only supported for single path simple indexes, this will be updated as we add more support. */

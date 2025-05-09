@@ -118,6 +118,17 @@ typedef const pgbson *(*GetUserInfoFromExternalIdentityProvider_HookType)();
 extern GetUserInfoFromExternalIdentityProvider_HookType
 	get_user_info_from_external_identity_provider_hook;
 
+
+/* Method for username validation */
+typedef bool (*UserNameValidation_HookType)(const char *username);
+extern UserNameValidation_HookType username_validation_hook;
+
+
+/* Method for password validation */
+typedef bool (*PasswordValidation_HookType)(const char *username, const char *password);
+extern PasswordValidation_HookType password_validation_hook;
+
+
 /*
  * Hook for enabling running a query with nested distribution enabled.
  */
@@ -225,7 +236,6 @@ extern TryOptimizePathForBitmapAndHookType try_optimize_path_for_bitmap_and_hook
 extern bool DefaultInlineWriteOperations;
 extern bool ShouldUpgradeDataTables;
 
-
 typedef char *(*TryGetExtendedVersionRefreshQuery_HookType)(void);
 extern TryGetExtendedVersionRefreshQuery_HookType
 	try_get_extended_version_refresh_query_hook;
@@ -237,6 +247,22 @@ typedef void (*GetShardIdsAndNamesForCollection_HookType)(Oid relationOid, const
 														  int32_t *shardCount);
 extern GetShardIdsAndNamesForCollection_HookType
 	get_shard_ids_and_names_for_collection_hook;
+
+
+typedef const char *(*GetPidForIndexBuild_HookType)(void);
+extern GetPidForIndexBuild_HookType get_pid_for_index_build_hook;
+
+
+typedef const char *(*TryGetIndexBuildJobOpIdQuery_HookType)(void);
+extern TryGetIndexBuildJobOpIdQuery_HookType try_get_index_build_job_op_id_query_hook;
+
+
+typedef char *(*TryGetCancelIndexBuildQuery_HookType)(int32_t indexId, char cmdType);
+extern TryGetCancelIndexBuildQuery_HookType try_get_cancel_index_build_query_hook;
+
+
+typedef bool (*ShouldScheduleIndexBuilds_HookType)();
+extern ShouldScheduleIndexBuilds_HookType should_schedule_index_builds_hook;
 
 
 #endif
