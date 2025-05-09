@@ -1,10 +1,24 @@
-### documentdb v0.103-0 (Unreleased) ###
+### DocumentDB v0.103.0-ferretdb-2.2.0 (May 9, 2025) ###
+
+This version works best with FerretDB v2.2.0.
+
+Debian and Ubuntu `.deb` packages are provided
+[on the release page](https://github.com/FerretDB/documentdb/releases/tag/v0.103.0-ferretdb-2.2.0).
+See installation instructions [in our documentation](https://docs.ferretdb.io/installation/documentdb/deb/).
+
+Docker images are available
+[in the registry](https://github.com/FerretDB/documentdb/pkgs/container/postgres-documentdb).
+See installation instructions [in our documentation](https://docs.ferretdb.io/installation/documentdb/docker/).
+We always recommend specifying the full image tag (e.g., `17-0.103.0-ferretdb-2.2.0`, not just `17` or `17-0.103.0`)
+to avoid unexpected updates.
+
+### documentdb v0.103-0 (May 9, 2025) ###
 * Support collation with aggregation and find on sharded collections *[Feature]*
 * Support `$convert` on `binData` to `binData`, `string` to `binData` and `binData` to `string` (except with `format: auto`) *[Feature]*
 * Fix list_databases for databases with size > 2 GB *[Bugfix]* (#119)
 * Support half-precision vector indexing, vectors can have up to 4,000 dimensions *[Feature]*
 * Support ARM64 architecture when building docker container *[Preview]*
-* Support collation with `$documents` and `$replceWith` stage of the aggregation pipeline *[Feature]*
+* Support collation with `$documents` and `$replaceWith` stage of the aggregation pipeline *[Feature]*
 
 ### DocumentDB v0.102.0-ferretdb-2.1.0 (April 2, 2025) ###
 
