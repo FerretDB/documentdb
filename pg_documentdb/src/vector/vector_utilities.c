@@ -28,7 +28,6 @@
 #include "vector/vector_planner.h"
 #include "vector/vector_utilities.h"
 #include "vector/vector_spec.h"
-#include "utils/error_utils.h"
 
 
 /* --------------------------------------------------------- */
@@ -45,9 +44,6 @@ static Expr * GenerateVectorExractionExprFromQueryWithCast(Node *vectorQuerySpec
 static VectorIndexDistanceMetric GetDistanceMetricFromOpId(Oid similaritySearchOpId);
 static VectorIndexDistanceMetric GetDistanceMetricFromOpName(const
 															 char *similaritySearchOpName);
-
-static bool IsHalfVectorCastFunctionCore(FuncExpr *vectorCastFunc,
-										 bool logWarning);
 
 /* --------------------------------------------------------- */
 /* Top level exports */
@@ -221,16 +217,6 @@ GenerateVectorIndexExprStr(const char *keyPath,
 
 
 /*
- * Checks if the vector cast function is a cast to half vector.
- */
-bool
-IsHalfVectorCastFunction(FuncExpr *vectorCastFunc)
-{
-	return IsHalfVectorCastFunctionCore(vectorCastFunc, false);
-}
-
-
-/*
  * Checks if a query path matches a vector index and returns the index
  * expression function of the vector index.
  */
@@ -267,9 +253,8 @@ IsMatchingVectorIndex(Relation indexRelation, const char *queryVectorPath,
 	}
 
 	FuncExpr *vectorCtrExpr = (FuncExpr *) linitial(indexprs);
-	bool logWarning = true;
 	if (vectorCtrExpr->funcid != VectorAsVectorFunctionOid() &&
-		!IsHalfVectorCastFunctionCore(vectorCtrExpr, logWarning))
+		vectorCtrExpr->funcid != VectorAsHalfVecFunctionOid())
 	{
 		/* Any other index with function expression is not valid vector index */
 		return false;
@@ -322,7 +307,7 @@ GenerateVectorSortExpr(VectorSearchOptions *vectorSearchOptions,
 	/* For the exact search, we don't use the vector index
 	 * so force the cast function to the full vector if it is a half vector */
 	if (vectorSearchOptions->exactSearch &&
-		IsHalfVectorCastFunction(vectorCastFunc))
+		vectorCastFunc->funcid == VectorAsHalfVecFunctionOid())
 	{
 		/* copy the vector cast expr, change the function id to full vector */
 		vectorCastFunc = (FuncExpr *) copyObject(vectorCastFunc);
@@ -481,19 +466,6 @@ GetFullVectorOperatorId(VectorIndexDistanceMetric distanceMetric)
 }
 
 
-/*
- * The pgvector iterative scan is available from 0.7.0,
- */
-bool
-IsPgvectorHalfVectorAvailable(void)
-{
-	/* public.vector_to_halfvec function is introduced in 0.7.0 */
-	/* so we can check the function is available or not to indicate the half vector is available */
-	bool missingOk = true;
-	return OidIsValid(VectorAsHalfVecFunctionOid(missingOk));
-}
-
-
 /* --------------------------------------------------------- */
 /* Private methods */
 /* --------------------------------------------------------- */
@@ -569,34 +541,4 @@ GetDistanceMetricFromOpName(const char *similaritySearchOpName)
 	{
 		return VectorIndexDistanceMetric_Unknown;
 	}
-}
-
-
-/*
- * Checks if the vector cast function is a cast to half vector.
- * This is used to check if the vector index is a half vector index.
- */
-static bool
-IsHalfVectorCastFunctionCore(FuncExpr *vectorCastFunc, bool logWarning)
-{
-	if (!IsPgvectorHalfVectorAvailable())
-	{
-		if (logWarning)
-		{
-			ereport(WARNING, (errmsg(
-								  "The half vector is not supported by pgvector, please check the version of pgvector")));
-		}
-		return false;
-	}
-
-	bool missingOk = false;
-	Oid halfVectorCastFuncOid = VectorAsHalfVecFunctionOid(missingOk);
-
-	if (vectorCastFunc != NULL &&
-		vectorCastFunc->funcid == halfVectorCastFuncOid)
-	{
-		return true;
-	}
-
-	return false;
 }

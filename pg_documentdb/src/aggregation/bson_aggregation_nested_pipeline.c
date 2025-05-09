@@ -3166,10 +3166,7 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 }
 
 
-/*
- * Builds the graph lookup FuncExpr bson_expression_get(document, '{ "connectToField": { "$makeArray": "$inputExpression" } }' )
- * or bson_expression_get(document, '{ "connectToField": { "$makeArray": "$inputExpression" } }', collationString ),
- * if a valid collation string is provided.
+/* Builds the graph lookup FuncExpr bson_expression_get(document, '{ "connectToField": { "$makeArray": "$inputExpression" } }' )
  */
 static FuncExpr *
 BuildInputExpressionForQuery(Expr *origExpr, const StringView *connectToField, const
@@ -3188,24 +3185,18 @@ BuildInputExpressionForQuery(Expr *origExpr, const StringView *connectToField, c
 	PgbsonWriterAppendValue(&makeArrayWriter, "$makeArray", 10, inputExpression);
 	PgbsonWriterEndDocument(&expressionWriter, &makeArrayWriter);
 
+	if (IsCollationApplicable(context->collationString))
+	{
+		PgbsonWriterAppendUtf8(&expressionWriter, "collation", 9,
+							   context->collationString);
+	}
+
 	pgbson *inputExpr = PgbsonWriterGetPgbson(&expressionWriter);
 	Const *falseConst = (Const *) MakeBoolValueConst(false);
 	List *inputExprArgs;
 	Oid functionOid;
 
-	bool applyCollationAndVariableSpec = IsCollationApplicable(
-		context->collationString) && IsClusterVersionAtleast(DocDB_V0, 103, 0);
-
-	if (applyCollationAndVariableSpec)
-	{
-		Const *collationConst = MakeTextConst(context->collationString,
-											  strlen(context->collationString));
-		functionOid = BsonExpressionGetWithLetAndCollationFunctionOid();
-		inputExprArgs = list_make5(origExpr, MakeBsonConst(inputExpr),
-								   falseConst, context->variableSpec,
-								   collationConst);
-	}
-	else if (context->variableSpec != NULL)
+	if (context->variableSpec != NULL)
 	{
 		functionOid = BsonExpressionGetWithLetFunctionOid();
 		inputExprArgs = list_make4(origExpr, MakeBsonConst(inputExpr),
@@ -3221,7 +3212,6 @@ BuildInputExpressionForQuery(Expr *origExpr, const StringView *connectToField, c
 	FuncExpr *inputFuncExpr = makeFuncExpr(
 		functionOid, BsonTypeId(), inputExprArgs, InvalidOid,
 		InvalidOid, COERCE_EXPLICIT_CALL);
-
 	return inputFuncExpr;
 }
 
@@ -3230,10 +3220,6 @@ BuildInputExpressionForQuery(Expr *origExpr, const StringView *connectToField, c
  * Adds input expression query to the input query projection list. This is the expression
  * for the inputExpression for the Graph lookup
  * bson_expression_get(document, '{ "connectToField": "$inputExpression" } ) AS "inputExpr"
- * or
- * bson_expression_get(document, '{ "connectToField": "$inputExpression" }', collationString )
- * AS "inputExpr",
- * if a collation string is provided.
  */
 static AttrNumber
 AddInputExpressionToQuery(Query *query, StringView *fieldName, const
@@ -3244,8 +3230,8 @@ AddInputExpressionToQuery(Query *query, StringView *fieldName, const
 	TargetEntry *origEntry = linitial(query->targetList);
 
 	/*
-	 * Adds the projector bson_expression_get(document, '{ "connectToField": { "$makeArray": "$inputExpression" } }' )
-	 * AS "inputExpr" into the left query.
+	 * Adds the projector bson_expression_get(document, '{ "connectToField": { "$makeArray": "$inputExpression" } }' ) AS "inputExpr"
+	 * into the left query.
 	 */
 	FuncExpr *inputFuncExpr = BuildInputExpressionForQuery(origEntry->expr, fieldName,
 														   inputExpression,
@@ -3514,7 +3500,6 @@ GenerateBaseCaseQuery(AggregationPipelineBuildContext *parentContext,
 	Var *rightVar = makeVar(1, 2, BsonTypeId(), -1, InvalidOid, baseCteLevelsUp);
 	Const *textConst = MakeTextConst(args->connectToField.string,
 									 args->connectToField.length);
-
 	FuncExpr *initialMatchFunc = makeFuncExpr(BsonDollarLookupJoinFilterFunctionOid(),
 											  BOOLOID,
 											  list_make3(firstEntry->expr, rightVar,
@@ -3617,7 +3602,6 @@ GenerateRecursiveCaseQuery(AggregationPipelineBuildContext *parentContext,
 
 	Const *textConst = MakeTextConst(args->connectToField.string,
 									 args->connectToField.length);
-
 	FuncExpr *initialMatchFunc = makeFuncExpr(BsonDollarLookupJoinFilterFunctionOid(),
 											  BOOLOID,
 											  list_make3(firstEntry->expr, inputExpr,

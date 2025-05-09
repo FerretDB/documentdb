@@ -98,10 +98,6 @@ static pgbson * CalculateIVFSearchParamBson(bytea *indexOptions, Cardinality ind
 
 static pgbson * CalculateHNSWSearchParamBson(bytea *indexOptions, Cardinality indexRows);
 
-static VectorIndexCompressionType ExtractIVFCompressionType(bytea *indexOptions);
-
-static VectorIndexCompressionType ExtractHNSWCompressionType(bytea *indexOptions);
-
 /* --------------------------------------------------------- */
 /* Top level exports */
 /* --------------------------------------------------------- */
@@ -117,8 +113,7 @@ static VectorIndexDefinition VectorIndexDefinitionArray[] = {
 		.getIndexAccessMethodOidFunc = &PgVectorIvfFlatIndexAmId,
 		.setSearchParametersToGUCFunc = &SetIVFSearchParametersToGUC,
 		.getDefaultSearchParamBsonFunc = &GetIVFDefaultSearchParamBson,
-		.calculateSearchParamBsonFunc = &CalculateIVFSearchParamBson,
-		.extractIndexCompressionTypeFunc = &ExtractIVFCompressionType
+		.calculateSearchParamBsonFunc = &CalculateIVFSearchParamBson
 	},
 	{
 		.kindName = "vector-hnsw",
@@ -130,8 +125,7 @@ static VectorIndexDefinition VectorIndexDefinitionArray[] = {
 		.getIndexAccessMethodOidFunc = &PgVectorHNSWIndexAmId,
 		.setSearchParametersToGUCFunc = &SetHNSWSearchParametersToGUC,
 		.getDefaultSearchParamBsonFunc = &GetHNSWDefaultSearchParamBson,
-		.calculateSearchParamBsonFunc = &CalculateHNSWSearchParamBson,
-		.extractIndexCompressionTypeFunc = &ExtractHNSWCompressionType
+		.calculateSearchParamBsonFunc = &CalculateHNSWSearchParamBson
 	},
 	{ 0 },
 	{ 0 },
@@ -234,13 +228,6 @@ RegisterVectorIndexExtension(const VectorIndexDefinition *extensibleDefinition)
 							extensibleDefinition->kindName)));
 	}
 
-	if (extensibleDefinition->extractIndexCompressionTypeFunc == NULL)
-	{
-		ereport(ERROR, (errmsg(
-							"extractIndexCompressionTypeFunc is not defined for the vector index type: %s",
-							extensibleDefinition->kindName)));
-	}
-
 	VectorIndexDefinitionArray[NumberOfVectorIndexDefinitions] = *extensibleDefinition;
 	NumberOfVectorIndexDefinitions++;
 }
@@ -260,14 +247,6 @@ static void
 ParseIVFCreationSpec(bson_iter_t *vectorOptionsIter,
 					 CosmosSearchOptions *cosmosSearchOptions)
 {
-	/* IVF does not support compression type: pq */
-	if (cosmosSearchOptions->commonOptions.compressionType ==
-		VectorIndexCompressionType_PQ)
-	{
-		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
-						errmsg("Compression type 'pq' is not supported for ivf index")));
-	}
-
 	ReportFeatureUsage(FEATURE_CREATE_INDEX_VECTOR_TYPE_IVFFLAT);
 	Assert(cosmosSearchOptions->indexKindStr == VectorIndexDefinitionArray[0].kindName);
 
@@ -337,15 +316,6 @@ ParseHNSWCreationSpec(bson_iter_t *vectorOptionsIter,
 						errmsg(
 							"hnsw index is not supported for this cluster tier")));
 	}
-
-	/* HNSW does not support compression type: pq */
-	if (cosmosSearchOptions->commonOptions.compressionType ==
-		VectorIndexCompressionType_PQ)
-	{
-		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
-						errmsg("Compression type 'pq' is not supported for hnsw index")));
-	}
-
 	ReportFeatureUsage(FEATURE_CREATE_INDEX_VECTOR_TYPE_HNSW);
 	Assert(cosmosSearchOptions->indexKindStr == VectorIndexDefinitionArray[1].kindName);
 
@@ -807,22 +777,4 @@ GetHNSWDefaultSearchParamBson(void)
 							HNSW_DEFAULT_EF_SEARCH);
 
 	return PgbsonWriterGetPgbson(&optionsWriter);
-}
-
-
-static VectorIndexCompressionType
-ExtractIVFCompressionType(bytea *indexOptions)
-{
-	/* Retrieve the compression type from the index options */
-	/* Currently, there is no index options for compression type */
-	return VectorIndexCompressionType_None;
-}
-
-
-static VectorIndexCompressionType
-ExtractHNSWCompressionType(bytea *indexOptions)
-{
-	/* Retrieve the compression type from the index options */
-	/* Currently, there is no index options for compression type */
-	return VectorIndexCompressionType_None;
 }

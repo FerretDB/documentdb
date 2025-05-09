@@ -38,9 +38,6 @@ extern int MaxUserLimit;
 /* GUC that controls the blocked role prefix list*/
 extern char *BlockedRolePrefixList;
 
-/* GUC that controls whether we use username/password validation*/
-extern bool EnableUsernamePasswordConstraints;
-
 PG_FUNCTION_INFO_V1(documentdb_extension_create_user);
 PG_FUNCTION_INFO_V1(documentdb_extension_drop_user);
 PG_FUNCTION_INFO_V1(documentdb_extension_update_user);
@@ -53,7 +50,6 @@ static Datum UpdateNativeUser(UpdateUserSpec *spec);
 static char * ParseGetUserSpec(pgbson *getSpec);
 static char * PrehashPassword(const char *password);
 static bool IsCallingUserExternal(void);
-static bool IsPasswordInvalid(const char *username, const char *password);
 
 /*
  * documentdb_extension_create_user implements the
@@ -284,7 +280,7 @@ ParseCreateUserSpec(pgbson *createSpec)
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						 errmsg("'customData' must be a BSON document.")));
+						 errmsg("'customData' must be a bson document.")));
 			}
 
 			if (!IsBsonValueEmptyDocument(customDataDocument))
@@ -332,19 +328,10 @@ ParseCreateUserSpec(pgbson *createSpec)
 								"Password is not allowed when using an external identity provider.")));
 		}
 	}
-	else
+	else if (!has_user || !has_roles || !has_pwd)
 	{
-		if (!has_user || !has_roles || !has_pwd)
-		{
-			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-								"'createUser', 'roles' and 'pwd' are required fields.")));
-		}
-
-		if (IsPasswordInvalid(spec->createUser, spec->pwd))
-		{
-			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("Invalid password, use a different password.")));
-		}
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
+							"'createUser', 'roles' and 'pwd' are required fields.")));
 	}
 
 	return spec;
@@ -662,7 +649,7 @@ documentdb_extension_update_user(PG_FUNCTION_ARGS)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
 						errmsg(
-							"UpdateUser command is not supported for a non-native user.")));
+							"UpdateUser command is not supported for a non native user.")));
 	}
 	else
 	{
@@ -753,13 +740,6 @@ UpdateNativeUser(UpdateUserSpec *spec)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg("Password cannot be empty.")));
-	}
-
-	/* Verify password meets complexity requirements */
-	if (IsPasswordInvalid(spec->updateUser, spec->pwd))
-	{
-		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("Invalid password, use a different password.")));
 	}
 
 	StringInfo updateUserInfo = makeStringInfo();
@@ -1103,7 +1083,7 @@ PrehashPassword(const char *password)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_INTERNAL_ERROR),
-				 errmsg("Could not generate random salt.")));
+				 errmsg("could not generate random salt.")));
 	}
 
 #if PG_VERSION_NUM >= 160000  /* PostgreSQL 16.0 or higher */
@@ -1126,51 +1106,23 @@ PrehashPassword(const char *password)
 }
 
 
-/*
- * Method calls the IsUsernameValid hook to validate the username.
- * This validation logic must be in sync with control plane username validation.
- */
 bool
 IsUserNameInvalid(const char *userName)
 {
 	/* Split the blocked role prefix list */
-	char *blockedRolePrefixList = pstrdup(BlockedRolePrefixList);
-	bool containsBlockedPrefix = false;
-	char *token = strtok(blockedRolePrefixList, ",");
+	char *copyBlockList = pstrdup(BlockedRolePrefixList);
+	char *token = strtok(copyBlockList, ",");
 	while (token != NULL)
 	{
 		if (strncmp(userName, token, strlen(token)) == 0)
 		{
-			containsBlockedPrefix = true;
-			break;
+			pfree(copyBlockList);
+			return true;
 		}
 		token = strtok(NULL, ",");
 	}
-	pfree(blockedRolePrefixList);
-
-
-	bool is_valid = !containsBlockedPrefix;
-	if (EnableUsernamePasswordConstraints)
-	{
-		is_valid = IsUsernameValid(userName) && is_valid;
-	}
-	return !is_valid;
-}
-
-
-/*
- * Method calls the IsPasswordValid hook to validate the password.
- * This validation logic must be in sync with control plane password validation.
- */
-static bool
-IsPasswordInvalid(const char *username, const char *password)
-{
-	bool is_valid = true;
-	if (EnableUsernamePasswordConstraints)
-	{
-		is_valid = IsPasswordValid(username, password);
-	}
-	return !is_valid;
+	pfree(copyBlockList);
+	return false;
 }
 
 

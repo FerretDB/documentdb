@@ -116,18 +116,6 @@ bool IsUserExternal(const char *userName);
 const pgbson * GetUserInfoFromExternalIdentityProvider(const char *userName);
 
 /*
- * Default password validation implementation
- * Returns true if password is valid, false otherwise
- */
-bool IsPasswordValid(const char *username, const char *password);
-
-/*
- * Default username validation implementation
- * Returns true if username is valid, false otherwise
- */
-bool IsUsernameValid(const char *username);
-
-/*
  * Hook for handling colocation of tables
  */
 void HandleColocation(MongoCollection *collection, const bson_value_t *colocationOptions);
@@ -218,8 +206,6 @@ struct Path * TryOptimizePathForBitmapAnd(struct PlannerInfo *root, struct
 
 char * TryGetExtendedVersionRefreshQuery(void);
 
-
-void AllowNestedDistributionInCurrentTransaction(void);
 
 void GetShardIdsAndNamesForCollection(Oid relationOid, const char *tableName,
 									  Datum **shardOidArray, Datum **shardNameArray,

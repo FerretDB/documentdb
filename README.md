@@ -79,60 +79,18 @@ Note: To run backend postgresql tests after installing you can run `make check`.
 
 You are all set to work with DocumentDB.
 
-### Using the Prebuilt Docker Image
-
-You can use a [prebuilt docker image](.github\containers\Build-Ubuntu\PrebuildImageList.md) for DocumentDB instead of building it from source.  Follow these steps:
-
-#### Pull the Prebuilt Image
-
-Pull the prebuilt image directly from the Microsoft Container Registry:
-
-```bash
-docker pull mcr.microsoft.com/cosmosdb/ubuntu/documentdb-oss:22.04-PG16-AMD64-0.103.0
-```
-
-#### Running the Prebuilt Image
-
-To run the prebuilt image, use one of the following commands:
-
-1. Run the container:
-
-```bash
-docker run -dt mcr.microsoft.com/cosmosdb/ubuntu/documentdb-oss:22.04-PG16-AMD64-0.103.0
-```
-
-2. If external access is required, run the container with parameter "-e":
-
-```bash
-docker run -p 127.0.0.1:9712:9712 -dt mcr.microsoft.com/cosmosdb/ubuntu/documentdb-oss:22.04-PG16-AMD64-0.103.0 -e
-```
-
-This will start the container and map port `9712` from the container to the host.
-
 ### Connecting to the Server
-#### Internal Access
+
 Step 1: Run `start_oss_server.sh` to initialize the DocumentDB server and manage dependencies.
 
 ```bash
 ./scripts/start_oss_server.sh
 ```
 
-Or logging into the container if using prebuild image
-```bash
-docker exec -it <container-id> bash
-```
-
 Step 2: Connect to `psql` shell
 
 ```bash
 psql -p 9712 -d postgres
-```
-
-#### External Access
-Connect to `psql` shell
-
-```bash
-psql -h localhost --port 9712 -d postgres -U documentdb
 ```
 
 ## Usage

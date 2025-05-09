@@ -16,17 +16,6 @@ AS 'MODULE_PATHNAME', $$command_update$$;
 COMMENT ON FUNCTION __API_SCHEMA_V2__.update(text,__CORE_SCHEMA_V2__.bson,__CORE_SCHEMA_V2__.bsonsequence,text)
     IS 'update documents in a collection';
 
-CREATE OR REPLACE PROCEDURE __API_SCHEMA_V2__.update_bulk(
-    p_database_name text,
-    p_update __CORE_SCHEMA_V2__.bson,
-    p_insert_documents __CORE_SCHEMA_V2__.bsonsequence DEFAULT NULL,
-    p_transaction_id text DEFAULT NULL,
-    p_result INOUT __CORE_SCHEMA_V2__.bson DEFAULT NULL,
-    p_success INOUT boolean DEFAULT NULL)
- LANGUAGE C
-AS 'MODULE_PATHNAME', $$command_update_bulk$$;
-COMMENT ON PROCEDURE __API_SCHEMA_V2__.update_bulk(text,__CORE_SCHEMA_V2__.bson,__CORE_SCHEMA_V2__.bsonsequence,text,__CORE_SCHEMA_V2__.bson,boolean)
-    IS 'update documents in a collection in a non-transactional manner';
 
 /* Command: update */
 CREATE OR REPLACE FUNCTION __API_SCHEMA_INTERNAL_V2__.update_one(

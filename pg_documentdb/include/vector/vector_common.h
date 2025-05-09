@@ -11,7 +11,6 @@
 #define VECTOR_COMMON__H
 
 /* pgvector VECTOR_MAX_DIM: 16000 */
-/* dimensions for type vector cannot exceed 16000 */
 #define VECTOR_MAX_DIMENSIONS 16000
 
 /* ivfflat parameters */
@@ -72,6 +71,5 @@ extern bool EnableVectorPreFilterV2;
  * GUC to enable vector compression feature for vector search.
  */
 extern bool EnableVectorCompressionHalf;
-extern bool EnableVectorCompressionPQ;
 
 #endif

@@ -124,11 +124,6 @@ static Expr * CheckVectorIndexAndGenerateSortExpr(Query *query,
 												  VectorSearchOptions *vectorSearchOptions,
 												  AggregationPipelineBuildContext *context);
 
-static VectorIndexCompressionType GetIndexCompressionType(
-	VectorSearchOptions *vectorSearchOptions,
-	Relation indexRelation,
-	FuncExpr *vectorCastFunc);
-
 static void ParseAndValidateKnnBetaQuerySpec(const pgbson *vectorSearchSpecPgbson,
 											 VectorSearchOptions *vectorSearchOption);
 
@@ -663,9 +658,9 @@ AddScoreFieldToDocumentEntry(TargetEntry *documentEntry, Expr *vectorSortExpr,
 	FuncExpr *leftArgFuncWithCast = (FuncExpr *) linitial(orderArgs);
 	FuncExpr *rightArgFuncWithCast = (FuncExpr *) lsecond(orderArgs);
 
-	if (IsHalfVectorCastFunction(leftArgFuncWithCast))
+	if (leftArgFuncWithCast->funcid == VectorAsHalfVecFunctionOid())
 	{
-		/* The half compressed orderExpr example:
+		/* The compressed orderExpr example:
 		 *   public.vector_to_halfvec(bson_extract_vector(document, 'v'::text), 3, true)
 		 *   OPERATOR(public.<->)
 		 *   public.vector_to_halfvec(bson_extract_vector('{ "vector" : [ 1, 2, 3 ] }'::bson, 'vector'::text), 3, true)))
@@ -1316,26 +1311,6 @@ ParseAndValidateMongoNativeVectorSearchSpec(const bson_value_t *nativeVectorSear
 }
 
 
-static VectorIndexCompressionType
-GetIndexCompressionType(VectorSearchOptions *vectorSearchOptions,
-						Relation indexRelation,
-						FuncExpr *vectorCastFunc)
-{
-	if (IsHalfVectorCastFunction(vectorCastFunc))
-	{
-		return VectorIndexCompressionType_Half;
-	}
-	else if (vectorSearchOptions->vectorIndexDef != NULL &&
-			 indexRelation->rd_options != NULL)
-	{
-		return vectorSearchOptions->vectorIndexDef->extractIndexCompressionTypeFunc(
-			indexRelation->rd_options);
-	}
-
-	return VectorIndexCompressionType_None;
-}
-
-
 static Expr *
 CheckVectorIndexAndGenerateSortExpr(Query *query,
 									VectorSearchOptions *vectorSearchOptions,
@@ -1363,23 +1338,13 @@ CheckVectorIndexAndGenerateSortExpr(Query *query,
 				vectorSearchOptions, vectorCastFunc, indexRelation,
 				(Node *) MakeSimpleDocumentVar(), queryNode);
 
-			/* Set the vector access method */
 			vectorSearchOptions->vectorAccessMethodOid = indexRelation->rd_rel->relam;
 
-			/* Set the vector index definition */
-			vectorSearchOptions->vectorIndexDef =
-				GetVectorIndexDefinitionByIndexAmOid(
-					vectorSearchOptions->vectorAccessMethodOid);
-			if (vectorSearchOptions->vectorIndexDef == NULL)
+			if (vectorCastFunc != NULL &&
+				vectorCastFunc->funcid == VectorAsHalfVecFunctionOid())
 			{
-				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INTERNALERROR),
-								errmsg("Unsupported vector index type")));
+				vectorSearchOptions->compressionType = VectorIndexCompressionType_Half;
 			}
-
-			/* Set the vector compression type */
-			vectorSearchOptions->compressionType =
-				GetIndexCompressionType(vectorSearchOptions, indexRelation,
-										vectorCastFunc);
 		}
 		RelationClose(indexRelation);
 		if (processedSortExpr != NULL)
@@ -1452,10 +1417,19 @@ HandleVectorSearchCore(Query *query, VectorSearchOptions *vectorSearchOptions,
 					   AggregationPipelineBuildContext *context)
 {
 	/* check vector index and generate sort expr */
-	/* Also check the vector access method, vector index definition and compression type */
 	Expr *processedSortExpr = CheckVectorIndexAndGenerateSortExpr(query,
 																  vectorSearchOptions,
 																  context);
+
+	/* Get the vector index definition */
+	const VectorIndexDefinition *definition = GetVectorIndexDefinitionByIndexAmOid(
+		vectorSearchOptions->vectorAccessMethodOid);
+	if (definition == NULL)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INTERNALERROR),
+						errmsg("Unsupported vector index type")));
+	}
+	vectorSearchOptions->vectorIndexDef = definition;
 
 	/* Parse and validate the index specific options */
 	ParseAndValidateIndexSpecificOptions(vectorSearchOptions);
@@ -1504,10 +1478,6 @@ HandleVectorSearchCore(Query *query, VectorSearchOptions *vectorSearchOptions,
 	if (vectorSearchOptions->compressionType == VectorIndexCompressionType_Half)
 	{
 		ReportFeatureUsage(FEATURE_STAGE_SEARCH_VECTOR_COMPRESSION_HALF);
-	}
-	else if (vectorSearchOptions->compressionType == VectorIndexCompressionType_PQ)
-	{
-		ReportFeatureUsage(FEATURE_STAGE_SEARCH_VECTOR_COMPRESSION_PQ);
 	}
 
 	Node *limitCount = (Node *) makeConst(INT8OID, -1, InvalidOid, sizeof(int64_t),

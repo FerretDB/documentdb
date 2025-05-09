@@ -48,8 +48,4 @@ bool IsMatchingVectorIndex(Relation indexRelation, const char *queryVectorPath,
 						   FuncExpr **vectorExtractorFunc);
 
 Oid GetFullVectorOperatorId(VectorIndexDistanceMetric distanceMetric);
-
-bool IsHalfVectorCastFunction(FuncExpr *vectorCastFunc);
-
-bool IsPgvectorHalfVectorAvailable(void);
 #endif

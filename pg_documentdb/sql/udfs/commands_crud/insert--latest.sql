@@ -39,16 +39,3 @@ CREATE OR REPLACE FUNCTION __API_SCHEMA_INTERNAL_V2__.insert_worker(
  RETURNS __CORE_SCHEMA_V2__.bson
  LANGUAGE C
 AS 'MODULE_PATHNAME', $$command_insert_worker$$;
-
-/* insert procedure will use when not called inside transaction */
-CREATE OR REPLACE PROCEDURE __API_SCHEMA_V2__.insert_bulk(
-    IN p_database_name text,
-    IN p_insert __CORE_SCHEMA_V2__.bson,
-    IN p_insert_documents __CORE_SCHEMA_V2__.bsonsequence default NULL,
-    IN p_transaction_id text default NULL,
-    INOUT p_result __CORE_SCHEMA_V2__.bson default NULL,
-    INOUT p_success boolean default NULL)
- LANGUAGE C
-AS 'MODULE_PATHNAME', $$command_insert_bulk$$;
-COMMENT ON PROCEDURE __API_SCHEMA_V2__.insert_bulk(text,__CORE_SCHEMA_V2__.bson,__CORE_SCHEMA_V2__.bsonsequence,text,__CORE_SCHEMA_V2__.bson,boolean)
-    IS 'inserts documents into a collection for a mongo wire protocol command outside transaction';

@@ -283,13 +283,6 @@ DistributePostgresTableCore(const char *postgresTable, const char *distributionC
 }
 
 
-static void
-AllowNestedDistributionInCurrentTransactionCore(void)
-{
-	SetGUCLocally("citus.allow_nested_distributed_execution", "true");
-}
-
-
 /*
  * Allows nested distributed execution in the current query for citus.
  */
@@ -301,7 +294,7 @@ RunMultiValueQueryWithNestedDistributionCore(const char *query, int nArgs, Oid *
 											 bool *isNull, int numValues)
 {
 	int gucLevel = NewGUCNestLevel();
-	AllowNestedDistributionInCurrentTransactionCore();
+	SetGUCLocally("citus.allow_nested_distributed_execution", "true");
 	ExtensionExecuteMultiValueQueryWithArgsViaSPI(query, nArgs, argTypes, argDatums,
 												  argNulls, readOnly,
 												  expectedSPIOK, datums, isNull,
@@ -597,8 +590,6 @@ InitializeDocumentDBDistributedHooks(void)
 	distribute_postgres_table_hook = DistributePostgresTableCore;
 	run_query_with_nested_distribution_hook =
 		RunMultiValueQueryWithNestedDistributionCore;
-	allow_nested_distribution_in_current_transaction_hook =
-		AllowNestedDistributionInCurrentTransactionCore;
 	is_shard_table_for_mongo_table_hook = IsShardTableForMongoTableCore;
 	try_get_shard_name_for_unsharded_collection_hook =
 		TryGetShardNameForUnshardedCollectionCore;
