@@ -5672,7 +5672,7 @@ MakeCreateIndexesMsg(CreateIndexesResult *result)
 		PgbsonWriterAppendUtf8(&writer, "note", strlen("note"), result->note);
 	}
 
-	PgbsonWriterAppendInt32(&writer, "ok", strlen("ok"), result->ok);
+	PgbsonWriterAppendDouble(&writer, "ok", 2, result->ok);
 
 	if (!result->ok)
 	{
@@ -5722,7 +5722,7 @@ MakeCreateIndexesMsg(CreateIndexesResult *result)
 		PgbsonWriterEndDocument(&outerWriter, &indexIdWriter);
 	}
 
-	PgbsonWriterAppendInt32(&outerWriter, "ok", strlen("ok"), result->ok);
+	PgbsonWriterAppendDouble(&outerWriter, "ok", 2, result->ok);
 	return PgbsonWriterGetPgbson(&outerWriter);
 }
 
@@ -5780,7 +5780,7 @@ MakeReIndexMsg(ReIndexResult *result)
 		PgbsonWriterEndArray(&writer, &indexesWriter);
 	}
 
-	PgbsonWriterAppendInt32(&writer, "ok", strlen("ok"), result->ok);
+	PgbsonWriterAppendDouble(&writer, "ok", 2, result->ok);
 
 	if (!result->ok)
 	{

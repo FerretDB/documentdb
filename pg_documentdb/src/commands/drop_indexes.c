@@ -762,7 +762,7 @@ MakeDropIndexesMsg(DropIndexesResult *result)
 {
 	pgbson_writer writer;
 	PgbsonWriterInit(&writer);
-	PgbsonWriterAppendBool(&writer, "ok", strlen("ok"), result->ok);
+	PgbsonWriterAppendDouble(&writer, "ok", 2, result->ok);
 
 	if (result->ok)
 	{

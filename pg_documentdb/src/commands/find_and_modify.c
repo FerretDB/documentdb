@@ -623,7 +623,7 @@ BuildResponseMessage(FindAndModifyResult *result)
 								   result->value);
 	}
 
-	PgbsonWriterAppendDouble(&resultWriter, "ok", strlen("ok"), result->ok);
+	PgbsonWriterAppendDouble(&resultWriter, "ok", 2, result->ok);
 
 	return PgbsonWriterGetPgbson(&resultWriter);
 }
