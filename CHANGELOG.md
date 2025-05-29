@@ -1,9 +1,13 @@
 ### documentdb v0.104-0 (Unreleased) ###
 * Add string case support for `$toDate` operator
+* Support `sort` with collation in runtime*[Feature]*
 * Support collation with `$indexOfArray` aggregation operator. *[Feature]*
 * Support collation with arrays and objects comparisons *[Feature]*
 * Support background index builds *[Bugfix]* (#36)
 * Enable user CRUD by default *[Feature]*
+* Enable let support for delete queries *[Feature]*. Requires `EnableVariablesSupportForWriteCommands` to be `on`.
+* Enable rum_enable_index_scan as default on *[Perf]*
+* Add public `documentdb-local` Docker image with gateway to GHCR
 
 ### DocumentDB v0.103.0-ferretdb-2.2.0 (May 9, 2025) ###
 
@@ -19,7 +23,7 @@ See installation instructions [in our documentation](https://docs.ferretdb.io/in
 We always recommend specifying the full image tag (e.g., `17-0.103.0-ferretdb-2.2.0`, not just `17` or `17-0.103.0`)
 to avoid unexpected updates.
 
-### documentdb v0.103-0 (May 9, 2025) ###
+### documentdb v0.103-0 (May 09, 2025) ###
 * Support collation with aggregation and find on sharded collections *[Feature]*
 * Support `$convert` on `binData` to `binData`, `string` to `binData` and `binData` to `string` (except with `format: auto`) *[Feature]*
 * Fix list_databases for databases with size > 2 GB *[Bugfix]* (#119)
