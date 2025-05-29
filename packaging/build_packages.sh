@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Function to display help message
 function show_help {
-    echo "Usage: $0 --os <OS> --pg <PG_VERSION> [--test-clean-install] [--output-dir <DIR>] [-h|--help]"
+    echo "Usage: $0 --os <OS> --pg <PG> --version <DOCUMENTDB_VERSION> [--test-clean-install] [--output-dir <DIR>] [-h|--help]"
     echo ""
     echo "Description:"
     echo "  This script builds extension packages using Docker."
@@ -12,9 +12,9 @@ function show_help {
     echo "Mandatory Arguments:"
     echo "  --os                 OS to build packages for. Possible values: [deb11, deb12, ubuntu22.04, ubuntu24.04]"
     echo "  --pg                 PG version to build packages for. Possible values: [15, 16, 17]"
+    echo "  --version            The version of documentdb to build. Examples: [0.100.0, 0.101.0]"
     echo ""
     echo "Optional Arguments:"
-    echo "  --version            The version of documentdb to build. Examples: [0.100.0, 0.101.0]"
     echo "  --test-clean-install Test installing the packages in a clean Docker container."
     echo "  --output-dir         Relative path from the repo root of the directory where to drop the packages. The directory will be created if it doesn't exist. Default: packaging"
     echo "  -h, --help           Display this help message."
@@ -89,16 +89,10 @@ if [[ -z "$PG" ]]; then
     exit 1
 fi
 
-# get the version from control file
 if [[ -z "$DOCUMENTDB_VERSION" ]]; then
-    DOCUMENTDB_VERSION=$(grep -E "^default_version" pg_documentdb_core/documentdb_core.control | sed -E "s/.*'([0-9]+\.[0-9]+-[0-9]+)'.*/\1/")
-    DOCUMENTDB_VERSION=$(echo $DOCUMENTDB_VERSION | sed "s/-/./g")
-    echo "DOCUMENTDB_VERSION extracted from control file: $DOCUMENTDB_VERSION"
-    if [[ -z "$DOCUMENTDB_VERSION" ]]; then
-        echo "Error: --version is required and could not be found in the control file."
-        show_help
-        exit 1
-    fi
+    echo "Error: --version is required."
+    show_help
+    exit 1
 fi
 
 # Set the appropriate Docker image based on the OS
@@ -141,7 +135,7 @@ echo "Packages built successfully!!"
 if [[ $TEST_CLEAN_INSTALL == true ]]; then
     echo "Testing clean installation in a Docker container..."
 
-    deb_package_name=$(ls $abs_output_dir | grep -E "${OS}-postgresql-$PG-documentdb_${DOCUMENTDB_VERSION}.*\.deb" | grep -v "dbg" | head -n 1)
+    deb_package_name=$(ls $abs_output_dir | grep -E "${OS}-postgresql-${PG}-documentdb_${DOCUMENTDB_VERSION}.*\.deb" | grep -v "dbg" | head -n 1)
     deb_package_rel_path="$OUTPUT_DIR/$deb_package_name"
 
     echo "Debian package path: $deb_package_rel_path"
