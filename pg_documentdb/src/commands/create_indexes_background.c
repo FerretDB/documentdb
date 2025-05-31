@@ -1400,13 +1400,13 @@ MakeBuildIndexesMsg(BuildIndexesResult *result)
 	/* { "raw" :
 	 *      { "defaultShard" :
 	 *          {
-	 *              "ok" : { "$numberInt" : "0" },
+	 *              "ok" : { "$numberDouble" : "0" },
 	 *              "errmsg" : "error",
 	 *              "code" : { "$numberInt" : "1" }
 	 *          }
 	 *      },
 	 *      "finish" : { "$numberInt" : "1" },
-	 *      "ok" : { "$numberInt" : "0" }
+	 *      "ok" : { "$numberDouble" : "0" }
 	 *  }
 	 */
 	pgbson_writer outerWriter;
@@ -1422,7 +1422,7 @@ MakeBuildIndexesMsg(BuildIndexesResult *result)
 		PgbsonWriterStartDocument(&rawShardResultWriter, "defaultShard", strlen(
 									  "defaultShard"), &writer);
 
-		PgbsonWriterAppendInt32(&writer, "ok", strlen("ok"), result->ok);
+		PgbsonWriterAppendDouble(&writer, "ok", 2, result->ok);
 		if (result->errcode == ERRCODE_T_R_DEADLOCK_DETECTED)
 		{
 			result->errmsg = "deadlock detected. createIndexes() command "
@@ -1443,7 +1443,7 @@ MakeBuildIndexesMsg(BuildIndexesResult *result)
 		PgbsonWriterEndDocument(&outerWriter, &rawShardResultWriter);
 	}
 	PgbsonWriterAppendInt32(&outerWriter, FinishKey, FinishKeyLength, result->finish);
-	PgbsonWriterAppendInt32(&outerWriter, "ok", strlen("ok"), result->ok);
+	PgbsonWriterAppendDouble(&outerWriter, "ok", 2, result->ok);
 	return PgbsonWriterGetPgbson(&outerWriter);
 }
 
