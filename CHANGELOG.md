@@ -1,7 +1,21 @@
-### documentdb v0.104-0 (Unreleased) ###
+### DocumentDB v0.104.0-ferretdb-2.3.0 (Jun 10, 2025) ###
+
+This version works best with FerretDB v2.3.0.
+
+Debian and Ubuntu `.deb` packages are provided
+[on the release page](https://github.com/FerretDB/documentdb/releases/tag/v0.104.0-ferretdb-2.3.0).
+See installation instructions [in our documentation](https://docs.ferretdb.io/installation/documentdb/deb/).
+
+Docker images are available
+[in the registry](https://github.com/FerretDB/documentdb/pkgs/container/postgres-documentdb).
+See installation instructions [in our documentation](https://docs.ferretdb.io/installation/documentdb/docker/).
+We always recommend specifying the full image tag (e.g., `17-0.104.0-ferretdb-2.3.0`, not just `17` or `17-0.104.0`)
+to avoid unexpected updates.
+
+### documentdb v0.104-0 (Jun 10, 2025) ###
 * Add string case support for `$toDate` operator
-* Support `sort` with collation in runtime*[Feature]*
-* Support collation with `$indexOfArray` aggregation operator. *[Feature]*
+* Support `sort` with collation in runtime *[Feature]*
+* Support collation with `$indexOfArray` aggregation operator *[Feature]*
 * Support collation with arrays and objects comparisons *[Feature]*
 * Support background index builds *[Bugfix]* (#36)
 * Enable user CRUD by default *[Feature]*
@@ -9,7 +23,7 @@
 * Enable rum_enable_index_scan as default on *[Perf]*
 * Add public `documentdb-local` Docker image with gateway to GHCR
 * Support `compact` command *[Feature]*. Requires `documentdb.enablecompact` GUC to be `on`.
-* Enable role privileges for `usersInfo` command *[Feature]* 
+* Enable role privileges for `usersInfo` command *[Feature]*
 
 ### DocumentDB v0.103.0-ferretdb-2.2.0 (May 9, 2025) ###
 
@@ -80,10 +94,10 @@ We always recommend specifying the full image tag (e.g., `17-0.102.0-ferretdb-2.
 * Support unique index truncation by default with new operator class *[Feature]*
 * Top level aggregate command `let` variables support for `$geoNear` stage *[Feature]*
 * Enable Backend Command support for Statement Timeout *[Feature]*
-* Support type aggregation operator `$toUUID`. *[Feature]*
+* Support type aggregation operator `$toUUID` *[Feature]*
 * Support Partial filter pushdown for `$in` predicates *[Perf]*
 * Support the $dateFromString operator with full functionality *[Feature]*
-* Support extended syntax for `$getField` aggregation operator. Now the value of 'field' could be an expression that resolves to a string. *[Feature]*
+* Support extended syntax for `$getField` aggregation operator (field as expression) *[Feature]*
 
 ### documentdb v0.101-0 (February 12, 2025) ###
 * Push $graphlookup recursive CTE JOIN filters to index *[Perf]*
@@ -91,7 +105,7 @@ We always recommend specifying the full image tag (e.g., `17-0.102.0-ferretdb-2.
 * Enable support of currentOp aggregation stage, along with collstats, dbstats, and indexStats *[Commands]* (#52)
 * Allow inlining $unwind with $lookup with `preserveNullAndEmptyArrays` *[Perf]*
 * Skip loading documents if group expression is constant *[Perf]*
-* Fix Merge stage not outputing to target collection *[Bugfix]* (#20)
+* Fix Merge stage not outputting to target collection *[Bugfix]* (#20)
 
 ### documentdb v0.100-0 (January 23rd, 2025) ###
 Initial Release
