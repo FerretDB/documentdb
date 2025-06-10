@@ -16,6 +16,27 @@
 
 
 /*
+ * SECTION: Top level feature flags
+ */
+#define DEFAULT_ENABLE_SCHEMA_VALIDATION false
+bool EnableSchemaValidation =
+	DEFAULT_ENABLE_SCHEMA_VALIDATION;
+
+#define DEFAULT_ENABLE_BYPASSDOCUMENTVALIDATION false
+bool EnableBypassDocumentValidation =
+	DEFAULT_ENABLE_BYPASSDOCUMENTVALIDATION;
+
+#define DEFAULT_ENABLE_NATIVE_TABLE_COLOCATION false
+bool EnableNativeTableColocation = DEFAULT_ENABLE_NATIVE_TABLE_COLOCATION;
+
+#define DEFAULT_ENABLE_USERNAME_PASSWORD_CONSTRAINTS true
+bool EnableUsernamePasswordConstraints = DEFAULT_ENABLE_USERNAME_PASSWORD_CONSTRAINTS;
+
+#define DEFAULT_ENABLE_USERS_INFO_PRIVILEGES true
+bool EnableUsersInfoPrivileges = DEFAULT_ENABLE_USERS_INFO_PRIVILEGES;
+
+
+/*
  * SECTION: Vector Search flags
  */
 
@@ -112,22 +133,14 @@ bool EnableFileBasedPersistedCursors = DEFAULT_ENABLE_FILE_BASED_PERSISTED_CURSO
 #define DEFAULT_MAX_CURSOR_FILE_INTERMEDIATE_FILE_SIZE INT_MAX
 int MaxAllowedCursorIntermediateFileSize = DEFAULT_MAX_CURSOR_FILE_INTERMEDIATE_FILE_SIZE;
 
+#define DEFAULT_ENABLE_COMPACT_COMMAND false
+bool EnableCompact = DEFAULT_ENABLE_COMPACT_COMMAND;
+
 #define DEFAULT_CURSOR_EXPIRY_TIME_LIMIT_SECONDS 60
 int DefaultCursorExpiryTimeLimitSeconds = DEFAULT_CURSOR_EXPIRY_TIME_LIMIT_SECONDS;
 
-/*
- * SECTION: Top level feature flags
- */
-#define DEFAULT_ENABLE_SCHEMA_VALIDATION false
-bool EnableSchemaValidation =
-	DEFAULT_ENABLE_SCHEMA_VALIDATION;
-
-#define DEFAULT_ENABLE_BYPASSDOCUMENTVALIDATION false
-bool EnableBypassDocumentValidation =
-	DEFAULT_ENABLE_BYPASSDOCUMENTVALIDATION;
-
-#define DEFAULT_ENABLE_NATIVE_TABLE_COLOCATION false
-bool EnableNativeTableColocation = DEFAULT_ENABLE_NATIVE_TABLE_COLOCATION;
+#define DEFAULT_EXPAND_DOLLAR_ALL_IN_QUERY_OPERATOR true
+bool ExpandDollarAllInQueryOperator = DEFAULT_EXPAND_DOLLAR_ALL_IN_QUERY_OPERATOR;
 
 
 /*
@@ -171,9 +184,6 @@ bool EnableBackendStatementTimeout = DEFAULT_ENABLE_STATEMENT_TIMEOUT;
 
 #define ALTER_CREATION_TIME_IN_COMPLETE_UPGRADE false
 bool AlterCreationTimeInCompleteUpgrade = ALTER_CREATION_TIME_IN_COMPLETE_UPGRADE;
-
-#define DEFAULT_ENABLE_USERNAME_PASSWORD_CONSTRAINTS true
-bool EnableUsernamePasswordConstraints = DEFAULT_ENABLE_USERNAME_PASSWORD_CONSTRAINTS;
 
 #define DEFAULT_ENABLE_DATA_TABLES_WITHOUT_CREATION_TIME false
 bool EnableDataTableWithoutCreationTime =
@@ -505,6 +515,14 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 		DEFAULT_MAX_CURSOR_FILE_INTERMEDIATE_FILE_SIZE,
 		1024, INT_MAX, PGC_USERSET, 0, NULL, NULL, NULL);
 
+	DefineCustomBoolVariable(
+		psprintf("%s.enableCompact", newGucPrefix),
+		gettext_noop(
+			"Whether or not to enable compact command."),
+		NULL, &EnableCompact,
+		DEFAULT_ENABLE_COMPACT_COMMAND,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
 	DefineCustomIntVariable(
 		psprintf("%s.defaultCursorExpiryTimeLimitSeconds", newGucPrefix),
 		gettext_noop(
@@ -512,4 +530,20 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 		NULL, &DefaultCursorExpiryTimeLimitSeconds,
 		DEFAULT_CURSOR_EXPIRY_TIME_LIMIT_SECONDS,
 		1, 3600, PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.expandDollarAllInQueryOperator", newGucPrefix),
+		gettext_noop(
+			"Whether or not to expand $all in query operator."),
+		NULL, &ExpandDollarAllInQueryOperator,
+		DEFAULT_EXPAND_DOLLAR_ALL_IN_QUERY_OPERATOR,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.enableUsersInfoPrivileges", newGucPrefix),
+		gettext_noop(
+			"Determines whether the usersInfo command returns privileges."),
+		NULL, &EnableUsersInfoPrivileges,
+		DEFAULT_ENABLE_USERS_INFO_PRIVILEGES,
+		PGC_USERSET, 0, NULL, NULL, NULL);
 }

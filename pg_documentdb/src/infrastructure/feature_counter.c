@@ -208,6 +208,7 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	[FEATURE_COMMAND_AGG_CURSOR_FIRST_PAGE] = "command_agg_cursor_first_page",
 	[FEATURE_COMMAND_COLLMOD] = "command_collmod",
 	[FEATURE_COMMAND_COLLSTATS] = "command_collstats",
+	[FEATURE_COMMAND_COMPACT] = "command_compact",
 	[FEATURE_COMMAND_COUNT] = "command_count",
 	[FEATURE_COMMAND_CREATE_COLLECTION] = "command_create_collection",
 	[FEATURE_COMMAND_CREATE_VALIDATION] = "command_create_validation",
@@ -239,6 +240,7 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	/* Feature Mapping region - Create index types */
 	[FEATURE_CREATE_INDEX_2D] = "create_index_2d",
 	[FEATURE_CREATE_INDEX_2DSPHERE] = "create_index_2dsphere",
+	[FEATURE_CREATE_INDEX_ALTERNATE_AM] = "create_index_alternate_am",
 	[FEATURE_CREATE_INDEX_FTS] = "create_index_fts",
 	[FEATURE_CREATE_INDEX_TEXT] = "create_index_text",
 	[FEATURE_CREATE_INDEX_TTL] = "create_index_ttl",
@@ -262,6 +264,14 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	[FEATURE_CURSOR_TYPE_SINGLE_BATCH] = "cursor_type_single_batch",
 	[FEATURE_CURSOR_TYPE_STREAMING] = "cursor_type_streaming",
 	[FEATURE_CURSOR_TYPE_TAILABLE] = "cursor_type_tailable",
+
+	/* Feature mapping region - ExternalIdentityProvider */
+	[FEATURE_EXTERNAL_IDENTITY_USER_CREATE] = "external_identity_user_create",
+	[FEATURE_EXTERNAL_IDENTITY_USER_DROP] = "external_identity_user_drop",
+	[FEATURE_EXTERNAL_IDENTITY_USER_AUTHENTICATE] = "external_identity_user_authenticate",
+	[FEATURE_EXTERNAL_IDENTITY_USER_GET] = "external_identity_user_get",
+
+	[FEATURE_INDEX_AM_PREREGISTERED] = "index_am_preregistered",
 
 	/* Feature counter region - Top-level let support */
 	[FEATURE_LET_TOP_LEVEL] = "let_top_level",
@@ -350,12 +360,6 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	[FEATURE_USER_DROP] = "user_drop",
 	[FEATURE_USER_GET] = "user_get",
 	[FEATURE_USER_UPDATE] = "user_update",
-
-	/* Feature mapping region - ExternalIdentityProvider */
-	[FEATURE_EXTERNAL_IDENTITY_USER_CREATE] = "external_identity_user_create",
-	[FEATURE_EXTERNAL_IDENTITY_USER_DROP] = "external_identity_user_drop",
-	[FEATURE_EXTERNAL_IDENTITY_USER_AUTHENTICATE] = "external_identity_user_authenticate",
-	[FEATURE_EXTERNAL_IDENTITY_USER_GET] = "external_identity_user_get",
 };
 
 

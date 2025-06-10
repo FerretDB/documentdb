@@ -8,6 +8,8 @@
 * Enable let support for delete queries *[Feature]*. Requires `EnableVariablesSupportForWriteCommands` to be `on`.
 * Enable rum_enable_index_scan as default on *[Perf]*
 * Add public `documentdb-local` Docker image with gateway to GHCR
+* Support `compact` command *[Feature]*. Requires `documentdb.enablecompact` GUC to be `on`.
+* Enable role privileges for `usersInfo` command *[Feature]* 
 
 ### DocumentDB v0.103.0-ferretdb-2.2.0 (May 9, 2025) ###
 

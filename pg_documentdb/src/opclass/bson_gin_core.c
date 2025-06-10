@@ -1336,6 +1336,25 @@ GenerateTermPath(bson_iter_t *bsonIter, const char *basePath,
 			element.path = pathToInsert;
 			element.pathLength = pathtoInsertLength;
 			element.bsonValue = *bson_iter_value(bsonIter);
+
+			if (context->skipGenerateTopLevelArrayTerm &&
+				element.bsonValue.value_type == BSON_TYPE_ARRAY && !inArrayContext)
+			{
+				/*
+				 * If this is an empty array, mark it as *literal* undefined so
+				 * it doesn't show up as a non-exists term. Otherwise skip it.
+				 */
+				if (IsBsonValueEmptyArray(&element.bsonValue))
+				{
+					element.bsonValue.value_type = BSON_TYPE_UNDEFINED;
+				}
+				else
+				{
+					/* Skip the top level array term */
+					break;
+				}
+			}
+
 			BsonCompressableIndexTermSerialized serializedTerm =
 				SerializeBsonIndexTermWithCompression(
 					&element, &context->termMetadata);
