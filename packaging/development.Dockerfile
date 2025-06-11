@@ -46,8 +46,6 @@ set -ex
 apt install -y \
     postgresql-${POSTGRES_VERSION}-pgtap
 
-cd /src
-
 cp packaging/deb12-postgresql-${POSTGRES_VERSION}-documentdb-dbgsym_${DOCUMENTDB_VERSION}_${TARGETARCH}.deb /tmp/documentdb-dbgsym.deb
 dpkg -i /tmp/documentdb-dbgsym.deb
 rm /tmp/documentdb-dbgsym.deb
