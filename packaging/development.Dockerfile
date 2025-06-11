@@ -2,11 +2,13 @@
 
 ARG POSTGRES_VERSION
 
-FROM postgres:${POSTGRES_VERSION} AS development
+FROM postgres:${POSTGRES_VERSION}
 
 ARG TARGETARCH
 ARG POSTGRES_VERSION
 ARG DOCUMENTDB_VERSION
+
+# common steps for production and development
 
 RUN --mount=type=cache,sharing=locked,target=/var/cache/apt <<EOF
 set -ex
@@ -32,13 +34,13 @@ cp packaging/deb12-postgresql-${POSTGRES_VERSION}-documentdb_${DOCUMENTDB_VERSIO
 dpkg -i /tmp/documentdb.deb
 rm /tmp/documentdb.deb
 
-cp packaging/deb12-postgresql-${POSTGRES_VERSION}-documentdb-dbgsym_${DOCUMENTDB_VERSION}_${TARGETARCH}.deb /tmp/documentdb-dbgsym.deb
-dpkg -i /tmp/documentdb-dbgsym.deb
-rm /tmp/documentdb-dbgsym.deb
+cp packaging/10-preload.sh  /docker-entrypoint-initdb.d/
+cp packaging/20-install.sql /docker-entrypoint-initdb.d/
 
 EOF
 
-# extra packages for development
+# extra steps for development
+
 RUN --mount=type=cache,sharing=locked,target=/var/cache/apt <<EOF
 set -ex
 
@@ -51,7 +53,10 @@ set -ex
 
 cd /src
 
-cp packaging/10-preload.sh packaging/20-install.sql /docker-entrypoint-initdb.d/
+cp packaging/deb12-postgresql-${POSTGRES_VERSION}-documentdb-dbgsym_${DOCUMENTDB_VERSION}_${TARGETARCH}.deb /tmp/documentdb-dbgsym.deb
+dpkg -i /tmp/documentdb-dbgsym.deb
+rm /tmp/documentdb-dbgsym.deb
+
 cp packaging/90-install-development.sql /docker-entrypoint-initdb.d/
 
 EOF
