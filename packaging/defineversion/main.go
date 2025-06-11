@@ -169,6 +169,9 @@ func defineVersionForBranch(controlDefaultVersion, pgVersion, owner, repo, branc
 		dockerDevelopmentImages: []string{
 			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-ferretdb", owner, repo, pgVersion),
 		},
+		dockerProductionImages: []string{
+			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-ferretdb-prod", owner, repo, pgVersion),
+		},
 		debian: fmt.Sprintf("%s~ferretdb", controlDefaultVersion),
 	}
 
@@ -183,7 +186,9 @@ func defineVersionForBranch(controlDefaultVersion, pgVersion, owner, repo, branc
 	}
 
 	res.dockerDevelopmentImages = append(res.dockerDevelopmentImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb-dev:%s-ferretdb", pgVersion))
+	res.dockerProductionImages = append(res.dockerProductionImages, fmt.Sprintf("quay.io/ferretdb/postgres-documentdb-dev:%s-ferretdb-prod", pgVersion))
 	res.dockerDevelopmentImages = append(res.dockerDevelopmentImages, fmt.Sprintf("ferretdb/postgres-documentdb-dev:%s-ferretdb", pgVersion))
+	res.dockerProductionImages = append(res.dockerProductionImages, fmt.Sprintf("ferretdb/postgres-documentdb-dev:%s-ferretdb-prod", pgVersion))
 
 	return res, nil
 }

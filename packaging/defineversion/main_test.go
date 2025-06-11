@@ -163,6 +163,11 @@ func TestDefineVersion(t *testing.T) {
 					"ghcr.io/ferretdb/postgres-documentdb-dev:17-ferretdb",
 					"quay.io/ferretdb/postgres-documentdb-dev:17-ferretdb",
 				},
+				dockerProductionImages: []string{
+					"ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
+					"quay.io/ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
+				},
 				debian: "0.103.0~ferretdb",
 			},
 		},
@@ -179,6 +184,9 @@ func TestDefineVersion(t *testing.T) {
 			expected: &versions{
 				dockerDevelopmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb",
+				},
+				dockerProductionImages: []string{
+					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb-prod",
 				},
 				debian: "0.103.0~ferretdb",
 			},
@@ -307,6 +315,11 @@ func TestDefineVersion(t *testing.T) {
 					"ghcr.io/ferretdb/postgres-documentdb-dev:17-ferretdb",
 					"quay.io/ferretdb/postgres-documentdb-dev:17-ferretdb",
 				},
+				dockerProductionImages: []string{
+					"ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
+					"quay.io/ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
+				},
 				debian: "0.103.0~ferretdb",
 			},
 		},
@@ -323,6 +336,9 @@ func TestDefineVersion(t *testing.T) {
 			expected: &versions{
 				dockerDevelopmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb",
+				},
+				dockerProductionImages: []string{
+					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb-prod",
 				},
 				debian: "0.103.0~ferretdb",
 			},
@@ -344,6 +360,11 @@ func TestDefineVersion(t *testing.T) {
 					"ghcr.io/ferretdb/postgres-documentdb-dev:17-ferretdb",
 					"quay.io/ferretdb/postgres-documentdb-dev:17-ferretdb",
 				},
+				dockerProductionImages: []string{
+					"ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
+					"ghcr.io/ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
+					"quay.io/ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
+				},
 				debian: "0.103.0~ferretdb",
 			},
 		},
@@ -360,6 +381,9 @@ func TestDefineVersion(t *testing.T) {
 			expected: &versions{
 				dockerDevelopmentImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb",
+				},
+				dockerProductionImages: []string{
+					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb-prod",
 				},
 				debian: "0.103.0~ferretdb",
 			},
