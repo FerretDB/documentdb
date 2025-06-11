@@ -2,11 +2,13 @@
 
 ARG POSTGRES_VERSION
 
-FROM postgres:${POSTGRES_VERSION} AS production
+FROM postgres:${POSTGRES_VERSION}
 
 ARG TARGETARCH
 ARG POSTGRES_VERSION
 ARG DOCUMENTDB_VERSION
+
+# common steps for production and development
 
 RUN --mount=type=cache,sharing=locked,target=/var/cache/apt <<EOF
 set -ex
@@ -32,14 +34,8 @@ cp packaging/deb12-postgresql-${POSTGRES_VERSION}-documentdb_${DOCUMENTDB_VERSIO
 dpkg -i /tmp/documentdb.deb
 rm /tmp/documentdb.deb
 
-EOF
-
-RUN --mount=target=/src,rw <<EOF
-set -ex
-
-cd /src
-
-cp packaging/10-preload.sh packaging/20-install.sql /docker-entrypoint-initdb.d/
+cp packaging/10-preload.sh  /docker-entrypoint-initdb.d/
+cp packaging/20-install.sql /docker-entrypoint-initdb.d/
 
 EOF
 
