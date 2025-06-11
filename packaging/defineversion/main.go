@@ -150,6 +150,9 @@ func defineVersionForPR(controlDefaultVersion, pgVersion, owner, repo, branch st
 		dockerDevelopmentImages: []string{
 			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-pr-%s", owner, repo, pgVersion, branch),
 		},
+		dockerProductionImages: []string{
+			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-pr-%s-prod", owner, repo, pgVersion, branch),
+		},
 		debian: disallowedDebian.ReplaceAllString(fmt.Sprintf("%s-pr-%s", controlDefaultVersion, branch), "~"),
 	}
 
