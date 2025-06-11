@@ -40,11 +40,18 @@ cp packaging/20-install.sql /docker-entrypoint-initdb.d/
 EOF
 
 # extra steps for development
+
 RUN --mount=type=cache,sharing=locked,target=/var/cache/apt <<EOF
 set -ex
 
 apt install -y \
     postgresql-${POSTGRES_VERSION}-pgtap
+EOF
+
+RUN --mount=target=/src,rw <<EOF
+set -ex
+
+cd /src
 
 cp packaging/deb12-postgresql-${POSTGRES_VERSION}-documentdb-dbgsym_${DOCUMENTDB_VERSION}_${TARGETARCH}.deb /tmp/documentdb-dbgsym.deb
 dpkg -i /tmp/documentdb-dbgsym.deb
