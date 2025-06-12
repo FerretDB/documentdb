@@ -1,6 +1,10 @@
 ### DocumentDB v0.104.0-ferretdb-2.3.0 (Jun 10, 2025) ###
 
-This version works best with FerretDB v2.3.0.
+This version works best with FerretDB v2.3.0 and v2.3.1.
+
+> [!NOTE]
+> Docker tags `XX-0.104.0-ferretdb-2.3.0` and `XX-0.104.0-ferretdb-2.3.1` point to the same images.
+> Additional tags were added to accommodate FerretDB hotfix release 2.3.1.
 
 Debian and Ubuntu `.deb` packages are provided
 [on the release page](https://github.com/FerretDB/documentdb/releases/tag/v0.104.0-ferretdb-2.3.0).
