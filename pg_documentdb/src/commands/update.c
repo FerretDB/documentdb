@@ -2644,7 +2644,7 @@ SerializeBatchUpdateResult(BatchUpdateResult *result)
 	PgbsonWriterInit(&writer);
 
 	PgbsonWriterAppendDocument(&writer, "response", -1, BuildResponseMessage(result));
-	PgbsonWriterAppendBool(&writer, "ok", -1, result->writeErrors == NIL);
+	PgbsonWriterAppendDouble(&writer, "ok", 2, result->writeErrors == NIL);
 
 	return PgbsonWriterGetPgbson(&writer);
 }
