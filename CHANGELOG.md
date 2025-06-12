@@ -1,3 +1,6 @@
+### documentdb v0.105-0 (Unreleased) ###
+* Support `$bucketAuto` aggregation stage, with granularity types: `POWERSOF2`, `1-2-5`, `R5`, `R10`, `R20`, `R40`, `R80`, `E6`, `E12`, `E24`, `E48`, `E96`, `E192` *[Feature]*
+
 ### DocumentDB v0.104.0-ferretdb-2.3.0 (Jun 10, 2025) ###
 
 This version works best with FerretDB v2.3.0 and v2.3.1.

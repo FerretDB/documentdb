@@ -106,6 +106,9 @@ bool EnableMultiIndexRumJoin = DEFAULT_ENABLE_MULTI_INDEX_RUM_JOIN;
 bool EnableSortbyIdPushDownToPrimaryKey =
 	DEFAULT_ENABLE_SORT_BY_ID_PUSHDOWN_TO_PRIMARYKEY;
 
+#define DEFAULT_USE_NEW_ELEMMATCH_INDEX_PUSHDOWN false
+bool UseNewElemMatchIndexPushdown = DEFAULT_USE_NEW_ELEMMATCH_INDEX_PUSHDOWN;
+
 
 /*
  * SECTION: Aggregation & Query feature flags
@@ -141,6 +144,12 @@ int DefaultCursorExpiryTimeLimitSeconds = DEFAULT_CURSOR_EXPIRY_TIME_LIMIT_SECON
 
 #define DEFAULT_EXPAND_DOLLAR_ALL_IN_QUERY_OPERATOR true
 bool ExpandDollarAllInQueryOperator = DEFAULT_EXPAND_DOLLAR_ALL_IN_QUERY_OPERATOR;
+
+#define DEFAULT_USE_LEGACY_ORDERBY_BEHAVIOR false
+bool UseLegacyOrderByBehavior = DEFAULT_USE_LEGACY_ORDERBY_BEHAVIOR;
+
+#define DEFAULT_USE_LEGACY_NULL_EQUALITY_BEHAVIOR false
+bool UseLegacyNullEqualityBehavior = DEFAULT_USE_LEGACY_NULL_EQUALITY_BEHAVIOR;
 
 
 /*
@@ -196,6 +205,12 @@ bool SkipEnforceTransactionReadOnly = DEFAULT_SKIP_ENFORCE_TRANSACTION_READ_ONLY
 #define DEFAULT_SKIP_CREATE_INDEXES_ON_CREATE_COLLECTION false
 bool SkipCreateIndexesOnCreateCollection =
 	DEFAULT_SKIP_CREATE_INDEXES_ON_CREATE_COLLECTION;
+
+#define DEFAULT_USE_NEW_SHARD_KEY_CALCULATION true
+bool UseNewShardKeyCalculation = DEFAULT_USE_NEW_SHARD_KEY_CALCULATION;
+
+#define DEFAULT_ENABLE_BUCKET_AUTO_STAGE true
+bool EnableBucketAutoStage = DEFAULT_ENABLE_BUCKET_AUTO_STAGE;
 
 /* FEATURE FLAGS END */
 
@@ -545,5 +560,45 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 			"Determines whether the usersInfo command returns privileges."),
 		NULL, &EnableUsersInfoPrivileges,
 		DEFAULT_ENABLE_USERS_INFO_PRIVILEGES,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.useNewShardKeyCalculation", newGucPrefix),
+		gettext_noop(
+			"Whether or not to use the new shard key calculation logic."),
+		NULL, &UseNewShardKeyCalculation,
+		DEFAULT_USE_NEW_SHARD_KEY_CALCULATION,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.useLegacyOrderByBehavior", newGucPrefix),
+		gettext_noop(
+			"Whether or not to use legacy order by behavior."),
+		NULL, &UseLegacyOrderByBehavior,
+		DEFAULT_USE_LEGACY_ORDERBY_BEHAVIOR,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.useLegacyNullEqualityBehavior", newGucPrefix),
+		gettext_noop(
+			"Whether or not to use legacy null equality behavior."),
+		NULL, &UseLegacyNullEqualityBehavior,
+		DEFAULT_USE_LEGACY_NULL_EQUALITY_BEHAVIOR,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.useNewElemMatchIndexPushdown", newGucPrefix),
+		gettext_noop(
+			"Whether or not to use the new elemMatch index pushdown logic."),
+		NULL, &UseNewElemMatchIndexPushdown,
+		DEFAULT_USE_NEW_ELEMMATCH_INDEX_PUSHDOWN,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.enableBucketAutoStage", newGucPrefix),
+		gettext_noop(
+			"Whether to enable the $bucketAuto stage."),
+		NULL, &EnableBucketAutoStage,
+		DEFAULT_ENABLE_BUCKET_AUTO_STAGE,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 }
