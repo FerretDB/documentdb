@@ -19,7 +19,7 @@ See installation instructions [in our documentation](https://docs.ferretdb.io/in
 We always recommend specifying the full image tag (e.g., `17-0.104.0-ferretdb-2.3.0`, not just `17` or `17-0.104.0`)
 to avoid unexpected updates.
 
-### documentdb v0.104-0 (Jun 10, 2025) ###
+### documentdb v0.104-0 (June 09, 2025) ###
 * Add string case support for `$toDate` operator
 * Support `sort` with collation in runtime *[Feature]*
 * Support collation with `$indexOfArray` aggregation operator *[Feature]*
