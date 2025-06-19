@@ -1,30 +1,30 @@
-documentdb (0.104-0) unstable; urgency=medium
+documentdb (DOCUMENTDB_VERSION) unstable; urgency=medium
 
-* Add string case support for `$toDate` operator
-* Support `sort` with collation in runtime*[Feature]*
-* Support collation with `$indexOfArray` aggregation operator. *[Feature]*
-* Support collation with arrays and objects comparisons *[Feature]*
-* Support background index builds *[Bugfix]* (#36)
-* Enable user CRUD by default *[Feature]*
-* Enable let support for delete queries *[Feature]*. Requires `EnableVariablesSupportForWriteCommands` to be `on`.
-* Enable rum_enable_index_scan as default on *[Perf]*
-* Add public `documentdb-local` Docker image with gateway to GHCR
-* Support `compact` command *[Feature]*. Requires `documentdb.enablecompact` GUC to be `on`.
-* Enable role privileges for `usersInfo` command *[Feature]* 
+  * Add string case support for $toDate operator
+  * Support sort with collation in runtime [Feature]
+  * Support collation with $indexOfArray aggregation operator [Feature]
+  * Support collation with arrays and objects comparisons [Feature]
+  * Support background index builds [Bugfix] (#36)
+  * Enable user CRUD by default [Feature]
+  * Enable let support for delete queries [Feature]. Requires EnableVariablesSupportForWriteCommands to be on.
+  * Enable rum_enable_index_scan as default on [Perf]
+  * Add public documentdb-local Docker image with gateway to GHCR
+  * Support compact command [Feature]. Requires documentdb.enablecompact GUC to be on.
+  * Enable role privileges for usersInfo command [Feature]
 
- -- Shuai Tian <shuaitian@microsoft.com>  Mon, 09 Jun 2025 12:00:00 +0000
+ -- FerretDB Packages <packages@ferretdb.io>  Tue, 10 Jun 2025 12:00:00 +0000
 
 documentdb (0.103-0) unstable; urgency=medium
 
-* Support collation with aggregation and find on sharded collections *[Feature]*
-* Support `$convert` on `binData` to `binData`, `string` to `binData` and `binData` to `string` (except with `format: auto`) *[Feature]*
-* Fix list_databases for databases with size > 2 GB *[Bugfix]* (#119)
-* Support half-precision vector indexing, vectors can have up to 4,000 dimensions *[Feature]*
-* Support ARM64 architecture when building docker container *[Preview]*
-* Support collation with `$documents` and `$replaceWith` stage of the aggregation pipeline *[Feature]*
-* Push pg_documentdb_gw for documentdb connections *[Feature]*
+  * Support collation with aggregation and find on sharded collections [Feature]
+  * Support $convert on binData to binData, string to binData and binData to string (except with format: auto) [Feature]
+  * Fix list_databases for databases with size > 2 GB [Bugfix] (#119)
+  * Support half-precision vector indexing, vectors can have up to 4,000 dimensions [Feature]
+  * Support ARM64 architecture when building docker container [Preview]
+  * Support collation with $documents and $replaceWith stage of the aggregation pipeline [Feature]
+  * Push pg_documentdb_gw for documentdb connections [Feature]
 
- -- Shuai Tian <shuaitian@microsoft.com>  Fri, 09 May 2025 12:00:00 +0000
+ -- FerretDB Packages <packages@ferretdb.io>  Fri, 09 May 2025 12:00:00 +0000
 
 documentdb (0.102-0) unstable; urgency=medium
 
@@ -47,7 +47,7 @@ documentdb (0.102-0) unstable; urgency=medium
   * Support the $dateFromString operator with full functionality [Feature]
   * Support extended syntax for $getField aggregation operator (field as expression) [Feature]
 
- -- Shuai Tian <shuaitian@microsoft.com>  Wed, 26 Mar 2025 10:00:00 +0000
+ -- FerretDB Packages <packages@ferretdb.io>  Wed, 26 Mar 2025 10:00:00 +0000
 
 documentdb (0.101-0) unstable; urgency=medium
 
@@ -58,10 +58,10 @@ documentdb (0.101-0) unstable; urgency=medium
   * Skip loading documents if group expression is constant [Perf]
   * Fix Merge stage not outputting to target collection [Bugfix] (#20)
 
- -- Shuai Tian <shuaitian@microsoft.com>  Tue, 12 Feb 2025 10:00:00 +0000
+ -- FerretDB Packages <packages@ferretdb.io>  Tue, 12 Feb 2025 10:00:00 +0000
 
 documentdb (0.100-0) unstable; urgency=medium
 
   * Initial release
 
- -- Shuai Tian <shuaitian@microsoft.com>  Thu, 23 Jan 2025 10:00:00 +0000
+ -- FerretDB Packages <packages@ferretdb.io>  Thu, 23 Jan 2025 10:00:00 +0000
