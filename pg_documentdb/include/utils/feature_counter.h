@@ -19,7 +19,7 @@
 #include <port/atomics.h>
 
 #define MAX_FEATURE_NAME_LENGTH 255
-#define MAX_FEATURE_COUNT 290
+#define MAX_FEATURE_COUNT 291
 
 /* Internal features that are not exposed */
 #define INTERNAL_FEATURE_TYPE MAX_FEATURE_COUNT
@@ -226,6 +226,9 @@ typedef enum
 	FEATURE_COMMAND_COLLMOD_COLOCATION,
 	FEATURE_COMMAND_COLLMOD_VALIDATION,
 
+	/* Feature Connection Status*/
+	FEATURE_CONNECTION_STATUS,
+
 	/* Feature counter region - Create index types */
 	FEATURE_CREATE_INDEX_2D,
 	FEATURE_CREATE_INDEX_2DSPHERE,
@@ -356,6 +359,7 @@ typedef enum
 
 typedef int FeatureCounter[MAX_FEATURE_COUNT];
 
+extern Size SharedFeatureCounterShmemSize(void);
 extern void SharedFeatureCounterShmemInit(void);
 extern const char * GetFeatureCountersAsString(void);
 extern void ResetFeatureCounters(void);

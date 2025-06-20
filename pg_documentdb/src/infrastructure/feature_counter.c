@@ -237,6 +237,9 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	[FEATURE_COMMAND_COLLMOD_COLOCATION] = "collMod_colocation",
 	[FEATURE_COMMAND_COLLMOD_VALIDATION] = "collMod_validation",
 
+	/* Feature Connection Status */
+	[FEATURE_CONNECTION_STATUS] = "connection_status",
+
 	/* Feature Mapping region - Create index types */
 	[FEATURE_CREATE_INDEX_2D] = "create_index_2d",
 	[FEATURE_CREATE_INDEX_2DSPHERE] = "create_index_2dsphere",
@@ -384,6 +387,13 @@ get_feature_counter_stats(PG_FUNCTION_ARGS)
 }
 
 
+Size
+SharedFeatureCounterShmemSize(void)
+{
+	return mul_size(sizeof(FeatureCounter), MaxBackends);
+}
+
+
 /*
  * SharedFeatureCounterShmemInit initializes the shared memory used
  * for keeping track of feature counters across backends.
@@ -405,7 +415,7 @@ SharedFeatureCounterShmemInit(void)
 
 	bool found;
 
-	size_t feature_counter_shmem_size = mul_size(sizeof(FeatureCounter), MaxBackends);
+	size_t feature_counter_shmem_size = SharedFeatureCounterShmemSize();
 	FeatureCounterBackendArray = (FeatureCounter *)
 								 ShmemInitStruct("Feature Counter Array",
 												 feature_counter_shmem_size, &found);
