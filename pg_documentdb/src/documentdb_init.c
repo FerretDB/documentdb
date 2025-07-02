@@ -13,6 +13,7 @@
 #include <access/xact.h>
 #include <postmaster/bgworker.h>
 #include <storage/ipc.h>
+#include <storage/shmem.h>
 
 #include "documentdb_api_init.h"
 #include "metadata/metadata_guc.h"
@@ -25,6 +26,7 @@
 #include "commands/commands_common.h"
 #include "configs/config_initialization.h"
 #include "index_am/documentdb_rum.h"
+#include "infrastructure/cursor_store.h"
 
 /* --------------------------------------------------------- */
 /* Data Types & Enum values */
@@ -32,6 +34,7 @@
 
 extern bool EnableBackgroundWorker;
 static shmem_startup_hook_type prev_shmem_startup_hook = NULL;
+static shmem_request_hook_type prev_shmem_request_hook = NULL;
 
 /* In single node mode, we always inline write operations */
 bool DefaultInlineWriteOperations = true;
@@ -47,6 +50,7 @@ static void DocumentDBTransactionCallback(XactEvent event, void *arg);
 static void DocumentDBSubTransactionCallback(SubXactEvent event, SubTransactionId mySubid,
 											 SubTransactionId parentSubid, void *arg);
 static void DocumentDBSharedMemoryInit(void);
+static void DocumentDBSharedMemoryRequest(void);
 
 /* --------------------------------------------------------- */
 /* GUCs and default values */
@@ -93,9 +97,12 @@ InstallDocumentDBApiPostgresHooks(void)
 
 	RegisterScanNodes();
 	RegisterQueryScanNodes();
+	RegisterExplainScanNodes();
 
 	/* Load the rum routine in the shared_preload_libraries to avoid LoadLibrary calls all the time */
 	LoadRumRoutine();
+
+	SetupCursorStorage();
 }
 
 
@@ -156,6 +163,8 @@ InitializeSharedMemoryHooks(void)
 {
 	prev_shmem_startup_hook = shmem_startup_hook;
 	shmem_startup_hook = DocumentDBSharedMemoryInit;
+	prev_shmem_request_hook = shmem_request_hook;
+	shmem_request_hook = DocumentDBSharedMemoryRequest;
 }
 
 
@@ -163,12 +172,28 @@ InitializeSharedMemoryHooks(void)
 /* Private methods */
 /* --------------------------------------------------------- */
 
+static void
+DocumentDBSharedMemoryRequest(void)
+{
+	if (prev_shmem_request_hook != NULL)
+	{
+		prev_shmem_request_hook();
+	}
+
+	/* Request ShMem from modules below */
+	RequestAddinShmemSpace(SharedFeatureCounterShmemSize());
+	RequestAddinShmemSpace(VersionCacheShmemSize());
+	RequestAddinShmemSpace(FileCursorShmemSize());
+}
+
 
 static void
 DocumentDBSharedMemoryInit(void)
 {
+	/* CODESYNC: With Shmem request above */
 	SharedFeatureCounterShmemInit();
 	InitializeVersionCache();
+	InitializeFileCursorShmem();
 
 	if (prev_shmem_startup_hook != NULL)
 	{
@@ -186,6 +211,7 @@ DocumentDBTransactionCallback(XactEvent event, void *arg)
 		case XACT_EVENT_PARALLEL_ABORT:
 		{
 			ConnMgrTryCancelActiveConnection();
+			DeletePendingCursorFiles();
 			break;
 		}
 

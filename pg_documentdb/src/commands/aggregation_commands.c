@@ -18,14 +18,18 @@
 
 #include <metadata/metadata_cache.h>
 #include <utils/documentdb_errors.h>
+#include <utils/feature_counter.h>
 #include "utils/version_utils.h"
 #include <io/bson_core.h>
 #include <commands/cursor_private.h>
 #include "commands/parse_error.h"
 #include <aggregation/bson_aggregation_pipeline.h>
+#include "aggregation/aggregation_commands.h"
+#include "infrastructure/cursor_store.h"
 
 
 extern bool EnableNowSystemVariable;
+extern bool UseFileBasedPersistedCursors;
 
 /* --------------------------------------------------------- */
 /* Data types */
@@ -117,13 +121,19 @@ typedef struct
 	 * The current page's cursor info.
 	 */
 	QueryData queryData;
+
+	/*
+	 * The cursor state for the current page if using
+	 * file based persisted cursors.
+	 */
+	bytea *cursorFileState;
 } QueryGetMoreInfo;
 
 /* --------------------------------------------------------- */
 /* Forward declaration */
 /* --------------------------------------------------------- */
 
-static void ParseGetMoreSpec(text *databaseName, pgbson *getMoreSpec, pgbson *cursorSpec,
+static void ParseGetMoreSpec(text **database, pgbson *getMoreSpec, pgbson *cursorSpec,
 							 QueryGetMoreInfo *getMoreInfo);
 
 static pgbson * BuildStreamingContinuationDocument(HTAB *cursorMap, pgbson *querySpec,
@@ -139,21 +149,18 @@ static pgbson * BuildPersistedContinuationDocument(const char *cursorName, int64
 												   timeSystemVariables,
 												   int numIterations);
 
-static Datum HandleFirstPageRequest(PG_FUNCTION_ARGS,
-									text *database, pgbson *querySpec, int64_t cursorId,
+static pgbson * BuildPersistedFileContinuationDocument(const char *cursorName, int64_t
+													   cursorId, QueryKind queryKind,
+													   TimeSystemVariables *
+													   timeSystemVariables,
+													   int numIterations,
+													   bytea *continuationState);
+
+static Datum HandleFirstPageRequest(pgbson *querySpec, int64_t cursorId,
 									QueryData *cursorState,
 									QueryKind queryKind, Query *query);
 
 static int64_t GenerateCursorId(int64_t inputValue);
-
-/* Generates a base QueryData used for the first page */
-inline static QueryData
-GenerateFirstPageQueryData(void)
-{
-	QueryData queryData = { 0 };
-	queryData.batchSize = 101;
-	return queryData;
-}
 
 
 /* --------------------------------------------------------- */
@@ -167,6 +174,7 @@ PG_FUNCTION_INFO_V1(command_distinct_query);
 PG_FUNCTION_INFO_V1(command_cursor_get_more);
 PG_FUNCTION_INFO_V1(command_list_collections_cursor_first_page);
 PG_FUNCTION_INFO_V1(command_list_indexes_cursor_first_page);
+PG_FUNCTION_INFO_V1(command_delete_cursors);
 
 /*
  * Parses an aggregate spec and creates a query, executes it and returns the first page
@@ -175,9 +183,21 @@ PG_FUNCTION_INFO_V1(command_list_indexes_cursor_first_page);
 Datum
 command_aggregate_cursor_first_page(PG_FUNCTION_ARGS)
 {
-	Datum database = PG_GETARG_DATUM(0);
+	text *database = PG_GETARG_TEXT_P(0);
 	pgbson *aggregationSpec = PG_GETARG_PGBSON(1);
 	int64_t cursorId = PG_ARGISNULL(2) ? 0 : PG_GETARG_INT64(2);
+
+	Datum response = aggregate_cursor_first_page(database, aggregationSpec, cursorId);
+
+	PG_RETURN_DATUM(response);
+}
+
+
+Datum
+aggregate_cursor_first_page(text *database, pgbson *aggregationSpec,
+							int64_t cursorId)
+{
+	ReportFeatureUsage(FEATURE_COMMAND_AGG_CURSOR_FIRST_PAGE);
 
 	bool generateCursorParams = true;
 	bool setStatementTimeout = true;
@@ -185,11 +205,9 @@ command_aggregate_cursor_first_page(PG_FUNCTION_ARGS)
 	Query *query = GenerateAggregationQuery(database, aggregationSpec, &queryData,
 											generateCursorParams, setStatementTimeout);
 
-	Datum response = HandleFirstPageRequest(
-		fcinfo, DatumGetTextP(database), aggregationSpec, cursorId, &queryData,
-		QueryKind_Aggregate, query);
-
-	PG_RETURN_DATUM(response);
+	Datum response = HandleFirstPageRequest(aggregationSpec, cursorId, &queryData,
+											QueryKind_Aggregate, query);
+	return response;
 }
 
 
@@ -200,9 +218,19 @@ command_aggregate_cursor_first_page(PG_FUNCTION_ARGS)
 Datum
 command_find_cursor_first_page(PG_FUNCTION_ARGS)
 {
-	Datum database = PG_GETARG_DATUM(0);
+	text *database = PG_GETARG_TEXT_P(0);
 	pgbson *findSpec = PG_GETARG_PGBSON(1);
 	int64_t cursorId = PG_ARGISNULL(2) ? 0 : PG_GETARG_INT64(2);
+
+	Datum response = find_cursor_first_page(database, findSpec, cursorId);
+	PG_RETURN_DATUM(response);
+}
+
+
+Datum
+find_cursor_first_page(text *database, pgbson *findSpec, int64_t cursorId)
+{
+	ReportFeatureUsage(FEATURE_COMMAND_FIND_CURSOR_FIRST_PAGE);
 
 	/* Parse the find spec for the purposes of query execution */
 	QueryData queryData = GenerateFirstPageQueryData();
@@ -213,10 +241,9 @@ command_find_cursor_first_page(PG_FUNCTION_ARGS)
 									 setStatementTimeout);
 
 	Datum response = HandleFirstPageRequest(
-		fcinfo, DatumGetTextPP(database), findSpec, cursorId, &queryData,
+		findSpec, cursorId, &queryData,
 		QueryKind_Find, query);
-
-	PG_RETURN_DATUM(response);
+	return response;
 }
 
 
@@ -227,8 +254,19 @@ command_find_cursor_first_page(PG_FUNCTION_ARGS)
 Datum
 command_list_collections_cursor_first_page(PG_FUNCTION_ARGS)
 {
-	Datum database = PG_GETARG_DATUM(0);
+	text *database = PG_GETARG_TEXT_P(0);
 	pgbson *listCollectionsSpec = PG_GETARG_PGBSON(1);
+
+	Datum response = list_collections_first_page(database, listCollectionsSpec);
+	PG_RETURN_DATUM(response);
+}
+
+
+Datum
+list_collections_first_page(text *database, pgbson *listCollectionsSpec)
+{
+	ReportFeatureUsage(FEATURE_COMMAND_LIST_COLLECTIONS_CURSOR_FIRST_PAGE);
+
 	QueryData queryData = GenerateFirstPageQueryData();
 	bool generateCursorParams = false;
 	bool setStatementTimeout = true;
@@ -242,10 +280,9 @@ command_list_collections_cursor_first_page(PG_FUNCTION_ARGS)
 
 	int64_t cursorId = 0;
 	Datum response = HandleFirstPageRequest(
-		fcinfo, DatumGetTextP(database), listCollectionsSpec, cursorId, &queryData,
+		listCollectionsSpec, cursorId, &queryData,
 		QueryKind_ListCollections, query);
-
-	PG_RETURN_DATUM(response);
+	return response;
 }
 
 
@@ -256,8 +293,19 @@ command_list_collections_cursor_first_page(PG_FUNCTION_ARGS)
 Datum
 command_list_indexes_cursor_first_page(PG_FUNCTION_ARGS)
 {
-	Datum database = PG_GETARG_DATUM(0);
+	text *database = PG_GETARG_TEXT_P(0);
 	pgbson *listIndexesSpec = PG_GETARG_PGBSON(1);
+
+	Datum response = list_indexes_first_page(database, listIndexesSpec);
+	PG_RETURN_DATUM(response);
+}
+
+
+Datum
+list_indexes_first_page(text *database, pgbson *listIndexesSpec)
+{
+	ReportFeatureUsage(FEATURE_COMMAND_LIST_INDEXES_CURSOR_FIRST_PAGE);
+
 	QueryData queryData = GenerateFirstPageQueryData();
 	bool generateCursorParams = false;
 	bool setStatementTimeout = true;
@@ -270,10 +318,9 @@ command_list_indexes_cursor_first_page(PG_FUNCTION_ARGS)
 
 	int64_t cursorId = 0;
 	Datum response = HandleFirstPageRequest(
-		fcinfo, DatumGetTextP(database), listIndexesSpec, cursorId, &queryData,
+		listIndexesSpec, cursorId, &queryData,
 		QueryKind_ListIndexes, query);
-
-	PG_RETURN_DATUM(response);
+	return response;
 }
 
 
@@ -289,8 +336,24 @@ command_cursor_get_more(PG_FUNCTION_ARGS)
 	pgbson *getMoreSpec = PG_GETARG_PGBSON(1);
 	pgbson *cursorSpec = PG_GETARG_PGBSON(2);
 
+	/* See sql/udfs/commands_crud/query_cursors_aggregate--latest.sql */
+	AttrNumber maxOutAttrNum = 2;
+	Datum responseDatum = aggregation_cursor_get_more(database, getMoreSpec,
+													  cursorSpec, maxOutAttrNum);
+	PG_RETURN_DATUM(responseDatum);
+}
+
+
+Datum
+aggregation_cursor_get_more(text *database, pgbson *getMoreSpec,
+							pgbson *cursorSpec, AttrNumber maxResponseAttributeNumber)
+{
+	ReportFeatureUsage(FEATURE_COMMAND_GET_MORE);
+
+	TupleDesc tupleDesc = ConstructCursorResultTupleDesc(maxResponseAttributeNumber);
+
 	QueryGetMoreInfo getMoreInfo = { 0 };
-	ParseGetMoreSpec(database, getMoreSpec, cursorSpec, &getMoreInfo);
+	ParseGetMoreSpec(&database, getMoreSpec, cursorSpec, &getMoreInfo);
 
 	pgbson_writer writer;
 	pgbson_writer cursorDoc;
@@ -313,18 +376,57 @@ command_cursor_get_more(PG_FUNCTION_ARGS)
 	{
 		case CursorKind_Persisted:
 		{
-			int numIterations = 0;
-			queryFullyDrained = DrainPersistedCursor(getMoreInfo.cursorName,
-													 getMoreInfo.queryData.batchSize,
-													 &numIterations,
-													 accumulatedSize, &arrayWriter);
-			continuationDoc = queryFullyDrained ? NULL :
-							  BuildPersistedContinuationDocument(getMoreInfo.cursorName,
-																 getMoreInfo.cursorId,
-																 getMoreInfo.queryKind,
-																 &getMoreInfo.queryData.
-																 timeSystemVariables,
-																 numIterations);
+			if (getMoreInfo.cursorFileState != NULL)
+			{
+				if (!UseFileBasedPersistedCursors)
+				{
+					ereport(ERROR,
+							(errcode(ERRCODE_DOCUMENTDB_INTERNALERROR),
+							 errmsg("File based persisted cursors are not enabled.")));
+				}
+
+				int numIterations = 0;
+				getMoreInfo.cursorFileState = DrainPersistedFileCursor(
+					getMoreInfo.cursorName,
+					getMoreInfo.
+					queryData.batchSize,
+					&numIterations,
+					accumulatedSize,
+					&arrayWriter,
+					getMoreInfo.
+					cursorFileState);
+				queryFullyDrained = getMoreInfo.cursorFileState == NULL;
+				continuationDoc = queryFullyDrained ? NULL :
+								  BuildPersistedFileContinuationDocument(
+					getMoreInfo.cursorName,
+					getMoreInfo.
+					cursorId,
+					getMoreInfo.
+					queryKind,
+					&getMoreInfo.
+					queryData.
+					timeSystemVariables,
+					numIterations,
+					getMoreInfo.
+					cursorFileState);
+			}
+			else
+			{
+				int numIterations = 0;
+				queryFullyDrained = DrainPersistedCursor(getMoreInfo.cursorName,
+														 getMoreInfo.queryData.batchSize,
+														 &numIterations,
+														 accumulatedSize, &arrayWriter);
+				continuationDoc = queryFullyDrained ? NULL :
+								  BuildPersistedContinuationDocument(
+					getMoreInfo.cursorName,
+					getMoreInfo.cursorId,
+					getMoreInfo.queryKind,
+					&getMoreInfo.
+					queryData.
+					timeSystemVariables,
+					numIterations);
+			}
 			break;
 		}
 
@@ -343,7 +445,7 @@ command_cursor_get_more(PG_FUNCTION_ARGS)
 						getMoreInfo.queryData.timeSystemVariables;
 
 					bool setStatementTimeout = false;
-					query = GenerateFindQuery(PointerGetDatum(database),
+					query = GenerateFindQuery(database,
 											  getMoreInfo.querySpec, &queryData,
 											  generateCursorParams,
 											  setStatementTimeout);
@@ -356,7 +458,7 @@ command_cursor_get_more(PG_FUNCTION_ARGS)
 						getMoreInfo.queryData.timeSystemVariables;
 
 					bool setStatementTimeout = false;
-					query = GenerateAggregationQuery(PointerGetDatum(database),
+					query = GenerateAggregationQuery(database,
 													 getMoreInfo.querySpec, &queryData,
 													 generateCursorParams,
 													 setStatementTimeout);
@@ -399,7 +501,7 @@ command_cursor_get_more(PG_FUNCTION_ARGS)
 			queryData.timeSystemVariables = getMoreInfo.queryData.timeSystemVariables;
 
 			bool setStatementTimeout = false;
-			query = GenerateAggregationQuery(PointerGetDatum(database),
+			query = GenerateAggregationQuery(database,
 											 getMoreInfo.querySpec, &queryData,
 											 generateCursorParams, setStatementTimeout);
 			HTAB *cursorMap = CreateTailableCursorHashSet();
@@ -428,11 +530,11 @@ command_cursor_get_more(PG_FUNCTION_ARGS)
 	}
 
 	bool persistConnection = false;
-
-	Datum responseDatum = PostProcessCursorPage(fcinfo, &cursorDoc, &arrayWriter, &writer,
+	Datum responseDatum = PostProcessCursorPage(&cursorDoc, &arrayWriter, &writer,
 												getMoreInfo.cursorId, continuationDoc,
-												persistConnection, postBatchResumeToken);
-	PG_RETURN_DATUM(responseDatum);
+												persistConnection, postBatchResumeToken,
+												tupleDesc);
+	return responseDatum;
 }
 
 
@@ -443,7 +545,9 @@ command_cursor_get_more(PG_FUNCTION_ARGS)
 Datum
 command_distinct_query(PG_FUNCTION_ARGS)
 {
-	Datum database = PG_GETARG_DATUM(0);
+	ReportFeatureUsage(FEATURE_COMMAND_DISTINCT);
+
+	text *database = PG_GETARG_TEXT_P(0);
 	pgbson *distinctSpec = PG_GETARG_PGBSON(1);
 
 	bool setStatementTimeout = true;
@@ -471,7 +575,9 @@ command_distinct_query(PG_FUNCTION_ARGS)
 Datum
 command_count_query(PG_FUNCTION_ARGS)
 {
-	Datum database = PG_GETARG_DATUM(0);
+	ReportFeatureUsage(FEATURE_COMMAND_COUNT);
+
+	text *database = PG_GETARG_TEXT_P(0);
 	pgbson *countSpec = PG_GETARG_PGBSON(1);
 
 	bool setStatementTimeout = true;
@@ -492,13 +598,62 @@ command_count_query(PG_FUNCTION_ARGS)
 }
 
 
+Datum
+command_delete_cursors(PG_FUNCTION_ARGS)
+{
+	ArrayType *cursorArray = PG_GETARG_ARRAYTYPE_P(0);
+
+	Datum response = delete_cursors(cursorArray);
+	PG_RETURN_DATUM(response);
+}
+
+
+inline static const char *
+FormatCursorName(StringInfo cursorStringInfo, int64_t cursorId)
+{
+	resetStringInfo(cursorStringInfo);
+	appendStringInfo(cursorStringInfo, "cursor_%ld", cursorId);
+	return cursorStringInfo->data;
+}
+
+
+Datum
+delete_cursors(ArrayType *cursorArray)
+{
+	Datum *cursorIds;
+	bool *nulls;
+	int nelems;
+	if (!UseFileBasedPersistedCursors)
+	{
+		return PointerGetDatum(PgbsonInitEmpty());
+	}
+
+	deconstruct_array(cursorArray, INT8OID, sizeof(int64_t), true, TYPALIGN_INT,
+					  &cursorIds, &nulls, &nelems);
+
+	StringInfo cursorStringInfo = makeStringInfo();
+	for (int i = 0; i < nelems; i++)
+	{
+		if (nulls[i])
+		{
+			continue;
+		}
+
+		int64_t cursorId = DatumGetInt64(cursorIds[i]);
+		const char *cursorName = FormatCursorName(cursorStringInfo, cursorId);
+		DeleteCursorFile(cursorName);
+	}
+
+	return PointerGetDatum(PgbsonInitEmpty());
+}
+
+
 /*
  * Given a pre-built query (for find/aggregate) handles the cursor request
  * and builds a response for the first page.
  */
 static Datum
-HandleFirstPageRequest(PG_FUNCTION_ARGS,
-					   text *database, pgbson *querySpec, int64_t cursorId,
+HandleFirstPageRequest(pgbson *querySpec, int64_t cursorId,
 					   QueryData *queryData, QueryKind queryKind, Query *query)
 {
 	pgbson_writer writer;
@@ -524,6 +679,8 @@ HandleFirstPageRequest(PG_FUNCTION_ARGS,
 	{
 		case QueryCursorType_SingleBatch:
 		{
+			ReportFeatureUsage(FEATURE_CURSOR_TYPE_SINGLE_BATCH);
+
 			bool isHoldCursor = false;
 			bool closeCursor = true;
 			CreateAndDrainPersistedQuery("singleBatchCursor", query,
@@ -539,6 +696,8 @@ HandleFirstPageRequest(PG_FUNCTION_ARGS,
 
 		case QueryCursorType_Tailable:
 		{
+			ReportFeatureUsage(FEATURE_CURSOR_TYPE_TAILABLE);
+
 			HTAB *tailableCursorMap = CreateTailableCursorHashSet();
 			postBatchResumeToken = DrainTailableQuery(tailableCursorMap,
 													  query,
@@ -559,6 +718,8 @@ HandleFirstPageRequest(PG_FUNCTION_ARGS,
 
 		case QueryCursorType_Streamable:
 		{
+			ReportFeatureUsage(FEATURE_CURSOR_TYPE_STREAMING);
+
 			Assert(queryData->cursorStateParamNumber == 1);
 			HTAB *cursorMap = CreateCursorHashSet();
 			queryFullyDrained = DrainStreamingQuery(cursorMap, query,
@@ -584,34 +745,65 @@ HandleFirstPageRequest(PG_FUNCTION_ARGS,
 
 		case QueryCursorType_Persistent:
 		{
+			ReportFeatureUsage(FEATURE_CURSOR_TYPE_PERSISTENT);
+
 			/* In order to create the persistent cursor we initialize a cursorId anyway */
 			cursorId = GenerateCursorId(cursorId);
 
 			StringInfo cursorStringInfo = makeStringInfo();
-			appendStringInfo(cursorStringInfo, "cursor_%ld", cursorId);
-			const char *cursorName = cursorStringInfo->data;
+			const char *cursorName = FormatCursorName(cursorStringInfo, cursorId);
 
 			bool isTopLevel = true;
 			bool isHoldCursor = !IsInTransactionBlock(isTopLevel);
 			persistConnection = isHoldCursor;
 			bool closeCursor = false;
-			queryFullyDrained = CreateAndDrainPersistedQuery(cursorName, query,
-															 queryData->batchSize,
-															 &numIterations,
-															 accumulatedSize,
-															 &arrayWriter,
-															 isHoldCursor, closeCursor);
-			continuationDoc = queryFullyDrained ? NULL :
-							  BuildPersistedContinuationDocument(cursorName, cursorId,
-																 queryKind,
-																 &queryData->
-																 timeSystemVariables,
-																 numIterations);
+
+			if (isHoldCursor && UseFileBasedPersistedCursors)
+			{
+				persistConnection = false;
+				bytea *cursorFileState = CreateAndDrainPersistedQueryWithFiles(cursorName,
+																			   query,
+																			   queryData->
+																			   batchSize,
+																			   &
+																			   numIterations,
+																			   accumulatedSize,
+																			   &
+																			   arrayWriter,
+																			   closeCursor);
+				queryFullyDrained = cursorFileState == NULL;
+				continuationDoc = queryFullyDrained ? NULL :
+								  BuildPersistedFileContinuationDocument(cursorName,
+																		 cursorId,
+																		 queryKind,
+																		 &queryData->
+																		 timeSystemVariables,
+																		 numIterations,
+																		 cursorFileState);
+			}
+			else
+			{
+				queryFullyDrained = CreateAndDrainPersistedQuery(cursorName, query,
+																 queryData->batchSize,
+																 &numIterations,
+																 accumulatedSize,
+																 &arrayWriter,
+																 isHoldCursor,
+																 closeCursor);
+				continuationDoc = queryFullyDrained ? NULL :
+								  BuildPersistedContinuationDocument(cursorName, cursorId,
+																	 queryKind,
+																	 &queryData->
+																	 timeSystemVariables,
+																	 numIterations);
+			}
 			break;
 		}
 
 		case QueryCursorType_PointRead:
 		{
+			ReportFeatureUsage(FEATURE_CURSOR_TYPE_POINT_READ);
+
 			if (queryData->batchSize < 1)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INTERNALERROR),
@@ -639,9 +831,13 @@ HandleFirstPageRequest(PG_FUNCTION_ARGS,
 		}
 	}
 
-	return PostProcessCursorPage(fcinfo, &cursorDoc, &arrayWriter, &writer, cursorId,
+	/* See sql/udfs/commands_crud/query_cursors_aggregate--latest.sql */
+	AttrNumber maxOutAttrNum = 4;
+	TupleDesc tupleDesc = ConstructCursorResultTupleDesc(maxOutAttrNum);
+
+	return PostProcessCursorPage(&cursorDoc, &arrayWriter, &writer, cursorId,
 								 continuationDoc, persistConnection,
-								 postBatchResumeToken);
+								 postBatchResumeToken, tupleDesc);
 }
 
 
@@ -687,7 +883,48 @@ BuildStreamingContinuationDocument(HTAB *cursorMap, pgbson *querySpec, int64_t c
 	PgbsonWriterAppendInt32(&writer, "numIters", 8, numIterations);
 
 	/* Add the time system variables */
-	if (EnableNowSystemVariable && IsClusterVersionAtleast(DocDB_V0, 24, 0))
+	if (EnableNowSystemVariable)
+	{
+		if (timeSystemVariables != NULL && timeSystemVariables->nowValue.value_type !=
+			BSON_TYPE_EOD)
+		{
+			PgbsonWriterAppendValue(&writer, "sn", 2, &timeSystemVariables->nowValue);
+		}
+	}
+
+	return PgbsonWriterGetPgbson(&writer);
+}
+
+
+static pgbson *
+BuildPersistedFileContinuationDocument(const char *cursorName, int64_t
+									   cursorId, QueryKind queryKind,
+									   TimeSystemVariables *
+									   timeSystemVariables,
+									   int numIterations,
+									   bytea *continuationState)
+{
+	pgbson_writer writer;
+	PgbsonWriterInit(&writer);
+	PgbsonWriterAppendInt64(&writer, "qi", 2, cursorId);
+	PgbsonWriterAppendBool(&writer, "qp", 2, true);
+
+	/* Add the original query spec so that getMore can reuse it */
+	PgbsonWriterAppendInt32(&writer, "qk", 2, (int) queryKind);
+	PgbsonWriterAppendUtf8(&writer, "qn", 2, cursorName);
+
+	bson_value_t continuationValue;
+	continuationValue.value_type = BSON_TYPE_BINARY;
+	continuationValue.value.v_binary.subtype = BSON_SUBTYPE_BINARY;
+	continuationValue.value.v_binary.data = (uint8_t *) continuationState;
+	continuationValue.value.v_binary.data_len = VARSIZE(continuationState);
+	PgbsonWriterAppendValue(&writer, "qf", 2, &continuationValue);
+
+	/* In the response add the number of iterations (used in tests) */
+	PgbsonWriterAppendInt32(&writer, "numIters", 8, numIterations);
+
+	/* Add the time system variables */
+	if (EnableNowSystemVariable)
 	{
 		if (timeSystemVariables != NULL && timeSystemVariables->nowValue.value_type !=
 			BSON_TYPE_EOD)
@@ -722,7 +959,7 @@ BuildPersistedContinuationDocument(const char *cursorName, int64_t cursorId, Que
 	PgbsonWriterAppendInt32(&writer, "numIters", 8, numIterations);
 
 	/* Add the time system variables */
-	if (EnableNowSystemVariable && IsClusterVersionAtleast(DocDB_V0, 24, 0))
+	if (EnableNowSystemVariable)
 	{
 		if (timeSystemVariables != NULL && timeSystemVariables->nowValue.value_type !=
 			BSON_TYPE_EOD)
@@ -801,6 +1038,21 @@ ParseCursorInputSpec(pgbson *cursorSpec, QueryGetMoreInfo *getMoreInfo)
 						continue;
 					}
 
+					case 'f':
+					{
+						/* Query file state for the cursor */
+						Assert(pathKey[2] == '\0');
+						bson_subtype_t subtype;
+						uint32_t binaryLength = 0;
+						const uint8_t *binaryData = NULL;
+						bson_iter_binary(&cursorSpecIter, &subtype,
+										 &binaryLength, &binaryData);
+
+						bytea *cursorState = palloc(binaryLength);
+						memcpy(cursorState, binaryData, binaryLength);
+						getMoreInfo->cursorFileState = cursorState;
+						continue;
+					}
 
 					/* Continuation persistence - ignored */
 					case 'p':
@@ -837,7 +1089,7 @@ ParseCursorInputSpec(pgbson *cursorSpec, QueryGetMoreInfo *getMoreInfo)
  * Parses the getMore spec and builds the necessary pipeline/query information from a cursor standpoint.
  */
 static void
-ParseGetMoreSpec(text *databaseName, pgbson *getMoreSpec, pgbson *cursorSpec,
+ParseGetMoreSpec(text **databaseName, pgbson *getMoreSpec, pgbson *cursorSpec,
 				 QueryGetMoreInfo *getMoreInfo)
 {
 	/* Default batchSize for getMore */

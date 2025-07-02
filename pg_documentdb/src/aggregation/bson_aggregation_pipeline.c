@@ -58,6 +58,7 @@
 #include "aggregation/bson_query.h"
 
 #include "aggregation/bson_aggregation_pipeline_private.h"
+#include "aggregation/bson_bucket_auto.h"
 #include "api_hooks.h"
 #include "vector/vector_common.h"
 #include "aggregation/bson_project.h"
@@ -71,12 +72,11 @@
 #include "api_hooks.h"
 
 extern bool EnableCursorsOnAggregationQueryRewrite;
-extern bool EnableLookupUnwindSupport;
 extern bool EnableCollation;
 extern bool DefaultInlineWriteOperations;
-extern bool EnableSimplifyGroupAccumulators;
 extern bool EnableSortbyIdPushDownToPrimaryKey;
 extern int MaxAggregationStagesAllowed;
+extern bool EnableIndexOrderbyPushdown;
 
 /* GUC to config tdigest compression */
 extern int TdigestCompressionAccuracy;
@@ -318,7 +318,7 @@ static const AggregationStageDefinition StageDefinitions[] =
 	},
 	{
 		.stage = "$bucketAuto",
-		.mutateFunc = NULL,
+		.mutateFunc = &HandleBucketAuto,
 		.requiresPersistentCursor = &RequiresPersistentCursorTrue,
 		.canInlineLookupStageFunc = NULL,
 		.preservesStableSortOrder = false,
@@ -1039,7 +1039,7 @@ CreateNamespaceName(text *databaseName, const StringView *collectionName)
  * For this we simply create the query from it and let the validation take place.
  */
 void
-ValidateAggregationPipeline(Datum databaseDatum, const StringView *baseCollection,
+ValidateAggregationPipeline(text *databaseDatum, const StringView *baseCollection,
 							const bson_value_t *pipelineValue)
 {
 	AggregationPipelineBuildContext validationContext = { 0 };
@@ -1147,7 +1147,7 @@ MutateQueryWithPipeline(Query *query, List *aggregationStages,
  * to match the contents of the provided aggregation pipeline.
  */
 Query *
-GenerateAggregationQuery(Datum database, pgbson *aggregationSpec, QueryData *queryData,
+GenerateAggregationQuery(text *database, pgbson *aggregationSpec, QueryData *queryData,
 						 bool addCursorParams, bool setStatementTimeout)
 {
 	AggregationPipelineBuildContext context = { 0 };
@@ -1214,6 +1214,8 @@ GenerateAggregationQuery(Datum database, pgbson *aggregationSpec, QueryData *que
 		}
 		else if (StringViewEqualsCString(&keyView, "let"))
 		{
+			ReportFeatureUsage(FEATURE_LET_TOP_LEVEL);
+
 			bool hasValue = EnsureTopLevelFieldTypeNullOkUndefinedOK("let",
 																	 &aggregationIterator,
 																	 BSON_TYPE_DOCUMENT);
@@ -1249,12 +1251,34 @@ GenerateAggregationQuery(Datum database, pgbson *aggregationSpec, QueryData *que
 			EnsureTopLevelFieldIsNumberLike("find.maxTimeMS", value);
 			SetExplicitStatementTimeout(BsonValueAsInt32(value));
 		}
+		else if (StringViewEqualsCString(&keyView, "$db"))
+		{
+			/* BackCompat: Ignore if provided top level */
+			if (context.databaseNameDatum == NULL)
+			{
+				/* Extract the database out of $db */
+				EnsureTopLevelFieldType("$db", &aggregationIterator, BSON_TYPE_UTF8);
+
+				uint32_t databaseLength = 0;
+				const char *databaseName = bson_iter_utf8(&aggregationIterator,
+														  &databaseLength);
+				context.databaseNameDatum = cstring_to_text_with_len(databaseName,
+																	 databaseLength);
+				database = context.databaseNameDatum;
+			}
+		}
 		else if (!IsCommonSpecIgnoredField(keyView.string))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 							errmsg("%*s is an unknown field",
 								   keyView.length, keyView.string)));
 		}
+	}
+
+	if (context.databaseNameDatum == NULL)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
+							"Required field database must be valid")));
 	}
 
 	if (pipelineValue.value_type != BSON_TYPE_ARRAY)
@@ -1269,9 +1293,11 @@ GenerateAggregationQuery(Datum database, pgbson *aggregationSpec, QueryData *que
 							"Required variables aggregate must be valid")));
 	}
 
+	bool isWriteCommand = false;
 	pgbson *parsedVariables = ParseAndGetTopLevelVariableSpec(&let,
 															  &queryData->
-															  timeSystemVariables);
+															  timeSystemVariables,
+															  isWriteCommand);
 
 	if (parsedVariables != NULL && !IsPgbsonEmptyDocument(parsedVariables))
 	{
@@ -1284,11 +1310,12 @@ GenerateAggregationQuery(Datum database, pgbson *aggregationSpec, QueryData *que
 	Query *query;
 	if (isCollectionAgnosticQuery)
 	{
-		query = GenerateBaseAgnosticQuery(database, &context);
+		query = GenerateBaseAgnosticQuery(context.databaseNameDatum, &context);
 	}
 	else
 	{
-		query = GenerateBaseTableQuery(database, &collectionName, collectionUuid,
+		query = GenerateBaseTableQuery(context.databaseNameDatum, &collectionName,
+									   collectionUuid,
 									   &context);
 	}
 
@@ -1311,6 +1338,7 @@ GenerateAggregationQuery(Datum database, pgbson *aggregationSpec, QueryData *que
 	else if (query->commandType == CMD_MERGE)
 	{
 		/* CMD_MERGE is case when pipeline has output stage ($merge or $out) result will be always single batch. */
+		ThrowIfServerOrTransactionReadOnly();
 		queryData->cursorKind = QueryCursorType_SingleBatch;
 	}
 	else if (queryData->cursorKind == QueryCursorType_Unspecified)
@@ -1356,7 +1384,7 @@ GenerateAggregationQuery(Datum database, pgbson *aggregationSpec, QueryData *que
  * Applies a find spec against a query and expands it into the underlying SQL AST.
  */
 Query *
-GenerateFindQuery(Datum databaseDatum, pgbson *findSpec, QueryData *queryData, bool
+GenerateFindQuery(text *databaseDatum, pgbson *findSpec, QueryData *queryData, bool
 				  addCursorParams, bool setStatementTimeout)
 {
 	AggregationPipelineBuildContext context = { 0 };
@@ -1388,134 +1416,289 @@ GenerateFindQuery(Datum databaseDatum, pgbson *findSpec, QueryData *queryData, b
 		StringView keyView = bson_iter_key_string_view(&findIterator);
 		const bson_value_t *value = bson_iter_value(&findIterator);
 
-		if (StringViewEqualsCString(&keyView, "find"))
+		/*
+		 * Key off of the first character to avoid the several "if/else" checks for every
+		 * key. If any letter becomes to long, we should add another lookup table
+		 * block to speed up the comparison.
+		 */
+		switch (keyView.string[0])
 		{
-			hasFind = true;
-			EnsureTopLevelFieldType("find", &findIterator, BSON_TYPE_UTF8);
-			collectionName.string = bson_iter_utf8(&findIterator, &collectionName.length);
-		}
-		else if (StringViewEqualsCString(&keyView, "filter"))
-		{
-			EnsureTopLevelFieldType("filter", &findIterator, BSON_TYPE_DOCUMENT);
-			filter = *value;
-		}
-		else if (StringViewEqualsCString(&keyView, "limit"))
-		{
-			/* In case ntoreturn is present and has been parsed already we throw this error */
-			if (!isNtoReturnSupported && hasNtoreturn)
+			case '$':
 			{
-				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg(
-									"'limit' or 'batchSize' fields can not be set with 'ntoreturn' field")));
+				if (StringViewEqualsCString(&keyView, "$db"))
+				{
+					/* BackCompat: Ignore if provided top level */
+					if (context.databaseNameDatum == NULL)
+					{
+						/* Extract the database out of $db */
+						EnsureTopLevelFieldType("$db", &findIterator, BSON_TYPE_UTF8);
+
+						uint32_t databaseLength = 0;
+						const char *databaseName = bson_iter_utf8(&findIterator,
+																  &databaseLength);
+						context.databaseNameDatum = cstring_to_text_with_len(databaseName,
+																			 databaseLength);
+						databaseDatum = context.databaseNameDatum;
+					}
+
+					continue;
+				}
+
+				goto default_find_case;
 			}
 
-			/* Validation handled in the stage processing */
-			limit = *value;
-		}
-		else if (StringViewEqualsCString(&keyView, "projection"))
-		{
-			/* Validation handled in the stage processing */
-			/* TODO - Mongo validates projection even if collection is not present */
-			/* to align with that we may need to validate projection here, like $elemMatch envolve $jsonSchema */
-			projection = *value;
-		}
-		else if (StringViewEqualsCString(&keyView, "skip"))
-		{
-			/* Validation handled in the stage processing */
-			skip = *value;
-		}
-		else if (StringViewEqualsCString(&keyView, "sort"))
-		{
-			EnsureTopLevelFieldType("sort", &findIterator, BSON_TYPE_DOCUMENT);
-			sort = *value;
-		}
-		else if (EnableCollation && StringViewEqualsCString(&keyView, "collation"))
-		{
-			EnsureTopLevelFieldType("collation", &findIterator, BSON_TYPE_DOCUMENT);
-			ReportFeatureUsage(FEATURE_COLLATION);
-			ParseAndGetCollationString(value, context.collationString);
-		}
-		else if (StringViewEqualsCString(&keyView, "singleBatch"))
-		{
-			EnsureTopLevelFieldType("singleBatch", &findIterator, BSON_TYPE_BOOL);
-			if (value->value.v_bool)
+			case 'a':
 			{
-				queryData->cursorKind = QueryCursorType_SingleBatch;
-			}
-		}
-		else if (StringViewEqualsCString(&keyView, "batchSize"))
-		{
-			/* In case ntoreturn is present and has been parsed already we throw this error */
-			if (!isNtoReturnSupported && hasNtoreturn)
-			{
-				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg(
-									"'limit' or 'batchSize' fields can not be set with 'ntoreturn' field")));
-			}
-			SetBatchSize("batchSize", value, queryData);
-			hasBatchSize = !isNtoReturnSupported;
-		}
-		else if (StringViewEqualsCString(&keyView, "ntoreturn"))
-		{
-			/* In case of versions <6.0 we support ntoreturn */
-			if (isNtoReturnSupported)
-			{
-				SetBatchSize("ntoreturn", value, queryData);
+				if (StringViewEqualsCString(&keyView, "allowDiskUse") ||
+					StringViewEqualsCString(&keyView, "allowPartialResults"))
+				{
+					/* We ignore this for now (TODO Support this?) */
+					continue;
+				}
+
+				goto default_find_case;
 			}
 
-			/* In case ntoreturn is the last option in the find command we first check if batchSize or limit is present */
-			if (limit.value_type != BSON_TYPE_EOD || hasBatchSize)
+			case 'b':
 			{
-				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg(
-									"'limit' or 'batchSize' fields can not be set with 'ntoreturn' field")));
+				if (StringViewEqualsCString(&keyView, "batchSize"))
+				{
+					/* In case ntoreturn is present and has been parsed already we throw this error */
+					if (!isNtoReturnSupported && hasNtoreturn)
+					{
+						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
+										errmsg(
+											"'limit' or 'batchSize' fields can not be set with 'ntoreturn' field")));
+					}
+					SetBatchSize("batchSize", value, queryData);
+					hasBatchSize = !isNtoReturnSupported;
+					continue;
+				}
+
+				goto default_find_case;
 			}
-			hasNtoreturn = !isNtoReturnSupported;
+
+			case 'c':
+			{
+				if (EnableCollation && StringViewEqualsCString(&keyView, "collation"))
+				{
+					EnsureTopLevelFieldType("collation", &findIterator,
+											BSON_TYPE_DOCUMENT);
+					ReportFeatureUsage(FEATURE_COLLATION);
+					ParseAndGetCollationString(value, context.collationString);
+					continue;
+				}
+
+				goto default_find_case;
+			}
+
+			case 'f':
+			{
+				if (StringViewEqualsCString(&keyView, "find"))
+				{
+					hasFind = true;
+					EnsureTopLevelFieldType("find", &findIterator, BSON_TYPE_UTF8);
+					collectionName.string = bson_iter_utf8(&findIterator,
+														   &collectionName.length);
+					continue;
+				}
+				else if (StringViewEqualsCString(&keyView, "filter"))
+				{
+					EnsureTopLevelFieldType("filter", &findIterator, BSON_TYPE_DOCUMENT);
+					filter = *value;
+					continue;
+				}
+
+				goto default_find_case;
+			}
+
+			case 'h':
+			{
+				if (StringViewEqualsCString(&keyView, "hint"))
+				{
+					/* We ignore this for now (TODO Support this?) */
+					continue;
+				}
+
+				goto default_find_case;
+			}
+
+			case 'l':
+			{
+				if (StringViewEqualsCString(&keyView, "limit"))
+				{
+					/* In case ntoreturn is present and has been parsed already we throw this error */
+					if (!isNtoReturnSupported && hasNtoreturn)
+					{
+						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
+										errmsg(
+											"'limit' or 'batchSize' fields can not be set with 'ntoreturn' field")));
+					}
+
+					/* Validation handled in the stage processing */
+					limit = *value;
+					continue;
+				}
+				else if (StringViewEqualsCString(&keyView, "let"))
+				{
+					ReportFeatureUsage(FEATURE_LET_TOP_LEVEL);
+
+					EnsureTopLevelFieldType("let", &findIterator, BSON_TYPE_DOCUMENT);
+
+					let = *value;
+					continue;
+				}
+				else if (StringViewEqualsCString(&keyView, "lsid"))
+				{
+					/* Commonly ignored spec, add here to not pay cost of bsearch for hotpaths */
+					continue;
+				}
+
+				goto default_find_case;
+			}
+
+			case 'm':
+			{
+				if (StringViewEqualsCString(&keyView, "min") ||
+					StringViewEqualsCString(&keyView, "max"))
+				{
+					/* We ignore this for now (TODO Support this?) */
+					continue;
+				}
+				else if (setStatementTimeout &&
+						 StringViewEqualsCString(&keyView, "maxTimeMS"))
+				{
+					EnsureTopLevelFieldIsNumberLike("find.maxTimeMS", value);
+					SetExplicitStatementTimeout(BsonValueAsInt32(value));
+					continue;
+				}
+
+				goto default_find_case;
+			}
+
+			case 'n':
+			{
+				if (StringViewEqualsCString(&keyView, "ntoreturn"))
+				{
+					/* In case of versions <6.0 we support ntoreturn */
+					if (isNtoReturnSupported)
+					{
+						SetBatchSize("ntoreturn", value, queryData);
+					}
+
+					/* In case ntoreturn is the last option in the find command we first check if batchSize or limit is present */
+					if (limit.value_type != BSON_TYPE_EOD || hasBatchSize)
+					{
+						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
+										errmsg(
+											"'limit' or 'batchSize' fields can not be set with 'ntoreturn' field")));
+					}
+					hasNtoreturn = !isNtoReturnSupported;
+					continue;
+				}
+				else if (StringViewEqualsCString(&keyView, "noCursorTimeout"))
+				{
+					/* We ignore this for now (TODO Support this?) */
+					continue;
+				}
+
+				goto default_find_case;
+			}
+
+			case 'p':
+			{
+				if (StringViewEqualsCString(&keyView, "projection"))
+				{
+					/* Validation handled in the stage processing */
+					/* TODO - Mongo validates projection even if collection is not present */
+					/* to align with that we may need to validate projection here, like $elemMatch envolve $jsonSchema */
+					projection = *value;
+					continue;
+				}
+
+				goto default_find_case;
+			}
+
+			case 'r':
+			{
+				if (StringViewEqualsCString(&keyView, "returnKey"))
+				{
+					if (BsonValueAsBool(value))
+					{
+						/* fail if returnKey or showRecordId are present and with boolean value true, else ignore */
+						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
+										errmsg("key %.*s is not supported yet",
+											   keyView.length, keyView.string),
+										errdetail_log("key %.*s is not supported yet",
+													  keyView.length, keyView.string)));
+					}
+
+					continue;
+				}
+
+				goto default_find_case;
+			}
+
+			case 's':
+			{
+				if (StringViewEqualsCString(&keyView, "skip"))
+				{
+					/* Validation handled in the stage processing */
+					skip = *value;
+					continue;
+				}
+				else if (StringViewEqualsCString(&keyView, "sort"))
+				{
+					EnsureTopLevelFieldType("sort", &findIterator, BSON_TYPE_DOCUMENT);
+					sort = *value;
+					continue;
+				}
+				else if (StringViewEqualsCString(&keyView, "singleBatch"))
+				{
+					EnsureTopLevelFieldType("singleBatch", &findIterator, BSON_TYPE_BOOL);
+					if (value->value.v_bool)
+					{
+						queryData->cursorKind = QueryCursorType_SingleBatch;
+					}
+					continue;
+				}
+				else if (StringViewEqualsCString(&keyView, "showRecordId"))
+				{
+					if (BsonValueAsBool(value))
+					{
+						/* fail if returnKey or showRecordId are present and with boolean value true, else ignore */
+						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
+										errmsg("key %.*s is not supported yet",
+											   keyView.length, keyView.string),
+										errdetail_log("key %.*s is not supported yet",
+													  keyView.length, keyView.string)));
+					}
+
+					continue;
+				}
+
+				goto default_find_case;
+			}
+
+default_find_case:
+			default:
+			{
+				if (!IsCommonSpecIgnoredField(keyView.string))
+				{
+					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
+									errmsg("%.*s is an unknown field",
+										   keyView.length, keyView.string),
+									errdetail_log("%.*s is an unknown field",
+												  keyView.length, keyView.string)));
+				}
+			}
 		}
-		else if (StringViewEqualsCString(&keyView, "let"))
-		{
-			EnsureTopLevelFieldType("let", &findIterator, BSON_TYPE_DOCUMENT);
-			let = *value;
-		}
-		else if (StringViewEqualsCString(&keyView, "hint") ||
-				 StringViewEqualsCString(&keyView, "min") ||
-				 StringViewEqualsCString(&keyView, "max") ||
-				 StringViewEqualsCString(&keyView, "allowPartialResults") ||
-				 StringViewEqualsCString(&keyView, "allowDiskUse") ||
-				 StringViewEqualsCString(&keyView, "noCursorTimeout"))
-		{
-			/* We ignore this for now (TODO Support this?) */
-		}
-		else if (StringViewEqualsCString(&keyView, "$db") ||
-				 StringViewEqualsCString(&keyView, "lsid"))
-		{
-			/* Commonly ignored spec, add here to not pay cost of bsearch for hotpaths */
-		}
-		else if ((StringViewEqualsCString(&keyView, "returnKey") ||
-				  StringViewEqualsCString(&keyView, "showRecordId")) &&
-				 BsonValueAsBool(value))
-		{
-			/* fail if returnKey or showRecordId are present and with boolean value true, else ignore */
-			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
-							errmsg("key %.*s is not supported yet",
-								   keyView.length, keyView.string),
-							errdetail_log("key %.*s is not supported yet",
-										  keyView.length, keyView.string)));
-		}
-		else if (setStatementTimeout &&
-				 StringViewEqualsCString(&keyView, "maxTimeMS"))
-		{
-			EnsureTopLevelFieldIsNumberLike("find.maxTimeMS", value);
-			SetExplicitStatementTimeout(BsonValueAsInt32(value));
-		}
-		else if (!IsCommonSpecIgnoredField(keyView.string))
-		{
-			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("%.*s is an unknown field",
-								   keyView.length, keyView.string),
-							errdetail_log("%.*s is an unknown field",
-										  keyView.length, keyView.string)));
-		}
+	}
+
+	if (context.databaseNameDatum == NULL)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
+							"Required field database must be valid")));
 	}
 
 	if (!hasFind)
@@ -1551,9 +1734,11 @@ GenerateFindQuery(Datum databaseDatum, pgbson *findSpec, QueryData *queryData, b
 		}
 	}
 
+	bool isWriteCommand = false;
 	pgbson *parsedVariables = ParseAndGetTopLevelVariableSpec(&let,
 															  &queryData->
-															  timeSystemVariables);
+															  timeSystemVariables,
+															  isWriteCommand);
 
 	if (parsedVariables != NULL && !IsPgbsonEmptyDocument(parsedVariables))
 	{
@@ -1575,7 +1760,8 @@ GenerateFindQuery(Datum databaseDatum, pgbson *findSpec, QueryData *queryData, b
 		context.requiresPersistentCursor = true;
 	}
 
-	Query *query = GenerateBaseTableQuery(databaseDatum, &collectionName, collectionUuid,
+	Query *query = GenerateBaseTableQuery(context.databaseNameDatum, &collectionName,
+										  collectionUuid,
 										  &context);
 	Query *baseQuery = query;
 
@@ -1661,7 +1847,7 @@ GenerateFindQuery(Datum databaseDatum, pgbson *findSpec, QueryData *queryData, b
  * Generates a query that is akin to the MongoDB $count query command
  */
 Query *
-GenerateCountQuery(Datum databaseDatum, pgbson *countSpec, bool setStatementTimeout)
+GenerateCountQuery(text *databaseDatum, pgbson *countSpec, bool setStatementTimeout)
 {
 	AggregationPipelineBuildContext context = { 0 };
 	context.databaseNameDatum = databaseDatum;
@@ -1851,7 +2037,7 @@ GenerateCountQuery(Datum databaseDatum, pgbson *countSpec, bool setStatementTime
  * Generates a query that is akin to the MongoDB $distinct query command
  */
 Query *
-GenerateDistinctQuery(Datum databaseDatum, pgbson *distinctSpec, bool setStatementTimeout)
+GenerateDistinctQuery(text *databaseDatum, pgbson *distinctSpec, bool setStatementTimeout)
 {
 	AggregationPipelineBuildContext context = { 0 };
 	context.databaseNameDatum = databaseDatum;
@@ -1947,12 +2133,13 @@ GenerateDistinctQuery(Datum databaseDatum, pgbson *distinctSpec, bool setStateme
  * with it. Also updates the queryData with cursor related information.
  */
 int64_t
-ParseGetMore(text *databaseName, pgbson *getMoreSpec, QueryData *queryData, bool
+ParseGetMore(text **databaseName, pgbson *getMoreSpec, QueryData *queryData, bool
 			 setStatementTimeout)
 {
 	bson_iter_t cursorSpecIter;
 	PgbsonInitIterator(getMoreSpec, &cursorSpecIter);
 	int64_t cursorId = 0;
+	StringView nameView = { 0 };
 	while (bson_iter_next(&cursorSpecIter))
 	{
 		const char *pathKey = bson_iter_key(&cursorSpecIter);
@@ -1972,18 +2159,31 @@ ParseGetMore(text *databaseName, pgbson *getMoreSpec, QueryData *queryData, bool
 		{
 			const bson_value_t *value = bson_iter_value(&cursorSpecIter);
 			EnsureTopLevelFieldValueType("collection", value, BSON_TYPE_UTF8);
-			StringView nameView = {
+			nameView = (StringView) {
 				.string = value->value.v_utf8.str,
 				.length = value->value.v_utf8.len
 			};
-			queryData->namespaceName = CreateNamespaceName(databaseName,
-														   &nameView);
 		}
 		else if (setStatementTimeout && strcmp(pathKey, "maxTimeMS") == 0)
 		{
 			const bson_value_t *value = bson_iter_value(&cursorSpecIter);
 			EnsureTopLevelFieldIsNumberLike("getMore.maxTimeMS", value);
 			SetExplicitStatementTimeout(BsonValueAsInt32(value));
+		}
+		else if (strcmp(pathKey, "$db") == 0)
+		{
+			/* BackCompat: Ignore if provided top level */
+			if (*databaseName == NULL)
+			{
+				/* Extract the database out of $db */
+				EnsureTopLevelFieldType("$db", &cursorSpecIter, BSON_TYPE_UTF8);
+
+				uint32_t databaseLength = 0;
+				const char *databaseStr = bson_iter_utf8(&cursorSpecIter,
+														 &databaseLength);
+				*databaseName = cstring_to_text_with_len(databaseStr,
+														 databaseLength);
+			}
 		}
 		else if (!IsCommonSpecIgnoredField(pathKey))
 		{
@@ -1993,11 +2193,20 @@ ParseGetMore(text *databaseName, pgbson *getMoreSpec, QueryData *queryData, bool
 		}
 	}
 
-	if (queryData->namespaceName == NULL)
+	if (nameView.length == 0)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE),
+						errmsg("Collection name can't be empty.")));
+	}
+
+	if (*databaseName == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("Required element \"collection\" missing.")));
+						errmsg("Required element \"$db\" missing.")));
 	}
+
+	queryData->namespaceName = CreateNamespaceName(*databaseName,
+												   &nameView);
 
 	if (cursorId == 0)
 	{
@@ -2178,6 +2387,11 @@ HandleSimpleProjectionStage(const bson_value_t *existingValue, Query *query,
 	else
 	{
 		args = list_make2(currentProjection, addFieldsProcessed);
+		if (functionOid == BsonDollaMergeDocumentsFunctionOid())
+		{
+			bool overrideArrays = false;
+			args = lappend(args, MakeBoolValueConst(overrideArrays));
+		}
 	}
 
 	FuncExpr *resultExpr = makeFuncExpr(
@@ -3001,16 +3215,6 @@ HandleRedact(const bson_value_t *existingValue, Query *query,
 {
 	ReportFeatureUsage(FEATURE_STAGE_REDACT);
 
-	/* Check if redact feature is available according to version. */
-	if (!IsClusterVersionAtleast(DocDB_V0, 24, 0))
-	{
-		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
-						errmsg(
-							"Stage $redact is not supported yet in native pipeline"),
-						errdetail_log(
-							"Stage $redact is not supported yet in native pipeline")));
-	}
-
 	Const *redactSpec;
 	Const *redactSpecText;
 
@@ -3127,8 +3331,8 @@ HandleProjectFind(const bson_value_t *existingValue, const bson_value_t *queryVa
 
 	List *args;
 	Oid funcOid = BsonDollarProjectFindFunctionOid();
-	if (IsCollationApplicable(context->collationString) && IsClusterVersionAtleast(
-			DocDB_V0, 102, 0))
+	if (IsCollationApplicable(context->collationString) &&
+		IsClusterVersionAtleast(DocDB_V0, 102, 0))
 	{
 		pgbson *queryDoc = queryValue->value_type == BSON_TYPE_EOD ? PgbsonInitEmpty() :
 						   PgbsonInitFromDocumentBsonValue(queryValue);
@@ -3570,7 +3774,8 @@ HandleChangeStream(const bson_value_t *existingValue, Query *query,
 	}
 
 	Const *databaseConst = makeConst(TEXTOID, -1, InvalidOid, -1,
-									 context->databaseNameDatum, false, false);
+									 PointerGetDatum(context->databaseNameDatum), false,
+									 false);
 	Const *collectionConst = MakeTextConst(context->collectionNameView.string,
 										   context->collectionNameView.length);
 
@@ -3593,7 +3798,7 @@ HandleChangeStream(const bson_value_t *existingValue, Query *query,
  * where the maximum number of arguments can be larger than MaxEvenFunctionArguments.
  */
 Expr *
-GenerateMultiExpressionRepathExpression(List *repathArgs)
+GenerateMultiExpressionRepathExpression(List *repathArgs, bool overrideArrayInProjection)
 {
 	Assert(repathArgs != NIL && list_length(repathArgs) % 2 == 0);
 
@@ -3627,11 +3832,14 @@ GenerateMultiExpressionRepathExpression(List *repathArgs)
 	Expr *argsRepathExpression = (Expr *) makeFuncExpr(BsonRepathAndBuildFunctionOid(),
 													   BsonTypeId(), args, InvalidOid,
 													   InvalidOid, COERCE_EXPLICIT_CALL);
-	Expr *remainingArgsExprs = GenerateMultiExpressionRepathExpression(remainingArgs);
+	Expr *remainingArgsExprs = GenerateMultiExpressionRepathExpression(remainingArgs,
+																	   overrideArrayInProjection);
 
 	return (Expr *) makeFuncExpr(BsonDollaMergeDocumentsFunctionOid(),
 								 BsonTypeId(),
-								 list_make2(argsRepathExpression, remainingArgsExprs),
+								 list_make3(argsRepathExpression, remainingArgsExprs,
+											MakeBoolValueConst(
+												overrideArrayInProjection)),
 								 InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
 }
 
@@ -4290,6 +4498,62 @@ HandleReplaceWith(const bson_value_t *existingValue, Query *query,
 
 
 /*
+ * Checks if a sort can be pushed to an index explicitly. Typically
+ * index selection happens based on filters. But in the case where there
+ * are no filters, sorts can never be pushed to the index:
+ * e.g.
+ * find('collection: foo, sort: { a.b: 1 })'
+ * In this case, given our sort is bson_orderby() it'll never go through picking
+ * the index. However, we do want the ability to push orderby to available indexes
+ * if possible. So we add a fullscan filter *iff* the sort is against a base table
+ * and it has no filters. If there are any filters, we let the filters determine
+ * index pushdown.
+ */
+static bool
+CanPushSortFilterToIndex(Query *query)
+{
+	if (list_length(query->jointree->fromlist) != 1)
+	{
+		return false;
+	}
+
+	RangeTblRef *rtref = linitial(query->jointree->fromlist);
+	RangeTblEntry *entry = rt_fetch(rtref->rtindex, query->rtable);
+	if (entry->rtekind != RTE_RELATION)
+	{
+		return false;
+	}
+
+	/* If there's no quals, we can push a full scan order by */
+	if (query->jointree->quals == NULL)
+	{
+		return true;
+	}
+
+	if (!IsA(query->jointree->quals, OpExpr))
+	{
+		return false;
+	}
+
+	OpExpr *opExpr = (OpExpr *) query->jointree->quals;
+	if (opExpr->opno != BigintEqualOperatorId())
+	{
+		return false;
+	}
+
+	if (IsA(linitial(opExpr->args), Var) &&
+		castNode(Var, linitial(opExpr->args))->varattno ==
+		DOCUMENT_DATA_TABLE_SHARD_KEY_VALUE_VAR_ATTR_NUMBER)
+	{
+		return true;
+	}
+
+	/* Unknown case */
+	return false;
+}
+
+
+/*
  * Handles the $sort stage.
  * Creates a subquery if there's a skip/limit (Since those need to be
  * applied first).
@@ -4378,12 +4642,14 @@ HandleSort(const bson_value_t *existingValue, Query *query,
 			nonNaturalCount++;
 			Expr *sortInput = entry->expr;
 			pgbsonelement subOrderingElement;
+			bool isSortByMeta = false;
 			if (element.bsonValue.value_type == BSON_TYPE_DOCUMENT &&
 				TryGetBsonValueToPgbsonElement(&element.bsonValue, &subOrderingElement) &&
 				subOrderingElement.pathLength == 5 &&
 				strncmp(subOrderingElement.path, "$meta", 5) == 0)
 			{
 				RangeTblEntry *rte = linitial(query->rtable);
+				isSortByMeta = true;
 				if (rte->rtekind == RTE_RELATION ||
 					rte->rtekind == RTE_FUNCTION)
 				{
@@ -4403,21 +4669,27 @@ HandleSort(const bson_value_t *existingValue, Query *query,
 			pgbson *sortDoc = PgbsonElementToPgbson(&element);
 			Const *sortBson = MakeBsonConst(sortDoc);
 			bool isAscending = ValidateOrderbyExpressionAndGetIsAscending(sortDoc);
-			SortByNulls sortByNulls = SORTBY_NULLS_DEFAULT;
 
 			bool hasSortById = strcmp(element.path, "_id") == 0;
 			bool canPushdownSortById = false;
 
 			if (hasSortById)
 			{
-				ReportFeatureUsage(FEATURE_STAGE_SORT_BY_ID);
-
 				if (CanSortByObjectId(query, context))
 				{
 					canPushdownSortById = true;
 					ReportFeatureUsage(FEATURE_STAGE_SORT_BY_ID_PUSHDOWNABLE);
 				}
+				else
+				{
+					ReportFeatureUsage(FEATURE_STAGE_SORT_BY_ID);
+				}
 			}
+
+			SortBy *sortBy = makeNode(SortBy);
+			SortByNulls sortByNulls = SORTBY_NULLS_DEFAULT;
+			SortByDir sortByDirection = isAscending ? SORTBY_ASC : SORTBY_DESC;
+			sortBy->location = -1;
 
 			/* If the sort is on _id and we can push it down to the primary key index, use ORDER BY object_id instead. */
 			if (EnableSortbyIdPushDownToPrimaryKey && canPushdownSortById)
@@ -4429,17 +4701,69 @@ HandleSort(const bson_value_t *existingValue, Query *query,
 			else
 			{
 				/* match mongo behavior. */
+				Oid funcOid = BsonOrderByFunctionOid();
+				List *args = NIL;
+
+				/* apply collation to the sort comparison */
+				if (IsCollationApplicable(context->collationString) &&
+					IsClusterVersionAtleast(DocDB_V0, 104, 0))
+				{
+					funcOid = BsonOrderByWithCollationFunctionOid();
+					Const *collationConst = MakeTextConst(context->collationString,
+														  strlen(
+															  context->collationString));
+
+					args = list_make3(sortInput, sortBson, collationConst);
+
+					/*
+					 * For ascending order: ORDER BY <value> USING ApiInternalSchemaNameV2.<<<
+					 * For descending order: ORDER BY <value> USING ApiInternalSchemaNameV2.>>>
+					 */
+					sortByDirection = SORTBY_USING;
+					sortBy->useOp = isAscending ?
+									list_make2(makeString(ApiInternalSchemaNameV2),
+											   makeString("<<<")) :
+									list_make2(makeString(ApiInternalSchemaNameV2),
+											   makeString(">>>"));
+				}
+				else
+				{
+					args = list_make2(sortInput, sortBson);
+				}
+
 				sortByNulls = isAscending ? SORTBY_NULLS_FIRST : SORTBY_NULLS_LAST;
-				expr = (Expr *) makeFuncExpr(BsonOrderByFunctionOid(),
+
+				expr = (Expr *) makeFuncExpr(funcOid,
 											 BsonTypeId(),
-											 list_make2(sortInput, sortBson),
+											 args,
 											 InvalidOid, InvalidOid,
 											 COERCE_EXPLICIT_CALL);
+
+				if (EnableIndexOrderbyPushdown && !isSortByMeta)
+				{
+					/*
+					 * If there's an orderby pushdown to the index, add a full scan clause iff
+					 * the query has no filters yet.
+					 */
+					if (CanPushSortFilterToIndex(query) && (
+							IsClusterVersionAtLeastPatch(DocDB_V0, 103, 1) ||
+							IsClusterVersionAtLeastPatch(DocDB_V0, 104, 1) ||
+							IsClusterVersionAtleast(DocDB_V0, 105, 0)))
+					{
+						List *rangeArgs = list_make2(sortInput, sortBson);
+						Expr *fullScanExpr = (Expr *) makeFuncExpr(
+							BsonFullScanFunctionOid(), BOOLOID, rangeArgs,
+							InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
+						List *currentQuals = make_ands_implicit(
+							(Expr *) query->jointree->quals);
+						currentQuals = lappend(currentQuals, fullScanExpr);
+						query->jointree->quals = (Node *) make_ands_explicit(
+							currentQuals);
+					}
+				}
 			}
 
-			SortBy *sortBy = makeNode(SortBy);
-			sortBy->location = -1;
-			sortBy->sortby_dir = isAscending ? SORTBY_ASC : SORTBY_DESC;
+			sortBy->sortby_dir = sortByDirection;
 			sortBy->sortby_nulls = sortByNulls;
 			sortBy->node = (Node *) expr;
 
@@ -4590,6 +4914,12 @@ HandleSortByCount(const bson_value_t *existingValue, Query *query,
 inline static bool
 CanSortByObjectId(Query *query, AggregationPipelineBuildContext *context)
 {
+	/* _id values may be collation-sensitive so do not filter by object_id = */
+	if (IsCollationApplicable(context->collationString))
+	{
+		return false;
+	}
+
 	RangeTblEntry *rte = linitial(query->rtable);
 	if (context->mongoCollection == NULL ||
 		rte->rtekind != RTE_RELATION ||
@@ -4678,11 +5008,6 @@ static Expr *
 GetDocumentExprForGroupAccumulatorValue(const bson_value_t *accumulatorValue,
 										Expr *docExpr)
 {
-	if (!EnableSimplifyGroupAccumulators)
-	{
-		return docExpr;
-	}
-
 	ParseAggregationExpressionContext parseContext = { 0 };
 	AggregationExpressionData expressionData;
 	memset(&expressionData, 0, sizeof(AggregationExpressionData));
@@ -4735,8 +5060,7 @@ AddSimpleGroupAccumulator(Query *query, const bson_value_t *accumulatorValue,
 		functionId, BsonTypeId(), groupArgs, InvalidOid,
 		InvalidOid, COERCE_EXPLICIT_CALL);
 
-	if (BsonTypeId() != DocumentDBCoreBsonTypeId() &&
-		IsClusterVersionAtleast(DocDB_V0, 24, 0))
+	if (BsonTypeId() != DocumentDBCoreBsonTypeId())
 	{
 		accumFunc = makeFuncExpr(
 			DocumentDBCoreBsonToBsonFunctionOId(), BsonTypeId(), list_make1(accumFunc),
@@ -5199,8 +5523,7 @@ AddPercentileMedianGroupAccumulator(Query *query, const bson_value_t *accumulato
 										pFuncArgs, InvalidOid,
 										InvalidOid, COERCE_EXPLICIT_CALL);
 
-	if (BsonTypeId() != DocumentDBCoreBsonTypeId() &&
-		IsClusterVersionAtleast(DocDB_V0, 24, 0))
+	if (BsonTypeId() != DocumentDBCoreBsonTypeId())
 	{
 		inputAccumFunc = makeFuncExpr(
 			DocumentDBCoreBsonToBsonFunctionOId(), BsonTypeId(), list_make1(
@@ -5326,8 +5649,7 @@ HandleGroup(const bson_value_t *existingValue, Query *query,
 		bsonExpressionGetFunction, BsonTypeId(), groupArgs, InvalidOid,
 		InvalidOid, COERCE_EXPLICIT_CALL);
 
-	if (BsonTypeId() != DocumentDBCoreBsonTypeId() &&
-		IsClusterVersionAtleast(DocDB_V0, 24, 0))
+	if (BsonTypeId() != DocumentDBCoreBsonTypeId())
 	{
 		groupFunc = makeFuncExpr(
 			DocumentDBCoreBsonToBsonFunctionOId(), BsonTypeId(), list_make1(groupFunc),
@@ -5778,11 +6100,6 @@ HandleGroup(const bson_value_t *existingValue, Query *query,
 		}
 		else if (StringViewEqualsCString(&accumulatorName, "$median"))
 		{
-			if (!(IsClusterVersionAtleast(DocDB_V0, 24, 0)))
-			{
-				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
-								errmsg("Accumulator $median is not supported yet")));
-			}
 			repathArgs = AddPercentileMedianGroupAccumulator(query,
 															 &accumulatorElement.bsonValue,
 															 repathArgs,
@@ -5794,12 +6111,6 @@ HandleGroup(const bson_value_t *existingValue, Query *query,
 		}
 		else if (StringViewEqualsCString(&accumulatorName, "$percentile"))
 		{
-			if (!(IsClusterVersionAtleast(DocDB_V0, 24, 0)))
-			{
-				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
-								errmsg(
-									"Accumulator $percentile is not supported yet")));
-			}
 			repathArgs = AddPercentileMedianGroupAccumulator(query,
 															 &accumulatorElement.bsonValue,
 															 repathArgs,
@@ -5837,7 +6148,11 @@ HandleGroup(const bson_value_t *existingValue, Query *query,
 
 	/* Take the output and replace it with the repath_and_build */
 	TargetEntry *entry = linitial(query->targetList);
-	Expr *repathExpression = GenerateMultiExpressionRepathExpression(repathArgs);
+
+	/* $group doesn't allow dotted path so no need to override */
+	bool overrideArrayInProjection = false;
+	Expr *repathExpression = GenerateMultiExpressionRepathExpression(repathArgs,
+																	 overrideArrayInProjection);
 
 	entry->expr = repathExpression;
 	entry->resname = origEntry->resname;
@@ -6218,7 +6533,7 @@ ExtractAggregationStages(const bson_value_t *pipelineValue,
  * Updates the base table
  */
 Query *
-GenerateBaseTableQuery(Datum databaseDatum, const StringView *collectionNameView,
+GenerateBaseTableQuery(text *databaseDatum, const StringView *collectionNameView,
 					   pg_uuid_t *collectionUuid,
 					   AggregationPipelineBuildContext *context)
 {
@@ -6227,12 +6542,13 @@ GenerateBaseTableQuery(Datum databaseDatum, const StringView *collectionNameView
 	query->querySource = QSRC_ORIGINAL;
 	query->canSetTag = true;
 	context->collectionNameView = *collectionNameView;
-	context->namespaceName = CreateNamespaceName(DatumGetTextPP(databaseDatum),
+	context->namespaceName = CreateNamespaceName(databaseDatum,
 												 collectionNameView);
 	Datum collectionNameDatum = PointerGetDatum(
 		cstring_to_text_with_len(collectionNameView->string, collectionNameView->length));
 
-	MongoCollection *collection = GetMongoCollectionOrViewByNameDatum(databaseDatum,
+	MongoCollection *collection = GetMongoCollectionOrViewByNameDatum(PointerGetDatum(
+																		  databaseDatum),
 																	  collectionNameDatum,
 																	  AccessShareLock);
 
@@ -6258,7 +6574,7 @@ GenerateBaseTableQuery(Datum databaseDatum, const StringView *collectionNameView
 	List *pipelineStages = NIL;
 	if (collection != NULL && collection->viewDefinition != NULL)
 	{
-		collection = ExtractViewDefinitionAndPipeline(databaseDatum,
+		collection = ExtractViewDefinitionAndPipeline(PointerGetDatum(databaseDatum),
 													  collection->viewDefinition,
 													  &pipelineStages,
 													  context);
@@ -6273,8 +6589,8 @@ GenerateBaseTableQuery(Datum databaseDatum, const StringView *collectionNameView
 	RangeTblEntry *rte = makeNode(RangeTblEntry);
 
 	/* Match spec for ApiSchema.collection() function */
-	List *colNames = list_make4(makeString("shard_key_value"), makeString("object_id"),
-								makeString("document"), makeString("creation_time"));
+	List *colNames = list_make3(makeString("shard_key_value"), makeString("object_id"),
+								makeString("document"));
 
 	const char *collectionAlias = "collection";
 	if (context->numNestedLevels > 0 || context->nestedPipelineLevel > 0)
@@ -6287,10 +6603,12 @@ GenerateBaseTableQuery(Datum databaseDatum, const StringView *collectionNameView
 
 	if (collection == NULL)
 	{
+		colNames = lappend(colNames, makeString("creation_time"));
+
 		/* Here: Special case, if the database is config, try to see if we can create a base
 		 * table out of the system metadata.
 		 */
-		StringView databaseView = CreateStringViewFromText(DatumGetTextPP(databaseDatum));
+		StringView databaseView = CreateStringViewFromText(databaseDatum);
 		if (StringViewEqualsCString(&databaseView, "config"))
 		{
 			Query *returnedQuery = GenerateConfigDatabaseQuery(context);
@@ -6332,6 +6650,11 @@ GenerateBaseTableQuery(Datum databaseDatum, const StringView *collectionNameView
 	{
 		rte->rtekind = RTE_RELATION;
 		rte->relid = collection->relationId;
+
+		if (collection->mongoDataCreationTimeVarAttrNumber != -1)
+		{
+			colNames = lappend(colNames, makeString("creation_time"));
+		}
 
 		if (context->allowShardBaseTable)
 		{
@@ -7096,8 +7419,7 @@ TryOptimizeAggregationPipelines(List **aggregationStages,
 			allowShardBaseTable = false;
 		}
 
-		if (definition->stageEnum == Stage_Lookup &&
-			EnableLookupUnwindSupport && IsClusterVersionAtleast(DocDB_V0, 24, 0))
+		if (definition->stageEnum == Stage_Lookup)
 		{
 			/* Optimization for $lookup stage
 			 */

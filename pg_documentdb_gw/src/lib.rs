@@ -14,8 +14,8 @@ use error::ErrorCode;
 use log::{error, log_enabled, warn};
 use openssl::ssl::{Ssl, SslContextBuilder, SslMethod, SslOptions};
 use protocol::header::Header;
-use requests::compute_request_tracker::ComputeRequestTracker;
-use requests::{ComputeRequestInterval, Request, RequestInfo, RequestMessage};
+use requests::request_tracker::RequestTracker;
+use requests::{Request, RequestInfo, RequestIntervalKind, RequestMessage};
 use responses::{CommandError, Response};
 use socket2::TcpKeepalive;
 use std::sync::Arc;
@@ -28,7 +28,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::context::{ConnectionContext, ServiceContext};
 use crate::error::{DocumentDBError, Result};
-use crate::postgres::Pool;
+use crate::postgres::{ConnectionPool, PgDataClient};
 use crate::requests::RequestType;
 
 pub use crate::postgres::QueryCatalog;
@@ -44,14 +44,22 @@ pub mod processor;
 pub mod protocol;
 pub mod requests;
 pub mod responses;
+pub mod shutdown_controller;
 pub mod telemetry;
 
-pub async fn run_server(
+pub const SYSTEM_REQUESTS_MAX_CONNECTIONS: usize = 2;
+pub const AUTHENTICATION_MAX_CONNECTIONS: usize = 5;
+
+pub async fn run_server<T>(
     sc: ServiceContext,
     certificate_options: CertificateOptions,
     telemetry: Option<Box<dyn TelemetryProvider>>,
     token: CancellationToken,
-) -> Result<()> {
+    cipher_map: Option<fn(Option<&str>) -> i32>,
+) -> Result<()>
+where
+    T: PgDataClient,
+{
     let listener = TcpListener::bind(format!(
         "{}:{}",
         if sc.setup_configuration().use_local_host() {
@@ -66,13 +74,14 @@ pub async fn run_server(
     let enforce_ssl_tcp = sc.setup_configuration().enforce_ssl_tcp();
     // Listen for new tcp connections until cancelled
     loop {
-        match listen_for_connections(
+        match listen_for_connections::<T>(
             sc.clone(),
             &certificate_options,
             telemetry.clone(),
             &listener,
             token.clone(),
             enforce_ssl_tcp,
+            cipher_map,
         )
         .await
         {
@@ -83,30 +92,20 @@ pub async fn run_server(
     }
 }
 
-pub async fn get_service_context(
+pub fn get_service_context(
     setup_configuration: Box<dyn SetupConfiguration>,
     dynamic: Arc<dyn DynamicConfiguration>,
     query_catalog: QueryCatalog,
-    system_pool: Arc<Pool>,
-) -> Result<ServiceContext> {
-    let mut i = 0;
-    let mut interval = tokio::time::interval(Duration::from_secs(30));
-    loop {
-        interval.tick().await;
-        match ServiceContext::new(
-            setup_configuration.clone(),
-            dynamic.clone(),
-            query_catalog.clone(),
-            system_pool.clone(),
-        )
-        .await
-        {
-            Ok(sc) => return Ok(sc),
-            Err(e) if i >= 10 => return Err(e),
-            Err(e) => log::debug!("Failed to initialize service context: {}", e),
-        }
-        i += 1;
-    }
+    system_requests_pool: Arc<ConnectionPool>,
+    authentication_pool: ConnectionPool,
+) -> ServiceContext {
+    ServiceContext::new(
+        setup_configuration.clone(),
+        Arc::clone(&dynamic),
+        query_catalog.clone(),
+        Arc::clone(&system_requests_pool),
+        authentication_pool,
+    )
 }
 
 #[cfg(debug_assertions)]
@@ -130,14 +129,18 @@ pub async fn populate_ssl_certificates() -> Result<CertificateOptions> {
     panic!("Release builds must provide SSL certificate options.")
 }
 
-async fn listen_for_connections(
+async fn listen_for_connections<T>(
     sc: ServiceContext,
     certificate_options: &CertificateOptions,
     telemetry: Option<Box<dyn TelemetryProvider>>,
     listener: &TcpListener,
     token: CancellationToken,
     enforce_ssl_tcp: bool,
-) -> Result<bool> {
+    cipher_map: Option<fn(Option<&str>) -> i32>,
+) -> Result<bool>
+where
+    T: PgDataClient,
+{
     let token_clone = token.clone();
 
     let mut ctx = SslContextBuilder::new(SslMethod::tls()).unwrap();
@@ -155,7 +158,7 @@ async fn listen_for_connections(
     // Wait for either a new connection or cancellation
     tokio::select! {
         res = listener.accept() => {
-            // Recieve the connection and spawn a thread which handles it until cancelled
+            // Receive the connection and spawn a thread which handles it until cancelled
             let (stream, ip) = res?;
             log::trace!("New TCP connection established.");
 
@@ -163,7 +166,7 @@ async fn listen_for_connections(
             socket2::SockRef::from(&stream).set_tcp_keepalive(&TcpKeepalive::new().with_interval(Duration::from_secs(60)).with_time(Duration::from_secs(180)))?;
             tokio::spawn(async move {
                 tokio::select! {
-                    _ = handle_connection(ssl, sc, telemetry, ip, stream, enforce_ssl_tcp) => {}
+                    _ = handle_connection::<T>(ssl, sc, telemetry, ip, stream, enforce_ssl_tcp, cipher_map) => {}
                     _ = token_clone.cancelled() => {}
                 }
             });
@@ -181,38 +184,45 @@ async fn get_stream(ssl: Ssl, stream: TcpStream) -> Result<SslStream<TcpStream>>
     Ok(ssl_stream)
 }
 
-async fn handle_connection(
+async fn handle_connection<T>(
     ssl: Ssl,
     sc: ServiceContext,
     telemetry: Option<Box<dyn TelemetryProvider>>,
     ip: SocketAddr,
     stream: TcpStream,
     enforce_ssl_tcp: bool,
-) {
+    cipher_map: Option<fn(Option<&str>) -> i32>,
+) where
+    T: PgDataClient,
+{
     let mut connection_context =
         ConnectionContext::new(sc, telemetry, ip, ssl.version_str().to_string()).await;
 
     match enforce_ssl_tcp {
         true => match get_stream(ssl, stream).await {
             Ok(stream) => {
-                connection_context.cipher_type =
-                    get_cipher_type(stream.ssl().current_cipher().map(|cipher| cipher.name()));
-                handle_stream(stream, connection_context).await
+                connection_context.cipher_type = match cipher_map {
+                    Some(map) => map(stream.ssl().current_cipher().map(|cipher| cipher.name())),
+                    None => 0,
+                };
+                handle_stream::<SslStream<TcpStream>, T>(stream, connection_context).await
             }
             Err(e) => log::error!("Failed to create SslStream: {}", e),
         },
-        false => handle_stream(stream, connection_context).await,
+        false => handle_stream::<TcpStream, T>(stream, connection_context).await,
     }
 }
 
-async fn handle_stream<R>(mut stream: R, mut connection_context: ConnectionContext)
+async fn handle_stream<R, T>(mut stream: R, mut connection_context: ConnectionContext)
 where
     R: AsyncRead + AsyncWrite + Unpin + Send,
+    T: PgDataClient,
 {
     loop {
         match protocol::reader::read_header(&mut stream).await {
             Ok(Some(header)) => {
-                if let Err(e) = handle_message(&mut connection_context, &header, &mut stream).await
+                if let Err(e) =
+                    handle_message::<R, T>(&mut connection_context, &header, &mut stream).await
                 {
                     if let Err(e) = log_and_write_error(
                         &connection_context,
@@ -221,7 +231,7 @@ where
                         None,
                         &mut stream,
                         None,
-                        &mut ComputeRequestTracker::default(),
+                        &mut RequestInfo::new(),
                     )
                     .await
                     {
@@ -256,13 +266,16 @@ where
     }
 }
 
-async fn get_response(
-    ctx: &mut ConnectionContext,
+async fn get_response<T>(
+    connection_context: &mut ConnectionContext,
     message: &RequestMessage,
     request: &Request<'_>,
-    request_info: &RequestInfo<'_>,
+    request_info: &mut RequestInfo<'_>,
     header: &Header,
-) -> Result<Response> {
+) -> Result<Response>
+where
+    T: PgDataClient,
+{
     // Parse the request bytes into a type and the contained document(s)
     if request.request_type() != &RequestType::IsMaster {
         log::debug!(
@@ -278,42 +291,38 @@ async fn get_response(
         }
     }
 
-    if !ctx.auth_state.authorized || request.request_type().handle_with_auth() {
-        let response = auth::process(ctx, request).await?;
+    if !connection_context.auth_state.authorized || request.request_type().handle_with_auth() {
+        let response = auth::process::<T>(connection_context, request).await?;
         return Ok(response);
     }
 
     // Once authorized, make sure that there is a pool of pg clients for the user/password.
-    ctx.ensure_client_pool(
-        ctx.auth_state.username()?,
-        ctx.auth_state
-            .password
-            .as_ref()
-            .ok_or(DocumentDBError::internal_error(
-                "Password missing for connection pool.".to_string(),
-            ))?,
-    )
-    .await?;
+    connection_context.allocate_data_pool().await?;
+
+    let service_context = Arc::clone(&connection_context.service_context);
+    let data_client = T::new_authorized(&service_context, &connection_context.auth_state).await?;
 
     // Process the actual request
-    let response = processor::process_request(request, request_info, ctx).await?;
+    let response =
+        processor::process_request(request, request_info, connection_context, data_client).await?;
 
     Ok(response)
 }
 
-async fn handle_message<R>(
+async fn handle_message<R, T>(
     connection_context: &mut ConnectionContext,
     header: &Header,
     stream: &mut R,
 ) -> Result<()>
 where
     R: AsyncRead + AsyncWrite + Unpin + Send,
+    T: PgDataClient,
 {
     // Read the request message off the stream
+    let mut request_tracker = RequestTracker::new();
 
-    let mut compute_request_tracker = ComputeRequestTracker::new();
-
-    let message = protocol::reader::read_request(header, stream, connection_context).await?;
+    let buffer_read_start = request_tracker.start_timer();
+    let message = protocol::reader::read_request(header, stream).await?;
 
     log::trace!(activity_id = header.activity_id.as_str(); "[{}] Request parsed.", header.request_id);
 
@@ -328,27 +337,55 @@ where
         ));
     }
 
-    let start = compute_request_tracker.start_timer();
+    request_tracker.record_duration(RequestIntervalKind::BufferRead, buffer_read_start);
+
+    let handle_request_start = request_tracker.start_timer();
+
+    let format_request_start = request_tracker.start_timer();
     let request = protocol::reader::parse_request(&message, connection_context).await?;
-    compute_request_tracker.record_duration(ComputeRequestInterval::FormatRequest, start);
+    request_tracker.record_duration(RequestIntervalKind::FormatRequest, format_request_start);
+
+    let mut request_info = request.extract_common()?;
+    request_info.request_tracker = request_tracker;
 
     if log_enabled!(log::Level::Trace) {
         log::trace!(activity_id = header.activity_id.as_str(); "Request: {}", request.to_json()?)
     }
 
     let mut collection = String::new();
-    let start = compute_request_tracker.start_timer();
-    let result = handle_request(
+    let result = handle_request::<R, T>(
         connection_context,
         header,
         &request,
         &message,
         stream,
         &mut collection,
-        &mut compute_request_tracker,
+        &mut request_info,
     )
     .await;
-    compute_request_tracker.record_duration(ComputeRequestInterval::RequestDuration, start);
+    request_info
+        .request_tracker
+        .record_duration(RequestIntervalKind::HandleRequest, handle_request_start);
+
+    if connection_context
+        .dynamic_configuration()
+        .enable_verbose_logging_gateway()
+        .await
+    {
+        log::info!(
+            activity_id = header.activity_id.as_str();
+            "Latency for Mongo Request with ActivityId: {}, BufferRead={}ms, HandleRequest={}ms, FormatRequest={}ms, ProcessRequest={}ms, PostgresBeginTransaction={}ms, PostgresSetStatementTimeout={}ms, PostgresTransactionCommit={}ms, FormatResponse={}ms",
+            header.activity_id,
+            request_info.request_tracker.get_interval_elapsed_time(RequestIntervalKind::BufferRead),
+            request_info.request_tracker.get_interval_elapsed_time(RequestIntervalKind::HandleRequest),
+            request_info.request_tracker.get_interval_elapsed_time(RequestIntervalKind::FormatRequest),
+            request_info.request_tracker.get_interval_elapsed_time(RequestIntervalKind::ProcessRequest),
+            request_info.request_tracker.get_interval_elapsed_time(RequestIntervalKind::PostgresBeginTransaction),
+            request_info.request_tracker.get_interval_elapsed_time(RequestIntervalKind::PostgresSetStatementTimeout),
+            request_info.request_tracker.get_interval_elapsed_time(RequestIntervalKind::PostgresTransactionCommit),
+            request_info.request_tracker.get_interval_elapsed_time(RequestIntervalKind::FormatResponse)
+        );
+    }
 
     // Errors in request handling are handled explicitly so that telemetry can have access to the request
     // Returns Ok afterwards so that higher level error telemetry is not invoked.
@@ -360,7 +397,7 @@ where
             Some(&request),
             stream,
             Some(collection),
-            &mut compute_request_tracker,
+            &mut RequestInfo::new(),
         )
         .await
         {
@@ -371,45 +408,49 @@ where
     Ok(())
 }
 
-async fn handle_request<R>(
-    ctx: &mut ConnectionContext,
+async fn handle_request<R, T>(
+    connection_context: &mut ConnectionContext,
     header: &Header,
     request: &Request<'_>,
     message: &RequestMessage,
     stream: &mut R,
     collection: &mut String,
-    compute_request_tracker: &mut ComputeRequestTracker,
+    request_info: &mut RequestInfo<'_>,
 ) -> Result<()>
 where
     R: AsyncRead + AsyncWrite + Unpin + Send,
+    T: PgDataClient,
 {
-    let request_info = request.extract_common()?;
     *collection = request_info.collection().unwrap_or("").to_string();
 
     // Process the response for the message
-    let start = compute_request_tracker.start_timer();
-    let response = get_response(ctx, message, request, &request_info, header).await?;
+    let response =
+        get_response::<T>(connection_context, message, request, request_info, header).await?;
+
+    let format_response_start = request_info.request_tracker.start_timer();
 
     // Write the response back to the stream
-    if ctx.requires_response {
+    if connection_context.requires_response {
         responses::writer::write(header, &response, stream).await?;
         stream.flush().await?;
     }
 
-    if let Some(telemetry) = ctx.telemetry_provider.as_ref() {
+    if let Some(telemetry) = connection_context.telemetry_provider.as_ref() {
         telemetry
             .emit_request_event(
-                ctx,
+                connection_context,
                 header,
                 Some(request),
                 Left(&response),
                 collection.to_string(),
-                compute_request_tracker,
+                request_info,
             )
             .await;
     }
 
-    compute_request_tracker.record_duration(ComputeRequestInterval::HandleResponse, start);
+    request_info
+        .request_tracker
+        .record_duration(RequestIntervalKind::FormatResponse, format_response_start);
 
     Ok(())
 }
@@ -421,7 +462,7 @@ async fn log_and_write_error<R>(
     request: Option<&Request<'_>>,
     stream: &mut R,
     collection: Option<String>,
-    compute_request_tracker: &mut ComputeRequestTracker,
+    request_info: &mut RequestInfo<'_>,
 ) -> Result<()>
 where
     R: AsyncRead + AsyncWrite + Unpin + Send,
@@ -441,77 +482,10 @@ where
                 request,
                 Right((&error_response, response.as_bytes().len())),
                 collection.unwrap_or_default(),
-                compute_request_tracker,
+                request_info,
             )
             .await;
     }
 
     Ok(())
-}
-
-fn get_cipher_type(cipher_name: Option<&str>) -> i32 {
-    match cipher_name {
-        Some("TLS_AES_256_GCM_SHA384") => 1,
-        Some("TLS_CHACHA20_POLY1305_SHA256") => 2,
-        Some("TLS_AES_128_GCM_SHA256") => 3,
-        Some("ECDHE_ECDSA_AES256_GCM_SHA384") => 4,
-        Some("ECDHE_RSA_AES256_GCM_SHA384") => 5,
-        Some("DHE_RSA_AES256_GCM_SHA384") => 6,
-        Some("ECDHE_ECDSA_CHACHA20_POLY1305") => 7,
-        Some("ECDHE_RSA_CHACHA20_POLY1305") => 8,
-        Some("DHE_RSA_CHACHA20_POLY1305") => 9,
-        Some("ECDHE_ECDSA_AES128_GCM_SHA256") => 10,
-        Some("ECDHE_RSA_AES128_GCM_SHA256") => 11,
-        Some("DHE_RSA_AES128_GCM_SHA256") => 12,
-        Some("ECDHE_ECDSA_AES256_SHA384") => 13,
-        Some("ECDHE_RSA_AES256_SHA384") => 14,
-        Some("DHE_RSA_AES256_SHA256") => 15,
-        Some("ECDHE_ECDSA_AES128_SHA256") => 16,
-        Some("ECDHE_RSA_AES128_SHA256") => 17,
-        Some("DHE_RSA_AES128_SHA256") => 18,
-        Some("ECDHE_ECDSA_AES256_SHA") => 19,
-        Some("ECDHE_RSA_AES256_SHA") => 20,
-        Some("DHE_RSA_AES256_SHA") => 21,
-        Some("ECDHE_ECDSA_AES128_SHA") => 22,
-        Some("ECDHE_RSA_AES128_SHA") => 23,
-        Some("DHE_RSA_AES128_SHA") => 24,
-        Some("RSA_PSK_AES256_GCM_SHA384") => 25,
-        Some("DHE_PSK_AES256_GCM_SHA384") => 26,
-        Some("RSA_PSK_CHACHA20_POLY1305") => 27,
-        Some("DHE_PSK_CHACHA20_POLY1305") => 28,
-        Some("ECDHE_PSK_CHACHA20_POLY1305") => 29,
-        Some("AES256_GCM_SHA384") => 30,
-        Some("PSK_AES256_GCM_SHA384") => 31,
-        Some("PSK_CHACHA20_POLY1305") => 32,
-        Some("RSA_PSK_AES128_GCM_SHA256") => 33,
-        Some("DHE_PSK_AES128_GCM_SHA256") => 34,
-        Some("AES128_GCM_SHA256") => 35,
-        Some("PSK_AES128_GCM_SHA256") => 36,
-        Some("AES256_SHA256") => 37,
-        Some("AES128_SHA256") => 38,
-        Some("ECDHE_PSK_AES256_CBC_SHA384") => 39,
-        Some("ECDHE_PSK_AES256_CBC_SHA") => 40,
-        Some("SRP_RSA_AES_256_CBC_SHA") => 41,
-        Some("SRP_AES_256_CBC_SHA") => 42,
-        Some("RSA_PSK_AES256_CBC_SHA384") => 43,
-        Some("DHE_PSK_AES256_CBC_SHA384") => 44,
-        Some("RSA_PSK_AES256_CBC_SHA") => 45,
-        Some("DHE_PSK_AES256_CBC_SHA") => 46,
-        Some("AES256_SHA") => 47,
-        Some("PSK_AES256_CBC_SHA384") => 48,
-        Some("PSK_AES256_CBC_SHA") => 49,
-        Some("ECDHE_PSK_AES128_CBC_SHA256") => 50,
-        Some("ECDHE_PSK_AES128_CBC_SHA") => 51,
-        Some("SRP_RSA_AES_128_CBC_SHA") => 52,
-        Some("SRP_AES_128_CBC_SHA") => 53,
-        Some("RSA_PSK_AES128_CBC_SHA256") => 54,
-        Some("DHE_PSK_AES128_CBC_SHA256") => 55,
-        Some("RSA_PSK_AES128_CBC_SHA") => 56,
-        Some("DHE_PSK_AES128_CBC_SHA") => 57,
-        Some("AES128_SHA") => 58,
-        Some("PSK_AES128_CBC_SHA256") => 59,
-        Some("PSK_AES128_CBC_SHA") => 60,
-        Some(_) => -1, // Unknown cipher
-        None => 0,     // No cipher (possibly not using SSL/TLS)
-    }
 }

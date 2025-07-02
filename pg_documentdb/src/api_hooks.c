@@ -13,6 +13,7 @@
 
 #include "index_am/documentdb_rum.h"
 #include "metadata/collection.h"
+#include "metadata/index.h"
 #include "io/bson_core.h"
 #include "lib/stringinfo.h"
 #include "api_hooks.h"
@@ -30,6 +31,8 @@ RunQueryWithSequentialModification_HookType
 DistributePostgresTable_HookType distribute_postgres_table_hook = NULL;
 ModifyTableColumnNames_HookType modify_table_column_names_hook = NULL;
 RunQueryWithNestedDistribution_HookType run_query_with_nested_distribution_hook = NULL;
+AllowNestedDistributionInCurrentTransaction_HookType
+	allow_nested_distribution_in_current_transaction_hook = NULL;
 IsShardTableForMongoTable_HookType is_shard_table_for_mongo_table_hook = NULL;
 HandleColocation_HookType handle_colocation_hook = NULL;
 RewriteListCollectionsQueryForDistribution_HookType rewrite_list_collections_query_hook =
@@ -60,6 +63,16 @@ GetUserInfoFromExternalIdentityProvider_HookType
 	get_user_info_from_external_identity_provider_hook = NULL;
 IsUserExternal_HookType
 	is_user_external_hook = NULL;
+GetPidForIndexBuild_HookType get_pid_for_index_build_hook = NULL;
+TryGetIndexBuildJobOpIdQuery_HookType try_get_index_build_job_op_id_query_hook =
+	NULL;
+TryGetCancelIndexBuildQuery_HookType try_get_cancel_index_build_query_hook =
+	NULL;
+ShouldScheduleIndexBuilds_HookType should_schedule_index_builds_hook = NULL;
+UserNameValidation_HookType
+	username_validation_hook = NULL;
+PasswordValidation_HookType
+	password_validation_hook = NULL;
 
 /*
  * Single node scenario is always a metadata coordinator
@@ -141,6 +154,20 @@ RunMultiValueQueryWithNestedDistribution(const char *query, int nArgs, Oid *argT
 		ExtensionExecuteMultiValueQueryWithArgsViaSPI(
 			query, nArgs, argTypes, argDatums, argNulls,
 			readOnly, expectedSPIOK, datums, isNull, numValues);
+	}
+}
+
+
+/*
+ * Enables any settings needed for nested distribution
+ * Noops for single node.
+ */
+void
+AllowNestedDistributionInCurrentTransaction(void)
+{
+	if (allow_nested_distribution_in_current_transaction_hook != NULL)
+	{
+		allow_nested_distribution_in_current_transaction_hook();
 	}
 }
 
@@ -276,6 +303,36 @@ IsUserExternal(const char *userName)
 	}
 
 	return false;
+}
+
+
+/*
+ * Default password validation implementation, just returns true
+ */
+bool
+IsPasswordValid(const char *username, const char *password)
+{
+	if (password_validation_hook != NULL)
+	{
+		return password_validation_hook(username, password);
+	}
+	return true;
+}
+
+
+/*
+ * Default username validation implementation
+ * Returns true if username is valid, false otherwise
+ */
+bool
+IsUsernameValid(const char *username)
+{
+	if (username_validation_hook != NULL)
+	{
+		return username_validation_hook(username);
+	}
+
+	return true;
 }
 
 
@@ -507,4 +564,52 @@ GetShardIdsAndNamesForCollection(Oid relationOid, const char *tableName,
 		(*shardOidArray)[0] = ObjectIdGetDatum(relationOid);
 		(*shardNameArray)[0] = CStringGetTextDatum(tableName);
 	}
+}
+
+
+const char *
+GetPidForIndexBuild()
+{
+	if (get_pid_for_index_build_hook != NULL)
+	{
+		return get_pid_for_index_build_hook();
+	}
+
+	return NULL;
+}
+
+
+const char *
+TryGetIndexBuildJobOpIdQuery(void)
+{
+	if (try_get_index_build_job_op_id_query_hook != NULL)
+	{
+		return try_get_index_build_job_op_id_query_hook();
+	}
+
+	return NULL;
+}
+
+
+char *
+TryGetCancelIndexBuildQuery(int32_t indexId, char cmdType)
+{
+	if (try_get_cancel_index_build_query_hook != NULL)
+	{
+		return try_get_cancel_index_build_query_hook(indexId, cmdType);
+	}
+
+	return NULL;
+}
+
+
+bool
+ShouldScheduleIndexBuildJobs(void)
+{
+	if (should_schedule_index_builds_hook != NULL)
+	{
+		return should_schedule_index_builds_hook();
+	}
+
+	return true;
 }

@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  * Copyright (c) Microsoft Corporation.  All rights reserved.
  *
- * src/planner/planner.c
+ * src/planner/documents_planner.c
  *
  * Implementation of the documentdb_api planner hook.
  *
@@ -103,10 +103,15 @@ static Query * ExpandAggregationFunction(Query *node, ParamListInfo boundParams,
 										 PlannedStmt **plan);
 static Query * ExpandNestedAggregationFunction(Query *node, ParamListInfo boundParams);
 
+static void ForceExcludeNonIndexPaths(PlannerInfo *root, RelOptInfo *rel,
+									  Index rti, RangeTblEntry *rte);
+
 extern bool ForceRUMIndexScanToBitmapHeapScan;
-extern bool AllowNestedAggregationFunctionInQueries;
 extern bool EnableLetAndCollationForQueryMatch;
+extern bool EnableVariablesSupportForWriteCommands;
 extern bool EnableIndexOrderbyPushdown;
+extern bool ForceDisableSeqScan;
+extern bool EnableExtendedExplainPlans;
 
 planner_hook_type ExtensionPreviousPlannerHook = NULL;
 set_rel_pathlist_hook_type ExtensionPreviousSetRelPathlistHook = NULL;
@@ -146,8 +151,7 @@ DocumentDBApiPlanner(Query *parse, const char *queryString, int cursorOptions,
 			}
 		}
 
-		if (AllowNestedAggregationFunctionInQueries &&
-			queryFlags & HAS_NESTED_AGGREGATION_FUNCTION)
+		if (queryFlags & HAS_NESTED_AGGREGATION_FUNCTION)
 		{
 			parse = (Query *) ExpandNestedAggregationFunction(parse, boundParams);
 		}
@@ -667,6 +671,11 @@ ExtensionRelPathlistHookCore(PlannerInfo *root, RelOptInfo *rel, Index rti,
 		}
 	};
 
+	if (ForceDisableSeqScan)
+	{
+		ForceExcludeNonIndexPaths(root, rel, rti, rte);
+	}
+
 	/*
 	 * Replace all function operators that haven't been transformed in indexed
 	 * paths into OpExpr clauses.
@@ -735,6 +744,12 @@ ExtensionRelPathlistHookCore(PlannerInfo *root, RelOptInfo *rel, Index rti,
 		{
 			AddExtensionQueryScanForTextQuery(root, rel, rte, textIndexData);
 		}
+	}
+
+	if (EnableExtendedExplainPlans)
+	{
+		/* Add the custom scan wrapper for explain plans */
+		AddExplainCustomScanWrapper(root, rel, rte);
 	}
 }
 
@@ -831,7 +846,7 @@ MongoQueryFlagsWalker(Node *node, MongoQueryFlagsState *queryFlags)
 
 			if (IsAggregationFunction(funcExpr->funcid))
 			{
-				if (queryFlags->queryDepth > 1 && AllowNestedAggregationFunctionInQueries)
+				if (queryFlags->queryDepth > 1)
 				{
 					queryFlags->mongoQueryFlags |= HAS_NESTED_AGGREGATION_FUNCTION;
 				}
@@ -872,7 +887,9 @@ MongoQueryFlagsWalker(Node *node, MongoQueryFlagsState *queryFlags)
 			}
 		}
 
-		if (EnableLetAndCollationForQueryMatch &&
+		bool useQueryMatchWithLetAndCollation = EnableLetAndCollationForQueryMatch ||
+												EnableVariablesSupportForWriteCommands;
+		if (useQueryMatchWithLetAndCollation &&
 			funcExpr->funcid == BsonQueryMatchWithLetAndCollationFunctionId())
 		{
 			queryFlags->mongoQueryFlags |= HAS_QUERY_MATCH_FUNCTION;
@@ -1676,30 +1693,33 @@ ExpandAggregationFunction(Query *query, ParamListInfo boundParams, PlannedStmt *
 
 	pgbson *pipeline = DatumGetPgBson(aggregationConst->constvalue);
 
-	QueryData queryData = { 0 };
-	queryData.batchSize = 101;
+	QueryData queryData = GenerateFirstPageQueryData();
 	bool enableCursorParam = false;
 	bool setStatementTimeout = false;
 	Query *finalQuery;
 	if (aggregationFunc->funcid == ApiCatalogAggregationPipelineFunctionId())
 	{
-		finalQuery = GenerateAggregationQuery(databaseConst->constvalue, pipeline,
+		finalQuery = GenerateAggregationQuery(DatumGetTextPP(databaseConst->constvalue),
+											  pipeline,
 											  &queryData,
 											  enableCursorParam, setStatementTimeout);
 	}
 	else if (aggregationFunc->funcid == ApiCatalogAggregationFindFunctionId())
 	{
-		finalQuery = GenerateFindQuery(databaseConst->constvalue, pipeline, &queryData,
+		finalQuery = GenerateFindQuery(DatumGetTextPP(databaseConst->constvalue),
+									   pipeline, &queryData,
 									   enableCursorParam, setStatementTimeout);
 	}
 	else if (aggregationFunc->funcid == ApiCatalogAggregationCountFunctionId())
 	{
-		finalQuery = GenerateCountQuery(databaseConst->constvalue, pipeline,
+		finalQuery = GenerateCountQuery(DatumGetTextPP(databaseConst->constvalue),
+										pipeline,
 										setStatementTimeout);
 	}
 	else if (aggregationFunc->funcid == ApiCatalogAggregationDistinctFunctionId())
 	{
-		finalQuery = GenerateDistinctQuery(databaseConst->constvalue, pipeline,
+		finalQuery = GenerateDistinctQuery(DatumGetTextPP(databaseConst->constvalue),
+										   pipeline,
 										   setStatementTimeout);
 	}
 	else
@@ -1729,4 +1749,104 @@ ExpandAggregationFunction(Query *query, ParamListInfo boundParams, PlannedStmt *
 	}
 
 	return finalQuery;
+}
+
+
+static bool
+IsPrimaryKeyScanOnJustShardKey(Path *path)
+{
+	if (path->pathtype != T_IndexScan)
+	{
+		return false;
+	}
+
+	IndexPath *indexPath = (IndexPath *) path;
+	if (indexPath->indexinfo->relam == BTREE_AM_OID)
+	{
+		if (list_length(indexPath->indexclauses) == 1)
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+
+static List *
+TrimPathListForSeqTypeScans(List *pathList)
+{
+	ListCell *cell;
+	foreach(cell, pathList)
+	{
+		Path *path = (Path *) lfirst(cell);
+
+		if (path->pathtype != T_IndexScan &&
+			path->pathtype != T_BitmapHeapScan)
+		{
+			elog(DEBUG1, "Excluding path non-index path %d for scan",
+				 path->pathtype);
+			pathList = foreach_delete_current(pathList, cell);
+			continue;
+		}
+
+		/*
+		 * Now validate it's not just a scan on the primary key
+		 * with the shard key value.
+		 */
+		if (IsPrimaryKeyScanOnJustShardKey(path))
+		{
+			elog(DEBUG1, "Excluding primary key scan on just shard key %d for scan",
+				 path->pathtype);
+			pathList = foreach_delete_current(pathList, cell);
+			continue;
+		}
+		if (path->pathtype == T_BitmapHeapScan)
+		{
+			BitmapHeapPath *bitmapHeapPath = (BitmapHeapPath *) path;
+			if (bitmapHeapPath->bitmapqual != NULL &&
+				IsPrimaryKeyScanOnJustShardKey(bitmapHeapPath->bitmapqual))
+			{
+				elog(DEBUG1, "Excluding bitmap heap scan on just shard key %d for scan",
+					 path->pathtype);
+				pathList = foreach_delete_current(pathList, cell);
+				continue;
+			}
+		}
+	}
+
+	return pathList;
+}
+
+
+static void
+ForceExcludeNonIndexPaths(PlannerInfo *root, RelOptInfo *rel,
+						  Index rti, RangeTblEntry *rte)
+{
+	if (rel->pathlist == NIL)
+	{
+		return;
+	}
+
+	rel->pathlist = TrimPathListForSeqTypeScans(rel->pathlist);
+	rel->partial_pathlist = TrimPathListForSeqTypeScans(rel->partial_pathlist);
+
+	if (rel->pathlist == NIL)
+	{
+		/* Try a round of planning with no sequential paths and another round of trimming
+		 * before failing.
+		 */
+		create_index_paths(root, rel);
+
+		rel->pathlist = TrimPathListForSeqTypeScans(rel->pathlist);
+		rel->partial_pathlist = TrimPathListForSeqTypeScans(rel->partial_pathlist);
+
+
+		if (rel->pathlist == NIL)
+		{
+			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDOPTIONS),
+							errmsg(
+								"Could not find any valid index to push down for query")));
+		}
+	}
 }

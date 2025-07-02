@@ -181,6 +181,11 @@ typedef struct
 } IndexJobOpId;
 
 
+/* index build tasks */
+void UnscheduleIndexBuildTasks(char *extensionPrefix);
+void ScheduleIndexBuildTasks(char *extensionPrefix);
+
+
 /* query index metadata */
 IndexDetails * FindIndexWithSpecOptions(uint64 collectionId,
 										const IndexSpec *targetIndexSpec);
@@ -262,7 +267,8 @@ void MarkIndexRequestStatus(int indexId, char cmdType, IndexCmdStatus status,
 							pgbson *comment,
 							IndexJobOpId *opId, int16 attemptCount);
 IndexCmdStatus GetIndexBuildStatusFromIndexQueue(int indexId);
-IndexCmdRequest * GetRequestFromIndexQueue(char cmdType, uint64 collectionId);
+IndexCmdRequest * GetRequestFromIndexQueue(char cmdType, uint64 collectionId,
+										   MemoryContext mcxt);
 IndexCmdRequest * GetSkippableRequestFromIndexQueue(char cmdType, int
 													expireTimeInSeconds,
 													List *skipCollections);

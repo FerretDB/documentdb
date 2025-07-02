@@ -15,6 +15,8 @@
 #include "executor/spi.h"
 #include "lib/stringinfo.h"
 #include "utils/builtins.h"
+#include "storage/lmgr.h"
+#include "utils/snapmgr.h"
 
 #include "io/bson_core.h"
 #include "commands/commands_common.h"
@@ -29,6 +31,7 @@
 extern bool ThrowDeadlockOnCrud;
 extern bool EnableBackendStatementTimeout;
 extern int MaxCustomCommandTimeout;
+extern bool EnableVariablesSupportForWriteCommands;
 
 /*
  *  This is a list of Mongo command options that are not currently supported.
@@ -50,6 +53,7 @@ static const char *IgnoredCommonSpecFields[] = {
 	"awaitData",
 	"batch_size",
 	"bypassDocumentValidation", /* insert command */
+	"bypassEmptyTsReplacement", /* insert, update, findAndModify and bulkWrite command */
 	"collation",
 	"collstats",
 	"comment", /* insert, createIndex, dropIndex command */
@@ -99,23 +103,56 @@ static pgbson * RewriteDocumentAddObjectIdCore(const bson_value_t *docValue,
  * document IDs that match, it uses the smallest one.
  */
 bool
-FindShardKeyValueForDocumentId(MongoCollection *collection, pgbson *queryDoc,
-							   bson_value_t *objectId, int64 *shardKeyValue)
+FindShardKeyValueForDocumentId(MongoCollection *collection, const bson_value_t *queryDoc,
+							   bson_value_t *objectId, bool queryHasNonIdFilters,
+							   int64 *shardKeyValue, const bson_value_t *variableSpec)
 {
 	StringInfoData selectQuery;
-	int argCount = 2;
-	Oid argTypes[2];
-	Datum argValues[2];
+	int argCount = 0;
+
 	bool foundDocument = false;
 
 	SPI_connect();
 	initStringInfo(&selectQuery);
+
 	appendStringInfo(&selectQuery,
 					 "SELECT shard_key_value FROM %s.documents_" UINT64_FORMAT
-					 " WHERE object_id = $1::%s"
-					 " AND document OPERATOR(%s.@@) $2::%s ORDER BY object_id LIMIT 1",
+					 " WHERE object_id = $1::%s",
 					 ApiDataSchemaName, collection->collectionId,
-					 FullBsonTypeName, ApiCatalogSchemaName, FullBsonTypeName);
+					 FullBsonTypeName);
+	argCount++;
+
+	pgbson *variableSpecBson = NULL;
+	if (EnableVariablesSupportForWriteCommands)
+	{
+		variableSpecBson = variableSpec != NULL &&
+						   variableSpec->value_type == BSON_TYPE_DOCUMENT ?
+						   PgbsonInitFromDocumentBsonValue(variableSpec) : NULL;
+	}
+
+	bool applyVariableSpec = variableSpecBson != NULL && queryHasNonIdFilters;
+	if (applyVariableSpec)
+	{
+		appendStringInfo(&selectQuery,
+						 " AND %s.bson_query_match(document, $2::%s.bson, $3::%s.bson, $4::text)"
+						 " ORDER BY object_id LIMIT 1",
+						 DocumentDBApiInternalSchemaName, CoreSchemaName,
+						 CoreSchemaName);
+
+		argCount += 3;
+	}
+	else
+	{
+		appendStringInfo(&selectQuery,
+						 " AND document OPERATOR(%s.@@) $2::%s ORDER BY object_id LIMIT 1",
+						 ApiCatalogSchemaName, FullBsonTypeName);
+
+		argCount++;
+	}
+
+	Oid *argTypes = palloc0(argCount * sizeof(Oid));
+	Datum *argValues = palloc0(argCount * sizeof(Datum));
+	char *argNulls = palloc0(argCount * sizeof(char));
 
 	/* object_id column uses the projected value format */
 	pgbson_writer writer;
@@ -124,12 +161,28 @@ FindShardKeyValueForDocumentId(MongoCollection *collection, pgbson *queryDoc,
 
 	argTypes[0] = BYTEAOID;
 	argValues[0] = PointerGetDatum(CastPgbsonToBytea(PgbsonWriterGetPgbson(&writer)));
+	argNulls[0] = ' ';
 
-	/* we use bytea because bson may not have the same OID on all nodes */
-	argTypes[1] = BYTEAOID;
-	argValues[1] = PointerGetDatum(CastPgbsonToBytea(queryDoc));
+	Oid bsonTypeId = BsonTypeId();
 
-	char *argNulls = NULL;
+	/* set the query spec */
+	argTypes[1] = bsonTypeId;
+	argValues[1] = PointerGetDatum(PgbsonInitFromDocumentBsonValue(queryDoc));
+	argNulls[1] = ' ';
+
+	if (applyVariableSpec)
+	{
+		/* set the variableSpec */
+		argTypes[2] = bsonTypeId;
+		argValues[2] = PointerGetDatum(variableSpecBson);
+		argNulls[2] = ' ';
+
+		/* TODO: set the collation string */
+		argTypes[3] = TEXTOID;
+		argValues[3] = CStringGetTextDatum("");
+		argNulls[3] = 'n';
+	}
+
 	bool readOnly = false;
 	long maxTupleCount = 0;
 
@@ -187,6 +240,24 @@ SetExplicitStatementTimeout(int timeoutMilliseconds)
 }
 
 
+pgbson *
+GetObjectIdFilterFromQueryDocumentValue(const bson_value_t *queryDoc,
+										bool *queryHasNonIdFilters)
+{
+	bson_iter_t queryIterator;
+	bson_value_t queryIdValue;
+	bool errorOnConflict = false;
+	BsonValueInitIterator(queryDoc, &queryIterator);
+	if (TraverseQueryDocumentAndGetId(&queryIterator, &queryIdValue, errorOnConflict,
+									  queryHasNonIdFilters))
+	{
+		return BsonValueToDocumentPgbson(&queryIdValue);
+	}
+
+	return NULL;
+}
+
+
 /*
  * Extracts the object_id if applicable from a query doc and returns a serialized pgbson
  * containing the object_id (top level column) value if one was extracted.
@@ -195,17 +266,8 @@ SetExplicitStatementTimeout(int timeoutMilliseconds)
 pgbson *
 GetObjectIdFilterFromQueryDocument(pgbson *queryDoc, bool *queryHasNonIdFilters)
 {
-	bson_iter_t queryIterator;
-	bson_value_t queryIdValue;
-	bool errorOnConflict = false;
-	PgbsonInitIterator(queryDoc, &queryIterator);
-	if (TraverseQueryDocumentAndGetId(&queryIterator, &queryIdValue, errorOnConflict,
-									  queryHasNonIdFilters))
-	{
-		return BsonValueToDocumentPgbson(&queryIdValue);
-	}
-
-	return NULL;
+	bson_value_t queryIdValue = ConvertPgbsonToBsonValue(queryDoc);
+	return GetObjectIdFilterFromQueryDocumentValue(&queryIdValue, queryHasNonIdFilters);
 }
 
 
@@ -440,6 +502,38 @@ RewriteDocumentWithCustomObjectId(pgbson *document,
 	}
 
 	return result;
+}
+
+
+/*
+ * For write procedures, commits and re-acquires the collection lock.
+ */
+void
+CommitWriteProcedureAndReacquireCollectionLock(MongoCollection *collection,
+											   bool setSnapshot)
+{
+	ereport(DEBUG1, (errmsg("Commiting intermediate state and "
+							"reacquiring collection lock")));
+
+	if (ActiveSnapshotSet())
+	{
+		PopActiveSnapshot();
+	}
+
+	/* Commit the old transaction */
+	CommitTransactionCommand();
+
+	/* Start a new transaction */
+	StartTransactionCommand();
+
+	/* Push the active snapshot if commands need it (Portals do) */
+	if (setSnapshot)
+	{
+		PushActiveSnapshot(GetTransactionSnapshot());
+	}
+
+	/* Now acquire the collection lock */
+	LockRelationOid(collection->relationId, RowExclusiveLock);
 }
 
 

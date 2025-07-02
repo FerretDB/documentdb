@@ -34,6 +34,7 @@ ErrorMapping,ErrorName
 115,CommandNotSupported
 118,NamespaceNotSharded
 121,DocumentFailedValidation
+143,CursorInUse
 146,ExceededMemoryLimit
 159,DurationOverflow
 165,ViewDepthLimitExceeded
@@ -50,6 +51,7 @@ ErrorMapping,ErrorName
 361,CollectionUUIDMismatch
 8000,UserCountLimitExceeded
 10065,Location10065
+10107,NotWritablePrimary
 10334,BsonObjectTooLarge
 11000,DuplicateKey
 12587,BackgroundOperationInProgressForNamespace
@@ -288,6 +290,18 @@ ErrorMapping,ErrorName
 40236,Location40236
 40237,Location40237
 40238,Location40238
+40239,Location40239
+40240,Location40240
+40241,Location40241
+40242,Location40242
+40243,Location40243
+40244,Location40244
+40245,Location40245
+40246,Location40246
+40257,Location40257
+40258,Location40258
+40260,Location40260
+40261,Location40261
 40272,Location40272
 40319,Location40319
 40321,Location40321

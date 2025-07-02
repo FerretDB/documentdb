@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  * Copyright (c) Microsoft Corporation.  All rights reserved.
  *
- * src/bson/bson_dollar_operators.c
+ * src/query/bson_dollar_operators.c
  *
  * Implementation of the BSON Comparison dollar operators.
  *
@@ -111,6 +111,8 @@ typedef struct TraverseOrderByValidateState
 	bool isOrderByMin;
 	bson_value_t orderByValue;
 	CustomOrderByOptions options;
+	const char *collationString;
+	int32_t nestedArrayCount;
 } TraverseOrderByValidateState;
 
 /* State for comparison operations of simple dollar operators
@@ -141,9 +143,6 @@ typedef struct TraverseInValidateState
 
 	/* true if array has any null value */
 	bool hasNull;
-
-	/* ICU standard colation string. See AggregationPipelineBuildContext for more details. */
-	const char *collationString;
 } TraverseInValidateState;
 
 
@@ -260,6 +259,8 @@ typedef struct TraverseElemMatchValidateState
 typedef bool (*IsQueryFilterNullFunc)(const TraverseValidateState *state);
 extern bool EnableCollation;
 extern bool EnableNowSystemVariable;
+extern bool UseLegacyOrderByBehavior;
+extern bool UseLegacyNullEqualityBehavior;
 
 /* --------------------------------------------------------- */
 /* Forward declaration */
@@ -299,7 +300,7 @@ static bool CompareArrayTypeMatch(const pgbsonelement *documentIterator,
 static bool CompareAllMatch(const pgbsonelement *documentIterator,
 							TraverseValidateState *validationState, bool
 							isFirstArrayTerm);
-static void CompareForOrderBy(const pgbsonelement *documentIterator,
+static void CompareForOrderBy(const bson_value_t *documentIterator,
 							  TraverseOrderByValidateState *validationState);
 static bool CompareBitsAllClearMatch(const pgbsonelement *documentIterator,
 									 TraverseValidateState *traverseState, bool
@@ -364,20 +365,30 @@ static bool CompareVisitTopLevelField(pgbsonelement *element, const
 static bool CompareVisitArrayField(pgbsonelement *element, const StringView *filterPath,
 								   int arrayIndex, void *state);
 static void CompareSetTraverseResult(void *state, TraverseBsonResult compareResult);
+static void CompareSetTraverseResultForNulls(void *state,
+											 TraverseBsonResult compareResult);
 static bool CompareContinueProcessIntermediateArray(void *state, const
 													bson_value_t *value);
 static bool OrderByVisitTopLevelField(pgbsonelement *element, const
 									  StringView *filterPath,
 									  void *state);
+static bool OrderByContinueProcessIntermediateArray(void *state, const
+													bson_value_t *value);
+static void OrderByHandleIntermediateArrayPathNotFound(void *state,
+													   int32_t arrayIndex, const
+													   StringView *remainingPath);
+static void OrderBySetIntermediateArrayStartEnd(void *state, bool isStart);
 static bool OrderByVisitArrayField(pgbsonelement *element, const StringView *filterPath,
 								   int arrayIndex, void *state);
+static void OrderBySetTraverseResult(void *state, TraverseBsonResult compareResult);
 static bool DollarRangeVisitTopLevelField(pgbsonelement *element, const
 										  StringView *filterPath,
 										  void *state);
 static bool DollarRangeVisitArrayField(pgbsonelement *element, const
 									   StringView *filterPath,
 									   int arrayIndex, void *state);
-static Datum BsonOrderbyCore(pgbson *leftBson, pgbson *rightBson, bool validateSort,
+static Datum BsonOrderbyCore(pgbson *leftBson, pgbson *rightBson, const
+							 char *collationString, bool validateSort,
 							 const CustomOrderByOptions options);
 
 /*
@@ -388,18 +399,38 @@ static const TraverseBsonExecutionFuncs CompareExecutionFuncs = {
 	.SetTraverseResult = CompareSetTraverseResult,
 	.VisitArrayField = CompareVisitArrayField,
 	.VisitTopLevelField = CompareVisitTopLevelField,
-	.SetIntermediateArrayIndex = NULL
+	.SetIntermediateArrayIndex = NULL,
+	.HandleIntermediateArrayPathNotFound = NULL,
+	.SetIntermediateArrayStartEnd = NULL,
 };
+
+
+/*
+ * Standard execution functions for traversing bson and evaluating queries for $ops.
+ * This is specifically tailored for querying against nulls.
+ */
+static const TraverseBsonExecutionFuncs CompareNullExecutionFuncs = {
+	.ContinueProcessIntermediateArray = CompareContinueProcessIntermediateArray,
+	.SetTraverseResult = CompareSetTraverseResultForNulls,
+	.VisitArrayField = CompareVisitArrayField,
+	.VisitTopLevelField = CompareVisitTopLevelField,
+	.SetIntermediateArrayIndex = NULL,
+	.HandleIntermediateArrayPathNotFound = NULL,
+	.SetIntermediateArrayStartEnd = NULL,
+};
+
 
 /*
  * Execution functions for traversing bson and evaluating queries for order by.
  */
 static const TraverseBsonExecutionFuncs OrderByExecutionFuncs = {
-	.ContinueProcessIntermediateArray = CompareContinueProcessIntermediateArray,
-	.SetTraverseResult = CompareSetTraverseResult,
+	.ContinueProcessIntermediateArray = OrderByContinueProcessIntermediateArray,
+	.SetTraverseResult = OrderBySetTraverseResult,
 	.VisitArrayField = OrderByVisitArrayField,
 	.VisitTopLevelField = OrderByVisitTopLevelField,
-	.SetIntermediateArrayIndex = NULL
+	.SetIntermediateArrayIndex = NULL,
+	.HandleIntermediateArrayPathNotFound = OrderByHandleIntermediateArrayPathNotFound,
+	.SetIntermediateArrayStartEnd = OrderBySetIntermediateArrayStartEnd,
 };
 
 
@@ -413,6 +444,8 @@ static const TraverseBsonExecutionFuncs CompareTopLevelFieldExecutionFuncs = {
 	.VisitArrayField = NULL,
 	.VisitTopLevelField = CompareVisitTopLevelField,
 	.SetIntermediateArrayIndex = NULL,
+	.HandleIntermediateArrayPathNotFound = NULL,
+	.SetIntermediateArrayStartEnd = NULL,
 };
 
 
@@ -425,7 +458,9 @@ static const TraverseBsonExecutionFuncs CompareDollarRangeExecutionFuncs = {
 	.SetTraverseResult = CompareSetTraverseResult,
 	.VisitArrayField = DollarRangeVisitArrayField,
 	.VisitTopLevelField = DollarRangeVisitTopLevelField,
-	.SetIntermediateArrayIndex = NULL
+	.SetIntermediateArrayIndex = NULL,
+	.HandleIntermediateArrayPathNotFound = NULL,
+	.SetIntermediateArrayStartEnd = NULL,
 };
 
 
@@ -503,6 +538,11 @@ PG_FUNCTION_INFO_V1(bson_dollar_exists);
 PG_FUNCTION_INFO_V1(command_bson_orderby);
 PG_FUNCTION_INFO_V1(bson_orderby_partition);
 PG_FUNCTION_INFO_V1(bson_vector_orderby);
+PG_FUNCTION_INFO_V1(bson_orderby_compare);
+PG_FUNCTION_INFO_V1(bson_orderby_lt);
+PG_FUNCTION_INFO_V1(bson_orderby_eq);
+PG_FUNCTION_INFO_V1(bson_orderby_gt);
+
 PG_FUNCTION_INFO_V1(bson_dollar_bits_all_clear);
 PG_FUNCTION_INFO_V1(bson_dollar_bits_any_clear);
 PG_FUNCTION_INFO_V1(bson_dollar_bits_all_set);
@@ -518,6 +558,7 @@ PG_FUNCTION_INFO_V1(bson_dollar_not_gt);
 PG_FUNCTION_INFO_V1(bson_dollar_not_gte);
 PG_FUNCTION_INFO_V1(bson_dollar_not_lt);
 PG_FUNCTION_INFO_V1(bson_dollar_not_lte);
+PG_FUNCTION_INFO_V1(bson_dollar_fullscan);
 
 PG_FUNCTION_INFO_V1(bson_value_dollar_eq);
 PG_FUNCTION_INFO_V1(bson_value_dollar_gt);
@@ -1107,6 +1148,18 @@ bson_dollar_not_gte(PG_FUNCTION_ARGS)
 }
 
 
+Datum
+bson_dollar_fullscan(PG_FUNCTION_ARGS)
+{
+	/*
+	 * This function is a no-op. It is used to indicate that the query
+	 * should be executed as a full scan, without any filters.
+	 * The actual logic for full scan is handled in the query planner.
+	 */
+	ereport(ERROR, (errmsg("This function should be replaced by the planner")));
+}
+
+
 /*
  * bson_dollar_range implements the DocumentDB API's version of the range
  * functionality in the runtime. Note that this is different from MongoDB's
@@ -1138,7 +1191,7 @@ bson_dollar_range(PG_FUNCTION_ARGS)
 		filter);
 
 	DollarRangeParams localState = {
-		{ 0 }, { 0 }, false, false
+		{ 0 }, { 0 }, false, false, false
 	};
 	if (cachedRangeParamsState == NULL)
 	{
@@ -1183,6 +1236,12 @@ bson_dollar_range(PG_FUNCTION_ARGS)
 	rangeState.params = *cachedRangeParamsState;
 	rangeState.isMinConditionSet = false;
 	rangeState.isMaxConditionSet = false;
+
+	if (rangeState.params.isFullScan)
+	{
+		/* if the range is a full scan, we don't need to traverse the document */
+		PG_RETURN_BOOL(true);
+	}
 
 	bson_iter_t documentIterator;
 	PgbsonInitIterator(document, &documentIterator);
@@ -1641,9 +1700,17 @@ command_bson_orderby(PG_FUNCTION_ARGS)
 {
 	pgbson *document = PG_GETARG_PGBSON_PACKED(0);
 	pgbson *filter = PG_GETARG_PGBSON_PACKED(1);
+	char *collationString = NULL;
+
+	if (EnableCollation && PG_NARGS() > 2 && !PG_ARGISNULL(2))
+	{
+		collationString = text_to_cstring(PG_GETARG_TEXT_P(2));
+	}
+
 	bool validateSort = true;
 	CustomOrderByOptions options = CustomOrderByOptions_Default;
-	Datum returnedBson = BsonOrderbyCore(document, filter, validateSort, options);
+	Datum returnedBson = BsonOrderbyCore(document, filter, collationString, validateSort,
+										 options);
 
 	PG_FREE_IF_COPY(document, 0);
 	PG_FREE_IF_COPY(filter, 1);
@@ -1662,12 +1729,19 @@ bson_orderby_partition(PG_FUNCTION_ARGS)
 	pgbson *document = PG_GETARG_PGBSON_PACKED(0);
 	pgbson *filter = PG_GETARG_PGBSON_PACKED(1);
 	bool isTimeRangeWindow = PG_GETARG_BOOL(2);
+	char *collationString = NULL;
+
+	if (EnableCollation && PG_NARGS() > 3 && !PG_ARGISNULL(3))
+	{
+		collationString = text_to_cstring(PG_GETARG_TEXT_P(3));
+	}
+
 	bool validateSort = true;
 
 	CustomOrderByOptions options = isTimeRangeWindow ?
 								   CustomOrderByOptions_AllowOnlyDates :
 								   CustomOrderByOptions_AllowOnlyNumbers;
-	Datum returnedBson = BsonOrderbyCore(document, filter, validateSort,
+	Datum returnedBson = BsonOrderbyCore(document, filter, collationString, validateSort,
 										 options);
 
 	PG_FREE_IF_COPY(document, 0);
@@ -1697,15 +1771,153 @@ bson_vector_orderby(PG_FUNCTION_ARGS)
 
 
 /*
+ * bson_orderby_compare compares two bson documents.
+ * It returns:
+ * -1 if the left document is less than the right document
+ * 0 if the left document is equal to the right document
+ * 1 if the left document is greater than the right document
+ *
+ * left and right will contain one or two fields:
+ * 1. the compare field path
+ * 2. the collation string to use for comparison (optional)
+ *
+ * Example: { "a": "name", "collation": "en-u-ks-level1" }
+ *
+ * It is also the custom comparator for ORDER BY ... USING clause.
+ */
+Datum
+bson_orderby_compare(PG_FUNCTION_ARGS)
+{
+	pgbson *left = PG_GETARG_PGBSON(0);
+	pgbson *right = PG_GETARG_PGBSON(1);
+
+	pgbsonelement leftElement = { 0 };
+	pgbsonelement rightElement = { 0 };
+
+	char *collationStringLeft =
+		(char *) PgbsonToSinglePgbsonElementWithCollation(left,
+														  &leftElement);
+	collationStringLeft = IsCollationApplicable(collationStringLeft) ?
+						  collationStringLeft : NULL;
+
+	char *collationStringRight =
+		(char *) PgbsonToSinglePgbsonElementWithCollation(right,
+														  &rightElement);
+	collationStringRight = IsCollationApplicable(collationStringRight) ?
+						   collationStringRight : NULL;
+
+	/* compare the collation strings. */
+	char *collationString = NULL;
+	if (collationStringLeft != NULL && collationStringRight != NULL)
+	{
+		int collationCmp = strcmp(collationStringLeft, collationStringRight);
+
+		if (collationCmp != 0)
+		{
+			PG_RETURN_INT32(collationCmp);
+		}
+
+		collationString = collationStringLeft;
+	}
+	else if (collationStringLeft != NULL && collationStringRight == NULL)
+	{
+		PG_RETURN_INT32(1);
+	}
+	else if (collationStringRight != NULL && collationStringLeft == NULL)
+	{
+		PG_RETURN_INT32(-1);
+	}
+
+	/* compare the left and right values */
+	int cmp = 0;
+	bool isComparisonValid = true;
+	if (collationString != NULL)
+	{
+		cmp = CompareBsonValueAndTypeWithCollation(&leftElement.bsonValue,
+												   &rightElement.bsonValue,
+												   &isComparisonValid, collationString);
+	}
+	else
+	{
+		cmp = CompareBsonValueAndType(&leftElement.bsonValue, &rightElement.bsonValue,
+									  &isComparisonValid);
+	}
+
+	PG_RETURN_INT32(cmp);
+}
+
+
+/*
+ * bson_orderby_lt compares two bson documents and returns true if the left document
+ * is less than the right document.
+ *
+ * left and right will contain one or two fields:
+ * 1. the compare field path
+ * 2. the collation string to use for comparison (optional)
+ *
+ * Example: { "a": "name", "collation": "en-u-ks-level1" }
+ *
+ * It is also the comparator for ORDER BY ... USING  <<< clause.
+ */
+Datum
+bson_orderby_lt(PG_FUNCTION_ARGS)
+{
+	int cmp = DatumGetInt32(bson_orderby_compare(fcinfo));
+	PG_RETURN_BOOL(cmp < 0);
+}
+
+
+/*
+ * bson_orderby_eq compares two bson documents and returns true if the left document
+ * is equal than the right document.
+ *
+ * left and right will contain one or two fields:
+ * 1. the compare field path
+ * 2. the collation string to use for comparison (optional)
+ *
+ * Example: { "a": "name", "collation": "en-u-ks-level1" }
+ *
+ * It implements the === internal operator.
+ */
+Datum
+bson_orderby_eq(PG_FUNCTION_ARGS)
+{
+	int cmp = DatumGetInt32(bson_orderby_compare(fcinfo));
+	PG_RETURN_BOOL(cmp == 0);
+}
+
+
+/*
+ * bson_orderby_gt compares two bson documents and returns true if the left document
+ * is greater than the right document.
+ *
+ * left and right will contain one or two fields:
+ * 1. the compare field path
+ * 2. the collation string to use for comparison (optional)
+ *
+ * Example: { "a": "name", "collation": "en-u-ks-level1" }
+ *
+ * It is also the comparator for ORDER BY ... USING >>> clause.
+ */
+Datum
+bson_orderby_gt(PG_FUNCTION_ARGS)
+{
+	int cmp = DatumGetInt32(bson_orderby_compare(fcinfo));
+	PG_RETURN_BOOL(cmp > 0);
+}
+
+
+/*
  * Applies the $sort runtime projection.
  * ValidateSort is to handle a bug with $first where it passes the expression
  * as one of the sort specs
  */
 Datum
-BsonOrderby(pgbson *document, pgbson *filter, bool validateSort)
+BsonOrderby(pgbson *document, pgbson *filter, bool validateSort, const
+			char *collationString)
 {
 	CustomOrderByOptions options = CustomOrderByOptions_Default;
-	return BsonOrderbyCore(document, filter, validateSort, options);
+	return BsonOrderbyCore(document, filter, collationString, validateSort, options);
 }
 
 
@@ -2324,13 +2536,13 @@ CompareModOperator(const bson_value_t *srcVal, const bson_value_t *modArrVal)
  * Few cases require the type to be same e.g. $sort in `$setWindowFields` stage
  */
 static Datum
-BsonOrderbyCore(pgbson *document, pgbson *filter, bool validateSort,
-				CustomOrderByOptions options)
+BsonOrderbyCore(pgbson *document, pgbson *filter, const char *collationString,
+				bool validateSort, CustomOrderByOptions options)
 {
 	bson_iter_t documentIterator;
 	pgbsonelement filterElement;
 	TraverseOrderByValidateState state = {
-		{ 0 }, NULL, { 0 }, options
+		{ 0 }, NULL, { 0 }, options, collationString, 0
 	};
 
 	pgbson_writer writer;
@@ -2374,6 +2586,12 @@ BsonOrderbyCore(pgbson *document, pgbson *filter, bool validateSort,
 	{
 		PgbsonWriterAppendValue(&writer, filterElement.path, filterPathLength,
 								&state.orderByValue);
+	}
+
+	/* append the collation for use in bson_orderby_compare */
+	if (IsCollationApplicable(collationString))
+	{
+		PgbsonWriterAppendUtf8(&writer, "collation", 9, collationString);
 	}
 
 	return PointerGetDatum(PgbsonWriterGetPgbson(&writer));
@@ -2453,8 +2671,20 @@ CompareBsonAgainstQuery(const pgbson *element,
 	filterElement.pathLength = 0;
 	state.filter = &filterElement;
 	state.traverseState.matchFunc = compareFunc;
-	TraverseBson(&documentIterator, filterElement.path, &state.traverseState,
-				 &CompareExecutionFuncs);
+	bool isFilterNull = isQueryFilterNull != NULL && isQueryFilterNull(
+		&state.traverseState);
+	const TraverseBsonExecutionFuncs *execFuncs = &CompareExecutionFuncs;
+	if (isFilterNull && !UseLegacyNullEqualityBehavior)
+	{
+		/* if the filter is null, start by assuming path mismatch. If we find
+		 * pathNotFound, it'll get overwritten. This way we can track explicitly
+		 * that we got pathNotFound.
+		 */
+		state.traverseState.compareResult = CompareResult_Mismatch;
+		execFuncs = &CompareNullExecutionFuncs;
+	}
+
+	TraverseBson(&documentIterator, filterElement.path, &state.traverseState, execFuncs);
 	return ProcessQueryResultAndGetMatch(isQueryFilterNull, &state.traverseState);
 }
 
@@ -2619,36 +2849,15 @@ CompareInMatch(const pgbsonelement *documentIterator,
 	}
 
 	/* 2: verify if document matches with any entry of $in which are hashed */
-
-	if (IsCollationApplicable(inValidationState->collationString) &&
-		(documentIterator->bsonValue.value_type == BSON_TYPE_UTF8 ||
-		 documentIterator->bsonValue.value_type == BSON_TYPE_ARRAY ||
-		 documentIterator->bsonValue.value_type == BSON_TYPE_DOCUMENT))
+	const char *collationString = inValidationState->traverseState.collationString;
+	if (IsCollationApplicable(collationString))
 	{
-		char *sortKey;
+		BsonValueHashEntry hashEntry = {
+			.bsonValue = documentIterator->bsonValue,
+			.collationString = collationString
+		};
 
-		if (documentIterator->bsonValue.value_type != BSON_TYPE_UTF8)
-		{
-			/*
-			 *  See comments in PopulateDollarInStateFromQuery()
-			 *  We don't support nested objects with collation in $in query.
-			 *
-			 *  So, we can return `false` here safely until we support such case.
-			 */
-
-			return false;
-		}
-
-		sortKey = GetCollationSortKey(inValidationState->collationString,
-									  documentIterator->bsonValue.value.v_utf8.str,
-									  documentIterator->bsonValue.value.v_utf8.len);
-
-		bson_value_t bsonValue = { 0 };
-		bsonValue.value_type = BSON_TYPE_UTF8;
-		bsonValue.value.v_utf8.len = strlen(sortKey);
-		bsonValue.value.v_utf8.str = sortKey;
-
-		hash_search(inValidationState->bsonValueHashSet, &bsonValue,
+		hash_search(inValidationState->bsonValueHashSet, &hashEntry,
 					HASH_FIND, &match);
 	}
 	else
@@ -2888,27 +3097,39 @@ CompareAllMatch(const pgbsonelement *documentIterator,
  * than the one selected so far.
  */
 static void
-CompareForOrderBy(const pgbsonelement *element,
+CompareForOrderBy(const bson_value_t *element,
 				  TraverseOrderByValidateState *validationState)
 {
 	if (validationState->orderByValue.value_type == BSON_TYPE_EOD)
 	{
-		validationState->orderByValue = element->bsonValue;
+		validationState->orderByValue = *element;
 	}
 	else
 	{
 		bool isComparisonValidIgnore;
-		int sortOrderCmp = CompareBsonValueAndType(&element->bsonValue,
+		int sortOrderCmp = 0;
+		if (IsCollationApplicable(validationState->collationString))
+		{
+			sortOrderCmp =
+				CompareBsonValueAndTypeWithCollation(element,
+													 &validationState->orderByValue,
+													 &isComparisonValidIgnore,
+													 validationState->collationString);
+		}
+		else
+		{
+			sortOrderCmp = CompareBsonValueAndType(element,
 												   &validationState->orderByValue,
 												   &isComparisonValidIgnore);
+		}
 
 		if (sortOrderCmp > 0 && !validationState->isOrderByMin)
 		{
-			validationState->orderByValue = element->bsonValue;
+			validationState->orderByValue = *element;
 		}
 		else if (sortOrderCmp < 0 && validationState->isOrderByMin)
 		{
-			validationState->orderByValue = element->bsonValue;
+			validationState->orderByValue = *element;
 		}
 	}
 }
@@ -3360,10 +3581,10 @@ PopulateDollarInValidationState(PG_FUNCTION_ARGS,
 	}
 
 	*filterElement = dollarInState->filterElement;
-	state->collationString = dollarInState->collationString;
 
 	state->filter = filterElement;
 	state->traverseState.matchFunc = CompareInMatch;
+	state->traverseState.collationString = dollarInState->collationString;
 	state->hasNull = dollarInState->hasNull;
 	state->regexList = dollarInState->regexList;
 	state->bsonValueHashSet = dollarInState->bsonValueHashSet;
@@ -3400,7 +3621,16 @@ PopulateDollarInStateFromQuery(BsonDollarInQueryState *dollarInState,
 	dollarInState->regexList = NIL;
 
 	/* Generate a hash table for the $in input array, which is created per query and automatically destroyed after query execution. */
-	dollarInState->bsonValueHashSet = CreateBsonValueHashSet();
+	if (IsCollationApplicable(dollarInState->collationString))
+	{
+		int metadataSize = 0;
+		dollarInState->bsonValueHashSet = CreateBsonValueWithCollationHashSet(
+			metadataSize);
+	}
+	else
+	{
+		dollarInState->bsonValueHashSet = CreateBsonValueHashSet();
+	}
 
 	while (bson_iter_next(&arrayIterator))
 	{
@@ -3423,46 +3653,14 @@ PopulateDollarInStateFromQuery(BsonDollarInQueryState *dollarInState,
 		{
 			bool found = false;
 
-			if (IsCollationApplicable(collationString) &&
-				IsBsonTypeCollationAware(arrayValue->value_type))
+			if (IsCollationApplicable(collationString))
 			{
-				char *sortKey = NULL;
+				BsonValueHashEntry hashEntry = {
+					.bsonValue = *arrayValue,
+					.collationString = collationString
+				};
 
-				if (arrayValue->value_type == BSON_TYPE_UTF8)
-				{
-					sortKey = GetCollationSortKey(collationString,
-												  arrayValue->value.v_utf8.str,
-												  arrayValue->value.v_utf8.len);
-				}
-				else
-				{
-					/*
-					 *  TODO: Traverse nested object and replace UTF8 with sortKeys, or do a
-					 *  for loop based $in matching
-					 *
-					 *  $in queries of the folllowing for are collation aware, i.e., collation is
-					 *  applicable to any nested UTF8. Note that, serializing the nested objects to
-					 *  JSON and generating sort keys does not solve the problem, as the path names
-					 *  need to be collation agnostic.
-					 *
-					 *  ex1: {"$in" : [[{ "b" : "cat"}]]}   ex2: {"$in" : [{ "b" : "cat"}] }
-					 */
-					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
-									errmsg(
-										"operator $in or operators that can be optimized to $in is not supported with collation, when $in contains nested objects"),
-									errdetail_log(
-										"operator $in or operators that can be optimized to $in is not supported with collation, when $in contains nested objects : %s",
-										collationString)));
-				}
-
-				bson_value_t *bsonValue = palloc0(sizeof(bson_value_t));
-				bsonValue->value_type = BSON_TYPE_UTF8;
-				bsonValue->value.v_utf8.len = strlen(sortKey);
-				bsonValue->value.v_utf8.str = palloc0(bsonValue->value.v_utf8.len);
-				strncpy(bsonValue->value.v_utf8.str, sortKey,
-						bsonValue->value.v_utf8.len);
-
-				hash_search(dollarInState->bsonValueHashSet, bsonValue, HASH_ENTER,
+				hash_search(dollarInState->bsonValueHashSet, &hashEntry, HASH_ENTER,
 							&found);
 			}
 			else
@@ -3724,6 +3922,35 @@ CompareVisitArrayField(pgbsonelement *element, const StringView *filterPath, int
 }
 
 
+static void
+CompareSetTraverseResultForNulls(void *state, TraverseBsonResult traverseResult)
+{
+	TraverseValidateState *validateState = (TraverseValidateState *) state;
+	switch (traverseResult)
+	{
+		case TraverseBsonResult_PathNotFound:
+		{
+			validateState->compareResult = CompareResult_PathNotFound;
+			break;
+		}
+
+		case TraverseBsonResult_TypeMismatch:
+		{
+			/* The state starts out as mismatch and we would reset it to either
+			 * Match or PathNotFound - ignore new TypeMismatch requests (since
+			 * PathNotFound wins over Mismatch).
+			 */
+			break;
+		}
+
+		default:
+		{
+			ereport(ERROR, (errmsg("Unexpected traverse result %d", traverseResult)));
+		}
+	}
+}
+
+
 /*
  * Updates the comparison logic with the traverse result for path not found/mismatches.
  */
@@ -3820,7 +4047,7 @@ OrderByVisitTopLevelField(pgbsonelement *element, const
 		return true;
 	}
 
-	CompareForOrderBy(element, validateState);
+	CompareForOrderBy(&element->bsonValue, validateState);
 	return true;
 }
 
@@ -3833,8 +4060,82 @@ OrderByVisitArrayField(pgbsonelement *element, const StringView *filterPath,
 					   int arrayIndex, void *state)
 {
 	TraverseOrderByValidateState *validateState = (TraverseOrderByValidateState *) state;
-	CompareForOrderBy(element, validateState);
+	CompareForOrderBy(&element->bsonValue, validateState);
 	return true;
+}
+
+
+static bool
+OrderByContinueProcessIntermediateArray(void *state, const
+										bson_value_t *value)
+{
+	/* Orderby needs to continue traversing even after a match to see if there's better options */
+	return true;
+}
+
+
+static void
+OrderByHandleIntermediateArrayPathNotFound(void *state,
+										   int32_t arrayIndex, const
+										   StringView *remainingPath)
+{
+	/* If an intermediate field is not traversable, it gets marked as null */
+	if (UseLegacyOrderByBehavior)
+	{
+		return;
+	}
+
+	TraverseOrderByValidateState *validateState = (TraverseOrderByValidateState *) state;
+	if (validateState->nestedArrayCount > 0 &&
+		validateState->orderByValue.value_type != BSON_TYPE_EOD)
+	{
+		return;
+	}
+
+	bson_value_t nullValue = { 0 };
+	nullValue.value_type = BSON_TYPE_NULL;
+	CompareForOrderBy(&nullValue, validateState);
+}
+
+
+static void
+OrderBySetIntermediateArrayStartEnd(void *state, bool isStart)
+{
+	if (UseLegacyOrderByBehavior)
+	{
+		return;
+	}
+
+	TraverseOrderByValidateState *validateState = (TraverseOrderByValidateState *) state;
+	if (isStart)
+	{
+		validateState->nestedArrayCount++;
+	}
+	else
+	{
+		validateState->nestedArrayCount--;
+	}
+}
+
+
+static void
+OrderBySetTraverseResult(void *state, TraverseBsonResult compareResult)
+{
+	TraverseOrderByValidateState *validateState =
+		(TraverseOrderByValidateState *) state;
+	if (compareResult == TraverseBsonResult_PathNotFound &&
+		validateState->nestedArrayCount > 0 &&
+		!UseLegacyOrderByBehavior)
+	{
+		/* This is the path where we request a.b.c (which means we expect b to be an object or array)
+		 * but b is a primitive type. This gets compared as null.
+		 */
+		bson_value_t nullValue = { 0 };
+		nullValue.value_type = BSON_TYPE_NULL;
+		CompareForOrderBy(&nullValue, validateState);
+	}
+
+	CompareSetTraverseResult(state, compareResult);
 }
 
 

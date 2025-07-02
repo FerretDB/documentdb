@@ -12,7 +12,7 @@ use tokio_postgres::IsolationLevel;
 use crate::{
     configuration::SetupConfiguration,
     error::{DocumentDBError, ErrorCode, Result},
-    postgres::{self, Client},
+    postgres::{self, Connection, PgDataClient},
 };
 use std::{
     collections::HashMap,
@@ -42,20 +42,20 @@ impl Transaction {
     pub async fn start(
         config: &dyn SetupConfiguration,
         request: &RequestTransactionInfo,
-        client: Arc<Client>,
+        conn: Arc<Connection>,
         isolation_level: IsolationLevel,
         session_id: Vec<u8>,
     ) -> Result<Self> {
         Ok(Transaction {
             session_id,
             transaction_number: request.transaction_number,
-            transaction: Some(postgres::Transaction::start(client, isolation_level).await?),
+            transaction: Some(postgres::Transaction::start(conn, isolation_level).await?),
             cursors: CursorStore::new(config, false),
         })
     }
 
-    pub fn get_client(&self) -> Option<Arc<Client>> {
-        self.transaction.as_ref().map(|t| t.get_client())
+    pub fn get_connection(&self) -> Option<Arc<Connection>> {
+        self.transaction.as_ref().map(|t| t.get_connection())
     }
 
     pub fn get_session_id(&self) -> &[u8] {
@@ -154,21 +154,22 @@ impl TransactionStore {
         }
     }
 
-    pub async fn get_client(&self, session_id: &[u8]) -> Option<Arc<Client>> {
+    pub async fn get_connection(&self, session_id: &[u8]) -> Option<Arc<Connection>> {
         self.transactions
             .read()
             .await
             .get(session_id)
-            .and_then(|(_, t)| t.get_client())
+            .and_then(|(_, t)| t.get_connection())
     }
 
     pub async fn create(
         &self,
-        context: &ConnectionContext,
+        connection_context: &ConnectionContext,
         transaction_info: &RequestTransactionInfo,
         session_id: Vec<u8>,
+        pg_data_client: &impl PgDataClient,
     ) -> Result<()> {
-        if let Some((_, transaction_number)) = context.transaction.as_ref() {
+        if let Some((_, transaction_number)) = connection_context.transaction.as_ref() {
             if transaction_number > &transaction_info.transaction_number {
                 return Err(DocumentDBError::documentdb_error(
                     ErrorCode::TransactionTooOld,
@@ -228,9 +229,13 @@ impl TransactionStore {
                 transaction_info.transaction_number
             );
             let transaction = Transaction::start(
-                context.service_context.setup_configuration(),
+                connection_context.service_context.setup_configuration(),
                 transaction_info,
-                Arc::new(context.pg_without_transaction(true).await?),
+                Arc::new(
+                    pg_data_client
+                        .pull_connection_with_transaction(true)
+                        .await?,
+                ),
                 transaction_info
                     .isolation_level
                     .unwrap_or(IsolationLevel::ReadCommitted),
@@ -254,17 +259,17 @@ impl TransactionStore {
             let transactions = self.transactions.read().await;
 
             if let Some((_, transaction)) = transactions.get(&session_id) {
-                if transaction.transaction_number() != transaction_info.transaction_number {
-                    return Err(DocumentDBError::documentdb_error(
+                return if transaction.transaction_number() != transaction_info.transaction_number {
+                    Err(DocumentDBError::documentdb_error(
                         ErrorCode::NoSuchTransaction,
                         format!(
                             "Cannot continue transaction {}",
                             transaction_info.transaction_number
                         ),
-                    ));
+                    ))
                 } else {
-                    return Ok(());
-                }
+                    Ok(())
+                };
             }
         }
 

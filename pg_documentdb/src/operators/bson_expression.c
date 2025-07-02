@@ -38,6 +38,7 @@
 #include "utils/fmgr_utils.h"
 #include "utils/version_utils.h"
 #include "collation/collation.h"
+#include "metadata/metadata_cache.h"
 
 
 /* --------------------------------------------------------- */
@@ -84,6 +85,7 @@ typedef struct BsonExpressionPartitionByFieldsGetState
 
 extern bool EnableCollation;
 extern bool EnableNowSystemVariable;
+extern bool EnableVariablesSupportForWriteCommands;
 
 /* --------------------------------------------------------- */
 /* Forward declaration */
@@ -554,8 +556,8 @@ PG_FUNCTION_INFO_V1(bson_expression_map);
  * document. This follows operator expressions as per mongo aggregation expressions.
  * The input is expected to be a bson document with a single value
  * e.g. { "sum": "$a.b"}
- * or a bson document with two values of which the second is the collation spec
- * e.g. { "sum": "$a.b", "collation": "en-u-ks-level1" }
+ * A fourth argument of the collation string could be provided in which case it will be appended
+ * to the evaluated document on return.
  * The output is a bson document that contains the evaluation of the first field
  * e.g. { "sum": [ 1, 2, 3 ] }
  * and the collation spec, if any.
@@ -578,9 +580,9 @@ bson_expression_get(PG_FUNCTION_ARGS)
 	pgbson *document = PG_GETARG_PGBSON(0);
 	pgbson *expression = PG_GETARG_PGBSON(1);
 	bool isNullOnEmpty = PG_GETARG_BOOL(2);
-
 	pgbson *variableSpec = NULL;
-	int argPositions[2] = { 1, 3 };
+
+	int argPositions[3] = { 1, 3, 1 };
 	int numArgs = 1;
 	if (PG_NARGS() > 3)
 	{
@@ -588,24 +590,20 @@ bson_expression_get(PG_FUNCTION_ARGS)
 		numArgs = 2;
 	}
 
+	char *collationString = NULL;
+	if (EnableCollation && PG_NARGS() > 4)
+	{
+		collationString = text_to_cstring(PG_GETARG_TEXT_P(4));
+		numArgs = 3;
+		argPositions[2] = 4;
+	}
+
 	pgbsonelement expressionElement;
-	pgbson_writer writer;
 
 	BsonExpressionGetState expressionData;
 	memset(&expressionData, 0, sizeof(BsonExpressionGetState));
 
-	/* A collation string may be passed through to be pushed down to other functions such as bson_dollar_in for $graphLookup*/
-	const char *collationString = NULL;
-	bson_iter_t iter;
-	if (EnableCollation && PgbsonInitIteratorAtPath(expression, "collation", &iter))
-	{
-		collationString = PgbsonToSinglePgbsonElementWithCollation(
-			(pgbson *) expression, &expressionElement);
-	}
-	else
-	{
-		PgbsonToSinglePgbsonElement(expression, &expressionElement);
-	}
+	PgbsonToSinglePgbsonElement(expression, &expressionElement);
 
 	const BsonExpressionGetState *state;
 	SetCachedFunctionStateMultiArgs(
@@ -629,6 +627,7 @@ bson_expression_get(PG_FUNCTION_ARGS)
 		.string = expressionElement.path,
 	};
 
+	pgbson_writer writer;
 	PgbsonWriterInit(&writer);
 	EvaluateAggregationExpressionDataToWriter(state->expressionData, document, path,
 											  &writer,
@@ -636,11 +635,11 @@ bson_expression_get(PG_FUNCTION_ARGS)
 
 	pgbson *returnedBson = PgbsonWriterGetPgbson(&writer);
 
-	/* Add the collation, if any, to the returned bson */
-	/* so it can be extracted by other functions that utilize it from bson_expression_get. */
-	/* For example: the comparison filter for bson_dollar_in used in $graphLookup */
 	if (IsCollationApplicable(collationString))
 	{
+		/* Add the collation, if any, to the returned bson */
+		/* so it can be extracted by other functions that utilize it from bson_expression_get. */
+		/* For example: the comparison filter for bson_dollar_in used in $graphLookup */
 		pgbson_writer returnedWriter;
 		PgbsonWriterInit(&returnedWriter);
 
@@ -660,6 +659,7 @@ bson_expression_get(PG_FUNCTION_ARGS)
 
 		returnedBson = PgbsonWriterGetPgbson(&returnedWriter);
 	}
+
 
 	PG_FREE_IF_COPY(document, 0);
 	PG_RETURN_POINTER(returnedBson);
@@ -3005,8 +3005,18 @@ GetTimeSystemVariables(TimeSystemVariables *timeVariables)
  */
 pgbson *
 ParseAndGetTopLevelVariableSpec(const bson_value_t *varSpec,
-								TimeSystemVariables *timeSystemVariables)
+								TimeSystemVariables *timeSystemVariables,
+								bool isWriteCommand)
 {
+	/* Short circuit here */
+	bool generateTimeVariables = EnableNowSystemVariable ||
+								 (isWriteCommand &&
+								  EnableVariablesSupportForWriteCommands);
+	if (varSpec->value_type == BSON_TYPE_EOD && !generateTimeVariables)
+	{
+		return PgbsonInitEmpty();
+	}
+
 	ParseAggregationExpressionContext parseContext = {
 		.validateParsedExpressionFunc = &DisallowExpressionsForTopLevelLet,
 	};
@@ -3015,7 +3025,7 @@ ParseAndGetTopLevelVariableSpec(const bson_value_t *varSpec,
 	PgbsonWriterInit(&resultWriter);
 
 	/* Write the time system variables */
-	if (EnableNowSystemVariable && IsClusterVersionAtleast(DocDB_V0, 24, 0))
+	if (generateTimeVariables)
 	{
 		bson_value_t nowVariableValue = GetTimeSystemVariables(timeSystemVariables);
 		PgbsonWriterAppendValue(&resultWriter, "now", 3, &nowVariableValue);

@@ -48,6 +48,9 @@ bool ForceIndexTermTruncation = DEFAULT_FORCE_INDEX_TERM_TRUNCATION;
 #define DEFAULT_ENABLE_NEW_COMPOSITE_INDEX_OPCLASS false
 bool EnableNewCompositeIndexOpclass = DEFAULT_ENABLE_NEW_COMPOSITE_INDEX_OPCLASS;
 
+#define DEFAULT_USE_NEW_COMPOSITE_INDEX_OPCLASS false
+bool DefaultUseCompositeOpClass = DEFAULT_USE_NEW_COMPOSITE_INDEX_OPCLASS;
+
 #define DEFAULT_ENABLE_INDEX_ORDERBY_PUSHDOWN false
 bool EnableIndexOrderbyPushdown = DEFAULT_ENABLE_INDEX_ORDERBY_PUSHDOWN;
 
@@ -64,6 +67,9 @@ extern int32 PEC_InternalQueryMaxAllowedDensifyDocs;
 bool ForceWildcardReducedTerm = DEFAULT_FORCE_WILDCARD_REDUCED_TERM;
 
 extern int32 PEC_InternalDocumentSourceDensifyMaxMemoryBytes;
+
+#define DEFAULT_FORCE_DISABLE_SEQ_SCAN false
+bool ForceDisableSeqScan = DEFAULT_FORCE_DISABLE_SEQ_SCAN;
 
 void
 InitializeTestConfigurations(const char *prefix, const char *newGucPrefix)
@@ -158,6 +164,13 @@ InitializeTestConfigurations(const char *prefix, const char *newGucPrefix)
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
+		psprintf("%s.defaultUseCompositeOpClass", newGucPrefix),
+		gettext_noop(
+			"Whether to enable the new experimental composite index opclass for default index creates"),
+		NULL, &DefaultUseCompositeOpClass, DEFAULT_USE_NEW_COMPOSITE_INDEX_OPCLASS,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
 		psprintf("%s.enableIndexOrderbyPushdown", newGucPrefix),
 		gettext_noop(
 			"Whether to enable the sort on the new experimental composite index opclass"),
@@ -221,4 +234,11 @@ InitializeTestConfigurations(const char *prefix, const char *newGucPrefix)
 		PGC_USERSET,
 		GUC_NO_SHOW_ALL | GUC_NOT_IN_SAMPLE,
 		NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.forceDisableSeqScan", newGucPrefix),
+		gettext_noop(
+			"Whether to force disable sequential type scans on the collection."),
+		NULL, &ForceDisableSeqScan, DEFAULT_FORCE_DISABLE_SEQ_SCAN,
+		PGC_USERSET, 0, NULL, NULL, NULL);
 }

@@ -126,6 +126,7 @@ command_create_collection_view(PG_FUNCTION_ARGS)
 		GetMongoCollectionOrViewByNameDatum(
 			databaseDatum, createDatum, NoLock);
 
+	ThrowIfServerOrTransactionReadOnly();
 	if (collection != NULL)
 	{
 		/* Collection exists validate options */
@@ -500,7 +501,7 @@ ValidatePipelineForCreateView(Datum databaseDatum, const char *viewName,
 	{
 		StringView viewStringView = CreateStringViewFromString(viewName);
 		CheckUnsupportedViewPipelineStages(pipeline);
-		ValidateAggregationPipeline(databaseDatum, &viewStringView,
+		ValidateAggregationPipeline(DatumGetTextP(databaseDatum), &viewStringView,
 									pipeline);
 	}
 	PG_CATCH();

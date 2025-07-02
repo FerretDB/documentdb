@@ -97,7 +97,11 @@ typedef struct
 typedef struct
 {
 	bool isLookupUnwind;
-	bool useInnerJoin;
+
+	/*
+	 * Only applicable for Lookup Unwind combination.
+	 */
+	bool preserveNullAndEmptyArrays;
 } LookupContext;
 
 typedef struct LookupOptimizationArgs
@@ -329,6 +333,8 @@ Query *
 HandleInternalInhibitOptimization(const bson_value_t *existingValue, Query *query,
 								  AggregationPipelineBuildContext *context)
 {
+	ReportFeatureUsage(FEATURE_STAGE_INTERNAL_INHIBIT_OPTIMIZATION);
+
 	/* First step, move the current query into a CTE */
 	CommonTableExpr *baseCte = makeNode(CommonTableExpr);
 	baseCte->ctename = "internalinhibitoptimization";
@@ -393,10 +399,9 @@ HandleLookup(const bson_value_t *existingValue, Query *query,
 {
 	ReportFeatureUsage(FEATURE_STAGE_LOOKUP);
 
-	LookupContext lookupContext = {
-		.isLookupUnwind = false,
-		.useInnerJoin = false
-	};
+	LookupContext lookupContext;
+	memset(&lookupContext, 0, sizeof(LookupContext));
+	lookupContext.isLookupUnwind = false;
 
 	return HandleLookupCore(existingValue, query, context, &lookupContext);
 }
@@ -433,9 +438,7 @@ HandleLookupUnwind(const bson_value_t *existingValue, Query *query,
 
 	LookupContext lookupContext = {
 		.isLookupUnwind = true,
-
-		/* Use INNER JOIN if we don't want to preserve empty array */
-		.useInnerJoin = !preserveNullAndEmptyArrays
+		.preserveNullAndEmptyArrays = preserveNullAndEmptyArrays
 	};
 	return HandleLookupCore(&lookupSpec, query, context, &lookupContext);
 }
@@ -796,7 +799,7 @@ CreateInverseMatchFromCollectionQuery(InverseMatchArgs *inverseMatchArgs,
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_NAMESPACENOTFOUND),
 						errmsg(
 							"'from' collection: '%s.%s' doesn't exist.",
-							TextDatumGetCString(context->databaseNameDatum),
+							text_to_cstring(context->databaseNameDatum),
 							inverseMatchArgs->fromCollection.string)));
 	}
 
@@ -832,7 +835,10 @@ CreateInverseMatchFromCollectionQuery(InverseMatchArgs *inverseMatchArgs,
 
 	pgbson *specBson = PgbsonWriterGetPgbson(&writer);
 
-	List *addFieldsArgs = list_make2(MakeBsonConst(specBson), subLink);
+	/* Since no dotted path, no need to override array */
+	bool overrideArray = false;
+	List *addFieldsArgs = list_make3(MakeBsonConst(specBson), subLink,
+									 MakeBoolValueConst(overrideArray));
 	FuncExpr *projectorFunc = makeFuncExpr(
 		BsonDollaMergeDocumentsFunctionOid(), BsonTypeId(),
 		addFieldsArgs,
@@ -1563,16 +1569,27 @@ UpdateCteRte(RangeTblEntry *rte, CommonTableExpr *baseCte)
 	rte->inFromCl = true;
 
 	List *colnames = NIL;
+	List *coltypes = NIL;
+	List *coltypmods = NIL;
 	ListCell *cell;
 	Query *baseQuery = (Query *) baseCte->ctequery;
 	foreach(cell, baseQuery->targetList)
 	{
 		TargetEntry *tle = (TargetEntry *) lfirst(cell);
 		colnames = lappend(colnames, makeString(tle->resname ? tle->resname : ""));
+		coltypes = lappend_oid(coltypes, exprType((Node *) tle->expr));
+		coltypmods = lappend_int(coltypmods, exprTypmod((Node *) tle->expr));
 	}
 
 	rte->eref = makeAlias(rte->alias->aliasname, colnames);
 	rte->alias = makeAlias(rte->alias->aliasname, NIL);
+
+	rte->coltypes = coltypes;
+	rte->coltypmods = coltypmods;
+
+	baseCte->ctecolnames = colnames;
+	baseCte->ctecoltypes = coltypes;
+	baseCte->ctecoltypmods = coltypmods;
 }
 
 
@@ -1881,12 +1898,9 @@ ParseLookupStage(const bson_value_t *existingValue, LookupArgs *args)
 /*
  * Helper method to create Lookup's JOIN RTE - this is the entry in the RTE
  * That goes in the Lookup's FROM clause and ties the two tables together.
- *
- * Note: useInnerJoin makes use of the INNER JOIN instead of LEFT JOIN
  */
 inline static RangeTblEntry *
-MakeLookupJoinRte(List *joinVars, List *colNames, List *joinLeftCols, List *joinRightCols,
-				  bool useInnerJoin)
+MakeLookupJoinRte(List *joinVars, List *colNames, List *joinLeftCols, List *joinRightCols)
 {
 	/* Add an RTE for the JoinExpr */
 	RangeTblEntry *joinRte = makeNode(RangeTblEntry);
@@ -1894,7 +1908,7 @@ MakeLookupJoinRte(List *joinVars, List *colNames, List *joinLeftCols, List *join
 	joinRte->rtekind = RTE_JOIN;
 	joinRte->relid = InvalidOid;
 	joinRte->subquery = NULL;
-	joinRte->jointype = useInnerJoin ? JOIN_INNER : JOIN_LEFT;
+	joinRte->jointype = JOIN_LEFT;
 	joinRte->joinmergedcols = 0; /* No using clause */
 	joinRte->joinaliasvars = joinVars;
 	joinRte->joinleftcols = joinLeftCols;
@@ -2001,7 +2015,7 @@ OptimizeLookup(LookupArgs *lookupArgs,
 
 			ParseVariableSpec(&varsValue, nullContext, &parseContext);
 		}
-		else if (EnableNowSystemVariable && IsClusterVersionAtleast(DocDB_V0, 24, 0) &&
+		else if (EnableNowSystemVariable &&
 				 IsA(leftQueryContext->variableSpec, Const))
 		{
 			Node *specNode = (Node *) leftQueryContext->variableSpec;
@@ -2578,8 +2592,7 @@ ProcessLookupCoreWithLet(Query *query, AggregationPipelineBuildContext *context,
 							  &outputColNames, &rightJoinCols);
 
 	RangeTblEntry *joinRte = MakeLookupJoinRte(outputVars, outputColNames, leftJoinCols,
-											   rightJoinCols,
-											   lookupContext->useInnerJoin);
+											   rightJoinCols);
 
 
 	lookupQuery->rtable = list_make3(leftTree, rightTree, joinRte);
@@ -2763,16 +2776,51 @@ ProcessLookupCoreWithLet(Query *query, AggregationPipelineBuildContext *context,
 		 * that means we are performing a LEFT JOIN but if the left documnets don't match with anything
 		 * on the right we still need to write the left documents. So we will need to replace the rightOutput
 		 * expression to a coalesce(rightOutput, {}) expression.
+		 *
+		 * Similarly, if `preserveNullAndEmptyArrays: false` we will need to filter out all the non-matching
+		 * NULL documents from the right query i.e. righQuery.document IS NOT NULL
 		 */
-		if (!lookupContext->useInnerJoin)
+		Expr *rightDocExpr = lsecond(mergeDocumentsArgs);
+		if (lookupContext->preserveNullAndEmptyArrays)
 		{
-			Expr *coalesceExpr = GetEmptyBsonCoalesce(lsecond(mergeDocumentsArgs));
+#if PG_VERSION_NUM >= 160000
+
+			/*
+			 * Starting PG 16, if we are preserving nulls, then we need to set the varnullingrels
+			 * to the join RTE index so that document var can be replaced if NULL.
+			 */
+			if (IsA(rightDocExpr, Var))
+			{
+				Bitmapset *nullValIngRel = NULL;
+				nullValIngRel = bms_add_member(nullValIngRel, joinQueryRteIndex);
+				((Var *) rightDocExpr)->varnullingrels = nullValIngRel;
+			}
+#endif
+			Expr *coalesceExpr = GetEmptyBsonCoalesce(rightDocExpr);
 			list_nth_cell(mergeDocumentsArgs, 1)->ptr_value = coalesceExpr;
+		}
+		else
+		{
+			NullTest *nullTest = makeNode(NullTest);
+			nullTest->argisrow = false;
+			nullTest->nulltesttype = IS_NOT_NULL;
+			nullTest->arg = rightDocExpr;
+
+			List *existingQuals = make_ands_implicit(
+				(Expr *) lookupQuery->jointree->quals);
+			existingQuals = lappend(existingQuals, nullTest);
+			lookupQuery->jointree->quals = (Node *) make_ands_explicit(existingQuals);
 		}
 		mergeDocumentsArgs = lappend(mergeDocumentsArgs,
 									 MakeTextConst(lookupArgs->lookupAs.string,
 												   lookupArgs->lookupAs.length));
 		mergeDocumentsOid = BsonDollarMergeDocumentAtPathFunctionOid();
+	}
+	else
+	{
+		bool overrideArrayInMerge = true;
+		mergeDocumentsArgs = lappend(mergeDocumentsArgs,
+									 MakeBoolValueConst(overrideArrayInMerge));
 	}
 	FuncExpr *addFields = makeFuncExpr(mergeDocumentsOid, BsonTypeId(),
 									   mergeDocumentsArgs, InvalidOid, InvalidOid,
@@ -3166,7 +3214,10 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 }
 
 
-/* Builds the graph lookup FuncExpr bson_expression_get(document, '{ "connectToField": { "$makeArray": "$inputExpression" } }' )
+/*
+ * Builds the graph lookup FuncExpr bson_expression_get(document, '{ "connectToField": { "$makeArray": "$inputExpression" } }' )
+ * or bson_expression_get(document, '{ "connectToField": { "$makeArray": "$inputExpression" } }', collationString ),
+ * if a valid collation string is provided.
  */
 static FuncExpr *
 BuildInputExpressionForQuery(Expr *origExpr, const StringView *connectToField, const
@@ -3185,18 +3236,24 @@ BuildInputExpressionForQuery(Expr *origExpr, const StringView *connectToField, c
 	PgbsonWriterAppendValue(&makeArrayWriter, "$makeArray", 10, inputExpression);
 	PgbsonWriterEndDocument(&expressionWriter, &makeArrayWriter);
 
-	if (IsCollationApplicable(context->collationString))
-	{
-		PgbsonWriterAppendUtf8(&expressionWriter, "collation", 9,
-							   context->collationString);
-	}
-
 	pgbson *inputExpr = PgbsonWriterGetPgbson(&expressionWriter);
 	Const *falseConst = (Const *) MakeBoolValueConst(false);
 	List *inputExprArgs;
 	Oid functionOid;
 
-	if (context->variableSpec != NULL)
+	bool applyCollationAndVariableSpec = IsCollationApplicable(
+		context->collationString) && IsClusterVersionAtleast(DocDB_V0, 103, 0);
+
+	if (applyCollationAndVariableSpec)
+	{
+		Const *collationConst = MakeTextConst(context->collationString,
+											  strlen(context->collationString));
+		functionOid = BsonExpressionGetWithLetAndCollationFunctionOid();
+		inputExprArgs = list_make5(origExpr, MakeBsonConst(inputExpr),
+								   falseConst, context->variableSpec,
+								   collationConst);
+	}
+	else if (context->variableSpec != NULL)
 	{
 		functionOid = BsonExpressionGetWithLetFunctionOid();
 		inputExprArgs = list_make4(origExpr, MakeBsonConst(inputExpr),
@@ -3212,6 +3269,7 @@ BuildInputExpressionForQuery(Expr *origExpr, const StringView *connectToField, c
 	FuncExpr *inputFuncExpr = makeFuncExpr(
 		functionOid, BsonTypeId(), inputExprArgs, InvalidOid,
 		InvalidOid, COERCE_EXPLICIT_CALL);
+
 	return inputFuncExpr;
 }
 
@@ -3220,6 +3278,10 @@ BuildInputExpressionForQuery(Expr *origExpr, const StringView *connectToField, c
  * Adds input expression query to the input query projection list. This is the expression
  * for the inputExpression for the Graph lookup
  * bson_expression_get(document, '{ "connectToField": "$inputExpression" } ) AS "inputExpr"
+ * or
+ * bson_expression_get(document, '{ "connectToField": "$inputExpression" }', collationString )
+ * AS "inputExpr",
+ * if a collation string is provided.
  */
 static AttrNumber
 AddInputExpressionToQuery(Query *query, StringView *fieldName, const
@@ -3230,8 +3292,8 @@ AddInputExpressionToQuery(Query *query, StringView *fieldName, const
 	TargetEntry *origEntry = linitial(query->targetList);
 
 	/*
-	 * Adds the projector bson_expression_get(document, '{ "connectToField": { "$makeArray": "$inputExpression" } }' ) AS "inputExpr"
-	 * into the left query.
+	 * Adds the projector bson_expression_get(document, '{ "connectToField": { "$makeArray": "$inputExpression" } }' )
+	 * AS "inputExpr" into the left query.
 	 */
 	FuncExpr *inputFuncExpr = BuildInputExpressionForQuery(origEntry->expr, fieldName,
 														   inputExpression,
@@ -3353,9 +3415,12 @@ ProcessGraphLookupCore(Query *query, AggregationPipelineBuildContext *context,
 	Var *addFieldsVar = makeVar(graphLookupRef->rtindex, 2, BsonTypeId(), -1, InvalidOid,
 								0);
 
+	/* $graphlookup override nested array in merge projections */
+	bool overrideArrayInProjection = true;
 	FuncExpr *addFieldsExpr = makeFuncExpr(
 		BsonDollaMergeDocumentsFunctionOid(), BsonTypeId(),
-		list_make2(documentVar, addFieldsVar),
+		list_make3(documentVar, addFieldsVar,
+				   MakeBoolValueConst(overrideArrayInProjection)),
 		InvalidOid, InvalidOid, COERCE_EXPLICIT_CALL);
 	TargetEntry *finalTargetEntry = makeTargetEntry((Expr *) addFieldsExpr, 1, "document",
 													false);
@@ -3500,6 +3565,7 @@ GenerateBaseCaseQuery(AggregationPipelineBuildContext *parentContext,
 	Var *rightVar = makeVar(1, 2, BsonTypeId(), -1, InvalidOid, baseCteLevelsUp);
 	Const *textConst = MakeTextConst(args->connectToField.string,
 									 args->connectToField.length);
+
 	FuncExpr *initialMatchFunc = makeFuncExpr(BsonDollarLookupJoinFilterFunctionOid(),
 											  BOOLOID,
 											  list_make3(firstEntry->expr, rightVar,
@@ -3602,6 +3668,7 @@ GenerateRecursiveCaseQuery(AggregationPipelineBuildContext *parentContext,
 
 	Const *textConst = MakeTextConst(args->connectToField.string,
 									 args->connectToField.length);
+
 	FuncExpr *initialMatchFunc = makeFuncExpr(BsonDollarLookupJoinFilterFunctionOid(),
 											  BOOLOID,
 											  list_make3(firstEntry->expr, inputExpr,
@@ -3746,7 +3813,7 @@ BuildRecursiveGraphLookupQuery(QuerySource parentSource, GraphLookupArgs *args,
 	unionAllQuery->canSetTag = true;
 	unionAllQuery->jointree = makeFromExpr(NIL, NULL);
 
-	/* We need to build the output of hte UNION ALL first (since this is recursive )*/
+	/* We need to build the output of the UNION ALL first (since this is recursive )*/
 	/* The first var is the document */
 	Var *documentVar = makeVar(1, 1, BsonTypeId(), -1, InvalidOid, 0);
 	TargetEntry *docEntry = makeTargetEntry((Expr *) documentVar,
@@ -3776,7 +3843,6 @@ BuildRecursiveGraphLookupQuery(QuerySource parentSource, GraphLookupArgs *args,
 	cteCycleClause->cycle_mark_typmod = -1;
 	cteCycleClause->cycle_mark_neop = BooleanNotEqualOperator;
 	graphCteExpr->cycle_clause = cteCycleClause;
-
 
 	ParseState *parseState = make_parsestate(NULL);
 	parseState->p_expr_kind = EXPR_KIND_SELECT_TARGET;
@@ -3888,11 +3954,13 @@ BuildRecursiveGraphLookupQuery(QuerySource parentSource, GraphLookupArgs *args,
 	/* If there is a depth-field, add it into the original doc */
 	if (args->depthField.length > 0)
 	{
+		bool overrideArray = true;
 		simpleTargetEntry->expr = (Expr *) makeFuncExpr(
 			BsonDollaMergeDocumentsFunctionOid(),
 			BsonTypeId(),
-			list_make2(simpleVar,
-					   finalDepthVar),
+			list_make3(simpleVar,
+					   finalDepthVar,
+					   MakeBoolValueConst(overrideArray)),
 			InvalidOid,
 			InvalidOid, COERCE_EXPLICIT_CALL);
 	}

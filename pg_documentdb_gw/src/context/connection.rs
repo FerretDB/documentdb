@@ -22,7 +22,7 @@ use crate::{
     auth::AuthState,
     configuration::DynamicConfiguration,
     error::{DocumentDBError, Result},
-    postgres::Client,
+    postgres::Connection,
 };
 
 use super::{Cursor, CursorStoreEntry, ServiceContext};
@@ -44,17 +44,6 @@ pub struct ConnectionContext {
 static CONNECTION_ID: AtomicI64 = AtomicI64::new(0);
 
 impl ConnectionContext {
-    pub async fn pg(&self) -> Result<Arc<Client>> {
-        if let Some((session_id, _)) = self.transaction.as_ref() {
-            let transaction_store = self.service_context.transaction_store();
-
-            if let Some(client) = transaction_store.get_client(session_id).await {
-                return Ok(client);
-            }
-        }
-        Ok(Arc::new(self.pg_without_transaction(false).await?))
-    }
-
     pub async fn get_cursor(&self, id: i64, user: &str) -> Option<CursorStoreEntry> {
         // If there is a transaction, get the cursor to its store
         if let Some((session_id, _)) = self.transaction.as_ref() {
@@ -71,7 +60,7 @@ impl ConnectionContext {
 
     pub async fn add_cursor(
         &self,
-        client: Option<Arc<Client>>,
+        conn: Option<Arc<Connection>>,
         cursor: Cursor,
         user: &str,
         db: &str,
@@ -80,7 +69,7 @@ impl ConnectionContext {
     ) {
         let key = (cursor.cursor_id, user.to_string());
         let value = CursorStoreEntry {
-            client,
+            conn,
             cursor,
             db: db.to_string(),
             collection: collection.to_string(),
@@ -101,21 +90,6 @@ impl ConnectionContext {
 
         // Otherwise add it to the service context
         self.service_context.add_cursor(key, value).await
-    }
-
-    pub async fn pg_without_transaction(&self, in_transaction: bool) -> Result<Client> {
-        let user = self.auth_state.username()?;
-        let pass = self
-            .auth_state
-            .password
-            .as_ref()
-            .ok_or(DocumentDBError::internal_error(
-                "Password missing on pg client acquisition".to_string(),
-            ))?;
-
-        let mut client = self.service_context.pg(user, pass).await?;
-        client.in_transaction = in_transaction;
-        Ok(client)
     }
 
     pub async fn new(
@@ -140,8 +114,17 @@ impl ConnectionContext {
         }
     }
 
-    pub async fn ensure_client_pool(&self, user: &str, pass: &str) -> Result<()> {
-        self.service_context.ensure_client_pool(user, pass).await
+    pub async fn allocate_data_pool(&self) -> Result<()> {
+        let user = self.auth_state.username()?;
+        let pass = self
+            .auth_state
+            .password
+            .as_ref()
+            .ok_or(DocumentDBError::internal_error(
+                "Password is missing on pg connection acquisition".to_string(),
+            ))?;
+
+        self.service_context.allocate_data_pool(user, pass).await
     }
 
     pub fn dynamic_configuration(&self) -> Arc<dyn DynamicConfiguration> {

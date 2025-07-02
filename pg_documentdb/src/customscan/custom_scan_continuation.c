@@ -35,6 +35,7 @@
 #include "customscan/bson_custom_scan_private.h"
 #include "api_hooks.h"
 #include "opclass/bson_index_support.h"
+#include "index_am/index_am_utils.h"
 
 #if (PG_VERSION_NUM >= 150000)
 
@@ -324,28 +325,55 @@ void
 UpdatePathsToForceRumIndexScanToBitmapHeapScan(PlannerInfo *root, RelOptInfo *rel)
 {
 	ListCell *cell;
-
-	bool allowIndexScans = false;
-	if (EnableRumIndexScan)
-	{
-		/*
-		 * Check if we can allow base index scans these can be allowed with
-		 * scenarios that have skip/limit:
-		 * Let postgres deal with whether a Bitmap path or index path is better
-		 * for high limits.
-		 */
-		allowIndexScans = root->limit_tuples > 0;
-	}
-
 	bool hasIndexPaths = false;
 	foreach(cell, rel->pathlist)
 	{
 		Path *inputPath = lfirst(cell);
 
-		if (inputPath->pathtype == T_IndexScan && !allowIndexScans)
-		{
-			IndexPath *indexPath = (IndexPath *) inputPath;
 
+		if (inputPath->pathtype == T_BitmapHeapScan ||
+			inputPath->pathtype == T_IndexScan)
+		{
+			hasIndexPaths = true;
+		}
+
+		if (inputPath->pathtype != T_IndexScan)
+		{
+			continue;
+		}
+
+		IndexPath *indexPath = (IndexPath *) inputPath;
+		if (!IsBsonRegularIndexAm(indexPath->indexinfo->relam))
+		{
+			continue;
+		}
+
+		bool allowIndexScans = false;
+		if (root->limit_tuples > 0)
+		{
+			/*
+			 * Check if we can allow base index scans these can be allowed with
+			 * scenarios that have skip/limit:
+			 * Let postgres deal with whether a Bitmap path or index path is better
+			 * for high limits.
+			 */
+			if (EnableRumIndexScan)
+			{
+				allowIndexScans = true;
+			}
+			else
+			{
+				/*
+				 * Queries that has limit and planned with index scan, but are being
+				 * forced to use bitmap heap scan. These queries can benefit from using
+				 * Index scan via EnableRumIndexScan.
+				 */
+				ReportFeatureUsage(FEATURE_USAGE_INDEX_SCAN_WITH_LIMIT);
+			}
+		}
+
+		if (!allowIndexScans)
+		{
 			/*
 			 *  Convert any IndexScan on Rum index to BitmapHeapScan,
 			 *  unless BitmapHeapScan is turned off. Rum Index is optimized
@@ -361,21 +389,12 @@ UpdatePathsToForceRumIndexScanToBitmapHeapScan(PlannerInfo *root, RelOptInfo *re
 			 *  taking the BitmapHeapScan path only when the selectivity is low
 			 *  (more rows), and using IndexScan when selectivity is high (few rows).
 			 */
-			if (indexPath->indexinfo->relam == RumIndexAmId())
-			{
-				inputPath = (Path *) create_bitmap_heap_path(root, rel,
-															 inputPath,
-															 rel->lateral_relids, 1.0,
-															 0);
+			inputPath = (Path *) create_bitmap_heap_path(root, rel,
+														 inputPath,
+														 rel->lateral_relids, 1.0,
+														 0);
 
-				cell->ptr_value = inputPath;
-			}
-		}
-
-		if (inputPath->pathtype == T_BitmapHeapScan ||
-			inputPath->pathtype == T_IndexScan)
-		{
-			hasIndexPaths = true;
+			cell->ptr_value = inputPath;
 		}
 	}
 
@@ -431,7 +450,7 @@ UpdatePathsWithOptimizedExtensionCustomPlans(PlannerInfo *root, RelOptInfo *rel,
 					}
 
 					IndexPath *andPath = (IndexPath *) andQual;
-					if (andPath->indexinfo->relam != RumIndexAmId())
+					if (!IsBsonRegularIndexAm(andPath->indexinfo->relam))
 					{
 						isAllRumIndexScans = false;
 						break;

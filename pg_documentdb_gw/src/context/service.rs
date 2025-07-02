@@ -13,7 +13,7 @@ use tokio::sync::RwLock;
 use crate::{
     configuration::{DynamicConfiguration, SetupConfiguration},
     error::{DocumentDBError, Result},
-    postgres::{Client, Pool},
+    postgres::{Connection, ConnectionPool},
     QueryCatalog,
 };
 
@@ -24,8 +24,16 @@ type ClientKey = (Cow<'static, str>, Cow<'static, str>);
 pub struct ServiceContextInner {
     pub setup_configuration: Box<dyn SetupConfiguration>,
     pub dynamic_configuration: Arc<dyn DynamicConfiguration>,
-    pub system_pool: Arc<Pool>,
-    pub pg_clients: RwLock<HashMap<ClientKey, Pool>>,
+
+    // Connection pool for system requests that is shared between ServiceContext and DynamicConfiguration
+    pub system_requests_pool: Arc<ConnectionPool>,
+    pub system_auth_pool: ConnectionPool,
+
+    // Maps user credentials to their respective connection pools
+    // We need Arc on the ConnectionPool to allow sharing across threads from different connections
+    // TODO: need to add excessive testing when the user is changing password or pool size changed
+    pub user_data_pools: RwLock<HashMap<ClientKey, Arc<ConnectionPool>>>,
+    pub system_shared_pools: RwLock<HashMap<usize, Arc<ConnectionPool>>>,
     pub cursor_store: CursorStore,
     pub transaction_store: TransactionStore,
     pub query_catalog: QueryCatalog,
@@ -35,38 +43,38 @@ pub struct ServiceContextInner {
 pub struct ServiceContext(Arc<ServiceContextInner>);
 
 impl ServiceContext {
-    pub async fn new(
+    pub fn new(
         setup_configuration: Box<dyn SetupConfiguration>,
         dynamic_configuration: Arc<dyn DynamicConfiguration>,
         query_catalog: QueryCatalog,
-        system_pool: Arc<Pool>,
-    ) -> Result<Self> {
+        system_requests_pool: Arc<ConnectionPool>,
+        system_auth_pool: ConnectionPool,
+    ) -> Self {
         log::trace!("Initial dynamic configuration: {:?}", dynamic_configuration);
 
         let timeout_secs = setup_configuration.transaction_timeout_secs();
         let inner = ServiceContextInner {
             setup_configuration: setup_configuration.clone(),
             dynamic_configuration,
-            system_pool,
-            pg_clients: RwLock::new(HashMap::new()),
+            system_requests_pool,
+            system_auth_pool,
+            user_data_pools: RwLock::new(HashMap::new()),
+            system_shared_pools: RwLock::new(HashMap::new()),
             cursor_store: CursorStore::new(setup_configuration.as_ref(), true),
             transaction_store: TransactionStore::new(Duration::from_secs(timeout_secs)),
             query_catalog,
         };
-        Ok(ServiceContext(Arc::new(inner)))
+        ServiceContext(Arc::new(inner))
     }
 
-    pub async fn pg(&'_ self, user: &str, pass: &str) -> Result<Client> {
-        let map = self.0.pg_clients.read().await;
+    pub async fn get_data_pool(&self, user: &str, pass: &str) -> Result<Arc<ConnectionPool>> {
+        let read_lock = self.0.user_data_pools.read().await;
 
-        match map.get(&(Cow::Borrowed(user), Cow::Borrowed(pass))) {
+        match read_lock.get(&(Cow::Borrowed(user), Cow::Borrowed(pass))) {
             None => Err(DocumentDBError::internal_error(
                 "Connection pool missing for user.".to_string(),
             )),
-            Some(pool) => {
-                let client = pool.get().await?;
-                Ok(Client::new(client, false))
-            }
+            Some(pool) => Ok(Arc::clone(pool)),
         }
     }
 
@@ -103,8 +111,18 @@ impl ServiceContext {
             .await
     }
 
-    pub async fn system_client(&self) -> Result<Client> {
-        Ok(Client::new(self.0.system_pool.get().await?, false))
+    pub async fn system_requests_connection(&self) -> Result<Connection> {
+        Ok(Connection::new(
+            self.0.system_requests_pool.get_inner_connection().await?,
+            false,
+        ))
+    }
+
+    pub async fn authentication_connection(&self) -> Result<Connection> {
+        Ok(Connection::new(
+            self.0.system_auth_pool.get_inner_connection().await?,
+            false,
+        ))
     }
 
     pub fn setup_configuration(&self) -> &dyn SetupConfiguration {
@@ -123,10 +141,10 @@ impl ServiceContext {
         &self.0.query_catalog
     }
 
-    pub async fn ensure_client_pool(&self, user: &str, pass: &str) -> Result<()> {
+    pub async fn allocate_data_pool(&self, user: &str, pass: &str) -> Result<()> {
         if self
             .0
-            .pg_clients
+            .user_data_pools
             .read()
             .await
             .contains_key(&(Cow::Borrowed(user), Cow::Borrowed(pass)))
@@ -134,18 +152,47 @@ impl ServiceContext {
             return Ok(());
         }
 
-        let mut map = self.0.pg_clients.write().await;
-        let _ = map.insert(
+        let mut write_lock = self.0.user_data_pools.write().await;
+        let _ = write_lock.insert(
             (Cow::Owned(user.to_owned()), Cow::Owned(pass.to_owned())),
-            Pool::new_with_user(
+            Arc::new(ConnectionPool::new_with_user(
                 self.setup_configuration(),
                 self.query_catalog(),
                 user,
                 Some(pass),
                 format!("{}-Data", self.setup_configuration().application_name()),
                 self.dynamic_configuration().max_connections().await,
-            )?,
+            )?),
         );
         Ok(())
+    }
+
+    pub async fn get_system_shared_pool(&self) -> Result<Arc<ConnectionPool>> {
+        let max_connections = self.dynamic_configuration().max_connections().await;
+
+        if let Some(conn_pool) = self
+            .0
+            .system_shared_pools
+            .read()
+            .await
+            .get(&max_connections)
+        {
+            return Ok(Arc::clone(conn_pool));
+        }
+
+        let mut write_lock = self.0.system_shared_pools.write().await;
+
+        let system_shared_pool = Arc::new(ConnectionPool::new_with_user(
+            self.setup_configuration(),
+            self.query_catalog(),
+            &self.setup_configuration().postgres_system_user(),
+            None,
+            format!("{}-Data", self.setup_configuration().application_name()),
+            max_connections,
+        )?);
+
+        write_lock.insert(max_connections, Arc::clone(&system_shared_pool));
+
+        Ok(Arc::clone(&system_shared_pool))
     }
 }

@@ -37,6 +37,8 @@
 /* Forward declaration */
 /* --------------------------------------------------------- */
 
+extern bool SkipBsonArrayTraverseOptimization;
+
 PGDLLEXPORT const StringView IdFieldStringView = { .string = "_id", .length = 3 };
 
 /* arithmetic functions */
@@ -89,6 +91,31 @@ BsonValueHoldsNumberArray(const bson_value_t *currentValue, int32_t *numElements
 }
 
 
+List *
+BsonValueDocumentDecomposeFields(const bson_value_t *document)
+{
+	if (document->value_type != BSON_TYPE_DOCUMENT)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INTERNALERROR),
+						errmsg("BsonValueDocumentDecomposeFields expects a document"
+							   " not %s", BsonTypeName(document->value_type))));
+	}
+
+	List *documents = NIL;
+
+	bson_iter_t iter;
+	BsonValueInitIterator(document, &iter);
+	while (bson_iter_next(&iter))
+	{
+		pgbsonelement element;
+		BsonIterToPgbsonElement(&iter, &element);
+		documents = lappend(documents, PgbsonElementToPgbson(&element));
+	}
+
+	return documents;
+}
+
+
 /*
  * PgbsonDecomposeFields takes a bson object and splits its fields into
  * individual (single-element) bson objects.
@@ -99,18 +126,8 @@ BsonValueHoldsNumberArray(const bson_value_t *currentValue, int32_t *numElements
 List *
 PgbsonDecomposeFields(const pgbson *document)
 {
-	List *documents = NIL;
-
-	bson_iter_t iter;
-	PgbsonInitIterator(document, &iter);
-	while (bson_iter_next(&iter))
-	{
-		pgbsonelement element;
-		BsonIterToPgbsonElement(&iter, &element);
-		documents = lappend(documents, PgbsonElementToPgbson(&element));
-	}
-
-	return documents;
+	bson_value_t docValue = ConvertPgbsonToBsonValue(document);
+	return BsonValueDocumentDecomposeFields(&docValue);
 }
 
 
@@ -997,23 +1014,38 @@ TraverseBsonCore(bson_iter_t *documentIterator, const StringView *traversePath,
 	}
 	else if (BSON_ITER_HOLDS_ARRAY(documentIterator))
 	{
-		/* if the field is an array, there's 2 possibilities, it could be an array index so try finding it as is. */
 		bson_iter_t nestedIterator;
-		bson_iter_recurse(documentIterator, &nestedIterator);
 		bool inArrayContextInner = true;
-		bool hasPathNotFound = TraverseBsonCore(&nestedIterator,
-												&remainingPath, state,
-												executionFunctions,
-												inArrayContextInner);
-		if (!executionFunctions->ContinueProcessIntermediateArray(state, bson_iter_value(
-																	  documentIterator)))
+		bool hasPathNotFound = true;
+
+		/* if the field is an array, there's 2 possibilities, it could be an array index so try finding it as is.
+		 * Don't bother looking at it as an array index if the first character is not a digit.
+		 */
+		if (SkipBsonArrayTraverseOptimization ||
+			(remainingPath.string[0] >= '0' && remainingPath.string[0] <= '9'))
 		{
-			return false;
+			bson_iter_recurse(documentIterator, &nestedIterator);
+			hasPathNotFound = TraverseBsonCore(&nestedIterator,
+											   &remainingPath, state,
+											   executionFunctions,
+											   inArrayContextInner);
+			if (!executionFunctions->ContinueProcessIntermediateArray(state,
+																	  bson_iter_value(
+																		  documentIterator)))
+			{
+				return false;
+			}
 		}
 
 		/* or it could be a nested object in the array. Reinitialize and scan the array. */
 		bson_iter_recurse(documentIterator, &nestedIterator);
 		bool arrayElementsHasPathNotFound = false;
+
+		if (executionFunctions->SetIntermediateArrayStartEnd != NULL)
+		{
+			const bool isStart = true;
+			executionFunctions->SetIntermediateArrayStartEnd(state, isStart);
+		}
 
 		int32_t intermediateIndex = 0;
 		while (bson_iter_next(&nestedIterator))
@@ -1043,11 +1075,29 @@ TraverseBsonCore(bson_iter_t *documentIterator, const StringView *traversePath,
 					return false;
 				}
 
+				if (arrayElementPathNotFound &&
+					executionFunctions->HandleIntermediateArrayPathNotFound != NULL)
+				{
+					executionFunctions->HandleIntermediateArrayPathNotFound(
+						state, intermediateIndex, &remainingPath);
+				}
+
 				arrayElementsHasPathNotFound = arrayElementsHasPathNotFound ||
 											   arrayElementPathNotFound;
 			}
+			else if (executionFunctions->HandleIntermediateArrayPathNotFound != NULL)
+			{
+				executionFunctions->HandleIntermediateArrayPathNotFound(
+					state, intermediateIndex, &remainingPath);
+			}
 
 			intermediateIndex++;
+		}
+
+		if (executionFunctions->SetIntermediateArrayStartEnd != NULL)
+		{
+			const bool isStart = false;
+			executionFunctions->SetIntermediateArrayStartEnd(state, isStart);
 		}
 
 		/*

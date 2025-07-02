@@ -205,29 +205,46 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	[FEATURE_COLLATION] = "collation",
 
 	/* Feature Mapping region - Commands */
+	[FEATURE_COMMAND_AGG_CURSOR_FIRST_PAGE] = "command_agg_cursor_first_page",
 	[FEATURE_COMMAND_COLLMOD] = "command_collmod",
 	[FEATURE_COMMAND_COLLSTATS] = "command_collstats",
+	[FEATURE_COMMAND_COMPACT] = "command_compact",
+	[FEATURE_COMMAND_COUNT] = "command_count",
 	[FEATURE_COMMAND_CREATE_COLLECTION] = "command_create_collection",
 	[FEATURE_COMMAND_CREATE_VALIDATION] = "command_create_validation",
 	[FEATURE_COMMAND_CREATE_VIEW] = "command_create_view",
 	[FEATURE_COMMAND_CURRENTOP] = "command_current_op",
 	[FEATURE_COMMAND_DBSTATS] = "command_dbstats",
 	[FEATURE_COMMAND_DELETE] = "command_delete",
+	[FEATURE_COMMAND_DISTINCT] = "command_distinct",
 	[FEATURE_COMMAND_FINDANDMODIFY] = "command_findAndModify",
+	[FEATURE_COMMAND_FIND_CURSOR_FIRST_PAGE] = "command_find_cursor_first_page",
+	[FEATURE_COMMAND_GET_MORE] = "command_get_more",
 	[FEATURE_COMMAND_INSERT] = "command_insert",
+	[FEATURE_COMMAND_INSERT_BULK] = "command_insert_bulk",
+	[FEATURE_COMMAND_LIST_COLLECTIONS_CURSOR_FIRST_PAGE] =
+		"command_list_collections_cursor_first_page",
+	[FEATURE_COMMAND_LIST_INDEXES_CURSOR_FIRST_PAGE] =
+		"command_list_indexes_cursor_first_page",
 	[FEATURE_COMMAND_SHARD_COLLECTION] = "command_shard_collection",
 	[FEATURE_COMMAND_RESHARD_COLLECTION] = "command_reshard_collection",
 	[FEATURE_COMMAND_UNSHARD_COLLECTION] = "command_unshard_collection",
 	[FEATURE_COMMAND_UPDATE] = "command_update",
+	[FEATURE_COMMAND_UPDATE_BULK] = "command_update_bulk",
 	[FEATURE_COMMAND_VALIDATE_REPAIR] = "validate_repair",
 
 	[FEATURE_COMMAND_COLLMOD_VIEW] = "collMod_view",
 	[FEATURE_COMMAND_COLLMOD_COLOCATION] = "collMod_colocation",
 	[FEATURE_COMMAND_COLLMOD_VALIDATION] = "collMod_validation",
 
+	/* Feature Connection Status */
+	[FEATURE_CONNECTION_STATUS] = "connection_status",
+
 	/* Feature Mapping region - Create index types */
 	[FEATURE_CREATE_INDEX_2D] = "create_index_2d",
 	[FEATURE_CREATE_INDEX_2DSPHERE] = "create_index_2dsphere",
+	[FEATURE_CREATE_INDEX_ALTERNATE_AM] = "create_index_alternate_am",
+	[FEATURE_CREATE_INDEX_COMPOSITE_BASED_TERM] = "create_index_composite_based_term",
 	[FEATURE_CREATE_INDEX_FTS] = "create_index_fts",
 	[FEATURE_CREATE_INDEX_TEXT] = "create_index_text",
 	[FEATURE_CREATE_INDEX_TTL] = "create_index_ttl",
@@ -236,6 +253,7 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	[FEATURE_CREATE_INDEX_VECTOR_COS] = "create_index_vector_cos",
 	[FEATURE_CREATE_INDEX_VECTOR_COMPRESSION_HALF] =
 		"create_index_vector_compression_half",
+	[FEATURE_CREATE_INDEX_VECTOR_COMPRESSION_PQ] = "create_index_vector_compression_pq",
 	[FEATURE_CREATE_INDEX_VECTOR_IP] = "create_index_vector_ip",
 	[FEATURE_CREATE_INDEX_VECTOR_L2] = "create_index_vector_l2",
 	[FEATURE_CREATE_INDEX_VECTOR_TYPE_DISKANN] = "create_index_vector_type_diskann",
@@ -243,6 +261,24 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	[FEATURE_CREATE_INDEX_VECTOR_TYPE_IVFFLAT] = "create_index_vector_type_ivfflat",
 	[FEATURE_CREATE_UNIQUE_INDEX_WITH_TERM_TRUNCATION] =
 		"create_unique_index_with_term_truncation",
+
+	/* Feature Mapping region - Cursor types */
+	[FEATURE_CURSOR_TYPE_PERSISTENT] = "cursor_type_persistent",
+	[FEATURE_CURSOR_TYPE_POINT_READ] = "cursor_type_point_read",
+	[FEATURE_CURSOR_TYPE_SINGLE_BATCH] = "cursor_type_single_batch",
+	[FEATURE_CURSOR_TYPE_STREAMING] = "cursor_type_streaming",
+	[FEATURE_CURSOR_TYPE_TAILABLE] = "cursor_type_tailable",
+
+	/* Feature mapping region - ExternalIdentityProvider */
+	[FEATURE_EXTERNAL_IDENTITY_USER_CREATE] = "external_identity_user_create",
+	[FEATURE_EXTERNAL_IDENTITY_USER_DROP] = "external_identity_user_drop",
+	[FEATURE_EXTERNAL_IDENTITY_USER_AUTHENTICATE] = "external_identity_user_authenticate",
+	[FEATURE_EXTERNAL_IDENTITY_USER_GET] = "external_identity_user_get",
+
+	[FEATURE_INDEX_AM_PREREGISTERED] = "index_am_preregistered",
+
+	/* Feature counter region - Top-level let support */
+	[FEATURE_LET_TOP_LEVEL] = "let_top_level",
 
 	/* Feature Mapping region - Query Operators */
 	[FEATURE_QUERY_OPERATOR_GEOINTERSECTS] = "query_operator_geointersects",
@@ -257,6 +293,7 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	/* Feature Mapping region - Aggregation stages */
 	[FEATURE_STAGE_ADD_FIELDS] = "add_fields",
 	[FEATURE_STAGE_BUCKET] = "bucket",
+	[FEATURE_STAGE_BUCKET_AUTO] = "bucket_auto",
 	[FEATURE_STAGE_COLLSTATS] = "collstats_agg",
 	[FEATURE_STAGE_COUNT] = "count",
 	[FEATURE_STAGE_CHANGE_STREAM] = "change_stream",
@@ -277,6 +314,7 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	[FEATURE_STAGE_GROUP_ACC_PERCENTILE] = "percentile_acc",
 	[FEATURE_STAGE_GROUP_ACC_TOPN] = "topN",
 	[FEATURE_STAGE_INDEXSTATS] = "indexStats",
+	[FEATURE_STAGE_INTERNAL_INHIBIT_OPTIMIZATION] = "_internalInhibitOptimization",
 	[FEATURE_STAGE_INVERSEMATCH] = "inverseMatch",
 	[FEATURE_STAGE_LIMIT] = "limit",
 	[FEATURE_STAGE_LOOKUP] = "lookup",
@@ -292,6 +330,10 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	[FEATURE_STAGE_SEARCH] = "search",
 	[FEATURE_STAGE_SEARCH_VECTOR] = "search_vector",
 	[FEATURE_STAGE_SEARCH_VECTOR_COMPRESSION_HALF] = "search_vector_compression_half",
+	[FEATURE_STAGE_SEARCH_VECTOR_COMPRESSION_PQ] = "search_vector_compression_pq",
+	[FEATURE_STAGE_SEARCH_VECTOR_DEFAULT_NPROBES] = "search_vector_default_nprobes",
+	[FEATURE_STAGE_SEARCH_VECTOR_DEFAULT_EFSEARCH] = "search_vector_default_efsearch",
+	[FEATURE_STAGE_SEARCH_VECTOR_DEFAULT_LSEARCH] = "search_vector_default_lsearch",
 	[FEATURE_STAGE_SEARCH_VECTOR_DISKANN] = "search_vector_diskann",
 	[FEATURE_STAGE_SEARCH_VECTOR_EXACT] = "search_vector_exact",
 	[FEATURE_STAGE_SEARCH_VECTOR_GEN_EMBEDDINGS] = "search_vector_gen_embeddings",
@@ -311,23 +353,18 @@ static char FeatureMapping[MAX_FEATURE_COUNT][MAX_FEATURE_NAME_LENGTH] = {
 	[FEATURE_STAGE_VECTOR_SEARCH_KNN] = "vector_search_knn",
 	[FEATURE_STAGE_VECTOR_SEARCH_MONGO] = "vector_search_mongo",
 
-	/* Feature usage stats */
-	[FEATURE_TTL_PURGER_CALLS] = "ttl_purger_calls",
-
 	/* Feature Mapping region - Update operators */
 	[FEATURE_UPDATE_OPERATOR_GEN_EMBEDDINGS] = "update_operator_vector_gen_embeddings",
+
+	/* Feature usage stats */
+	[FEATURE_USAGE_TTL_PURGER_CALLS] = "ttl_purger_calls",
+	[FEATURE_USAGE_INDEX_SCAN_WITH_LIMIT] = "index_scan_with_limit",
 
 	/* Feature mapping region - User CRUD*/
 	[FEATURE_USER_CREATE] = "user_create",
 	[FEATURE_USER_DROP] = "user_drop",
 	[FEATURE_USER_GET] = "user_get",
 	[FEATURE_USER_UPDATE] = "user_update",
-
-	/* Feature mapping region - ExternalIdentityProvider */
-	[FEATURE_EXTERNAL_IDENTITY_USER_CREATE] = "external_identity_user_create",
-	[FEATURE_EXTERNAL_IDENTITY_USER_DROP] = "external_identity_user_drop",
-	[FEATURE_EXTERNAL_IDENTITY_USER_AUTHENTICATE] = "external_identity_user_authenticate",
-	[FEATURE_EXTERNAL_IDENTITY_USER_GET] = "external_identity_user_get",
 };
 
 
@@ -347,6 +384,13 @@ get_feature_counter_stats(PG_FUNCTION_ARGS)
 	StoreAllFeatureCounterStats(tupleStore, tupleDescriptor, resetStatsAfterRead);
 
 	PG_RETURN_VOID();
+}
+
+
+Size
+SharedFeatureCounterShmemSize(void)
+{
+	return mul_size(sizeof(FeatureCounter), MaxBackends);
 }
 
 
@@ -371,7 +415,7 @@ SharedFeatureCounterShmemInit(void)
 
 	bool found;
 
-	size_t feature_counter_shmem_size = mul_size(sizeof(FeatureCounter), MaxBackends);
+	size_t feature_counter_shmem_size = SharedFeatureCounterShmemSize();
 	FeatureCounterBackendArray = (FeatureCounter *)
 								 ShmemInitStruct("Feature Counter Array",
 												 feature_counter_shmem_size, &found);

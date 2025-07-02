@@ -36,6 +36,10 @@
 #include "metadata/metadata_guc.h"
 #include "utils/version_utils.h"
 #include "metadata/metadata_cache.h"
+#include "utils/hashset_utils.h"
+
+extern int MaxNumActiveUsersIndexBuilds;
+extern int IndexBuildScheduleInSec;
 
 /* --------------------------------------------------------- */
 /* Forward declaration */
@@ -47,6 +51,12 @@ static IndexOptionsEquivalency IndexKeyDocumentEquivalent(pgbson *leftKey,
 														  pgbson *rightKey);
 static void DeleteCollectionIndexRecordCore(uint64 collectionId, int *indexId);
 static ArrayType * ConvertUint64ListToArray(List *collectionIdArray);
+
+static IndexOptionsEquivalency GetOptionsEquivalencyFromIndexOptions(
+	HTAB *bsonElementHash,
+	pgbson *leftIndexSpec,
+	pgbson *
+	rightIndexSpec);
 
 /* --------------------------------------------------------- */
 /* Top level exports */
@@ -330,8 +340,8 @@ IndexSpecOptionsAreEquivalent(const IndexSpec *leftIndexSpec,
 	IndexOptionsEquivalency equivalency = IndexKeyDocumentEquivalent(
 		leftIndexSpec->indexKeyDocument,
 		rightIndexSpec->indexKeyDocument);
-	if (equivalency == IndexOptionsEquivalency_NotEquivalent || equivalency ==
-		IndexOptionsEquivalency_TextEquivalent)
+	if (equivalency == IndexOptionsEquivalency_NotEquivalent ||
+		equivalency == IndexOptionsEquivalency_TextEquivalent)
 	{
 		return equivalency;
 	}
@@ -405,18 +415,21 @@ IndexSpecOptionsAreEquivalent(const IndexSpec *leftIndexSpec,
 	{
 		/* both are NULL, check for other options */
 	}
-	else if (leftIndexSpec->indexOptions == NULL ||
-			 rightIndexSpec->indexOptions == NULL)
-	{
-		/* TODO: update this as more options get thrown into indexOptions */
-		return equivalency == IndexOptionsEquivalency_Equal ?
-			   IndexOptionsEquivalency_Equivalent :
-			   equivalency;
-	}
 	else if (!PgbsonEquals(leftIndexSpec->indexOptions,
 						   rightIndexSpec->indexOptions))
 	{
-		/* TODO: update this as more options get thrown into indexOptions */
+		HTAB *bsonElementHash = CreatePgbsonElementHashSet();
+		IndexOptionsEquivalency optionsEquivalency =
+			GetOptionsEquivalencyFromIndexOptions(bsonElementHash,
+												  leftIndexSpec->indexOptions,
+												  rightIndexSpec->indexOptions);
+		hash_destroy(bsonElementHash);
+
+		if (optionsEquivalency == IndexOptionsEquivalency_NotEquivalent)
+		{
+			return optionsEquivalency;
+		}
+
 		return equivalency == IndexOptionsEquivalency_Equal ?
 			   IndexOptionsEquivalency_Equivalent :
 			   equivalency;
@@ -1426,7 +1439,7 @@ GetSkippableRequestFromIndexQueue(char cmdType, int expireTimeInSeconds,
 	int indexId = DatumGetInt32(results[1]);
 	int status = DatumGetInt32(results[2]);
 	int16 attemptCount = DatumGetUInt16(results[3]);
-	pgbson *comment = (pgbson *) DatumGetPointer(results[4]);
+	pgbson *comment = DatumGetPgBson_MAYBE_NULL(results[4]);
 	TimestampTz updateTime = DatumGetTimestampTz(results[5]);
 	uint64_t collectionId = (uint64_t) DatumGetInt64(results[7]);
 	if (!isNull[6])
@@ -1451,9 +1464,15 @@ GetSkippableRequestFromIndexQueue(char cmdType, int expireTimeInSeconds,
  * GetRequestFromIndexQueue gets the exactly one request corresponding to the collectionId to either for CREATE or REINDEX depending on cmdType.
  */
 IndexCmdRequest *
-GetRequestFromIndexQueue(char cmdType, uint64 collectionId)
+GetRequestFromIndexQueue(char cmdType, uint64 collectionId, MemoryContext mcxt)
 {
 	Assert(cmdType == CREATE_INDEX_COMMAND_TYPE || cmdType == REINDEX_COMMAND_TYPE);
+
+	bool readOnly = false;
+	int numValues = 7;
+	bool isNull[7] = { 0 };
+	Datum results[7] = { 0 };
+	Oid userOid = InvalidOid;
 
 	/**
 	 * If because of failure scenario, we end up with a index request in "Inprogress"
@@ -1470,35 +1489,41 @@ GetRequestFromIndexQueue(char cmdType, uint64 collectionId)
 	 *       AND (index_cmd_status != IndexCmdStatus_Inprogress
 	 *            OR (index_cmd_status = IndexCmdStatus_Inprogress
 	 *                AND iq.global_pid IS NOT NULL
-	 *                AND citus_pid_for_gpid(iq.global_pid) NOT IN (SELECT distinct pid FROM pg_stat_activity WHERE pid IS NOT NULL)
+	 *                AND <distributed_hook_for_pid> NOT IN (SELECT distinct pid FROM pg_stat_activity WHERE pid IS NOT NULL)
 	 *               )
 	 *           )
 	 *	ORDER BY index_cmd_status ASC LIMIT 1
 	 */
 	StringInfo cmdStr = makeStringInfo();
-	bool readOnly = false;
-	int numValues = 7;
-	bool isNull[7] = { 0 };
-	Datum results[7] = { 0 };
-	Oid userOid = InvalidOid;
-
 	appendStringInfo(cmdStr,
 					 "SELECT index_cmd, index_id, index_cmd_status, COALESCE(attempt, 0) AS attempt, comment, update_time, user_oid");
 	appendStringInfo(cmdStr,
 					 " FROM %s iq WHERE cmd_type = '%c'",
 					 GetIndexQueueName(), cmdType);
 	appendStringInfo(cmdStr, " AND iq.collection_id = " UINT64_FORMAT, collectionId);
-	appendStringInfo(cmdStr, " AND (index_cmd_status != %d", IndexCmdStatus_Inprogress);
+	appendStringInfo(cmdStr, " AND (index_cmd_status NOT IN (%d, %d)",
+					 IndexCmdStatus_Inprogress, IndexCmdStatus_Skippable);
 	appendStringInfo(cmdStr, " OR (index_cmd_status = %d", IndexCmdStatus_Inprogress);
 	appendStringInfo(cmdStr,
-					 " AND iq.global_pid IS NOT NULL AND citus_pid_for_gpid(iq.global_pid)");
+					 " AND iq.global_pid IS NOT NULL AND");
+
+	const char *queryQualForInProgressBuilds = GetPidForIndexBuild();
+	if (queryQualForInProgressBuilds == NULL)
+	{
+		appendStringInfo(cmdStr, " iq.global_pid");
+	}
+	else
+	{
+		appendStringInfo(cmdStr, "%s", queryQualForInProgressBuilds);
+	}
 	appendStringInfo(cmdStr,
 					 " NOT IN (SELECT distinct pid FROM pg_stat_activity WHERE pid IS NOT NULL)");
 	appendStringInfo(cmdStr, " )) ");
 	appendStringInfo(cmdStr,
 					 " ORDER BY index_cmd_status ASC LIMIT 1");
 
-	ExtensionExecuteMultiValueQueryViaSPI(cmdStr->data, readOnly, SPI_OK_SELECT, results,
+	ExtensionExecuteMultiValueQueryViaSPI(cmdStr->data, readOnly, SPI_OK_SELECT,
+										  results,
 										  isNull, numValues);
 	if (isNull[0])
 	{
@@ -1509,22 +1534,29 @@ GetRequestFromIndexQueue(char cmdType, uint64 collectionId)
 	int indexId = DatumGetInt32(results[1]);
 	int status = DatumGetInt32(results[2]);
 	int16 attemptCount = DatumGetUInt16(results[3]);
-	pgbson *comment = (pgbson *) DatumGetPointer(results[4]);
+	pgbson *comment = DatumGetPgBson_MAYBE_NULL(results[4]);
 	TimestampTz updateTime = DatumGetTimestampTz(results[5]);
 	if (!isNull[6])
 	{
 		userOid = DatumGetObjectId(results[6]);
 	}
 
-	IndexCmdRequest *request = palloc(sizeof(IndexCmdRequest));
+	MemoryContext old = MemoryContextSwitchTo(mcxt);
+	IndexCmdRequest *request = palloc0(sizeof(IndexCmdRequest));
 	request->indexId = indexId;
 	request->collectionId = collectionId;
-	request->cmd = cmd;
 	request->attemptCount = attemptCount;
-	request->comment = comment;
 	request->updateTime = updateTime;
 	request->status = status;
 	request->userOid = userOid;
+	request->comment = NULL;
+	request->cmd = pstrdup(cmd);
+	if (comment != NULL)
+	{
+		request->comment = PgbsonCloneFromPgbson(comment);
+	}
+	MemoryContextSwitchTo(old);
+
 	return request;
 }
 
@@ -1571,7 +1603,7 @@ GetCollectionIdsForIndexBuild(char cmdType, List *excludeCollectionIds)
 	 * SELECT array_agg(a.collection_id) FROM
 	 *  (SELECT collection_id
 	 *  FROM ApiCatalogSchemaName.{ExtensionObjectPrefix}_index_queue pq
-	 *  WHERE cmd_type = $1 AND collection_id <> ANY($2)
+	 *  WHERE cmd_type = $1 AND collection_id <> ALL($2)
 	 *  ORDER BY min(pq.index_cmd_status) LIMIT MaxNumActiveUsersIndexBuilds
 	 *  ) a;
 	 */
@@ -1585,7 +1617,7 @@ GetCollectionIdsForIndexBuild(char cmdType, List *excludeCollectionIds)
 
 	if (excludeCollectionIds != NIL)
 	{
-		appendStringInfo(cmdStr, " AND collection_id <> ANY($2) ");
+		appendStringInfo(cmdStr, " AND collection_id <> ALL($2) ");
 	}
 	appendStringInfo(cmdStr,
 					 " ORDER BY index_cmd_status ASC LIMIT %d",
@@ -1681,9 +1713,8 @@ MarkIndexRequestStatus(int indexId, char cmdType, IndexCmdStatus status, pgbson 
 	Assert(cmdType == CREATE_INDEX_COMMAND_TYPE || cmdType == REINDEX_COMMAND_TYPE);
 	StringInfo cmdStr = makeStringInfo();
 	appendStringInfo(cmdStr,
-					 "UPDATE %s SET index_cmd_status = $1, comment = %s.bson_from_bytea($2),"
-					 " update_time = $3, attempt = $4 ", GetIndexQueueName(),
-					 CoreSchemaNameV2);
+					 "UPDATE %s SET index_cmd_status = $1, comment = COALESCE($2, comment),"
+					 " update_time = $3, attempt = $4 ", GetIndexQueueName());
 
 	if (opId != NULL)
 	{
@@ -1699,44 +1730,45 @@ MarkIndexRequestStatus(int indexId, char cmdType, IndexCmdStatus status, pgbson 
 					 " WHERE index_id = $5 AND cmd_type = $6 and index_cmd_status < %d",
 					 IndexCmdStatus_Skippable);
 
-	int argCount = 0;
+	int argCount = 6;
 	Oid argTypes[8];
 	Datum argValues[8];
 	char argNulls[8] = { ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ' };
 
 	argTypes[0] = INT4OID;
 	argValues[0] = Int32GetDatum(status);
-	argCount++;
 
-	argTypes[1] = BYTEAOID;
-	argValues[1] = PointerGetDatum(CastPgbsonToBytea(comment));
-	argCount++;
+	argTypes[1] = BsonTypeId();
+	if (comment == NULL)
+	{
+		argValues[1] = (Datum) 0; /* NULL value for comment */
+		argNulls[1] = 'n'; /* mark as NULL */
+	}
+	else
+	{
+		argValues[1] = PointerGetDatum(comment);
+	}
 
 	argTypes[2] = TIMESTAMPTZOID;
 	argValues[2] = TimestampTzGetDatum(GetCurrentTimestamp());
-	argCount++;
 
 	argTypes[3] = INT2OID;
 	argValues[3] = Int16GetDatum(attemptCount);
-	argCount++;
 
 	argTypes[4] = INT4OID;
 	argValues[4] = Int32GetDatum(indexId);
-	argCount++;
 
 	argTypes[5] = CHAROID;
 	argValues[5] = CharGetDatum(cmdType);
-	argCount++;
 
 	if (opId != NULL)
 	{
+		argCount = 8;
 		argTypes[6] = INT8OID;
 		argValues[6] = Int64GetDatum(opId->global_pid);
-		argCount++;
 
 		argTypes[7] = TIMESTAMPTZOID;
 		argValues[7] = TimestampTzGetDatum(opId->start_time);
-		argCount++;
 	}
 
 	bool isNull = true;
@@ -1854,6 +1886,64 @@ MergeTextIndexWeights(List *textIndexes, const bson_value_t *weights, bool *isWi
 	}
 
 	return textIndexes;
+}
+
+
+/*
+ * Unschedule background jobs for index creation.
+ */
+void
+UnscheduleIndexBuildTasks(char *extensionPrefix)
+{
+	bool isNull = false;
+	bool readOnly = false;
+
+	/*
+	 * These schedule the index build tasks at the coordinator.
+	 * Since we leave behind the jobs when dropping the extension (during development), it would be nice to unschedule
+	 * existing ones first in case something changed.
+	 * PS: We need to run this with array_agg because otherwise the SPI API would only execute unschedule for the first job.
+	 */
+	StringInfo unscheduleStr = makeStringInfo();
+	appendStringInfo(unscheduleStr,
+					 "SELECT array_agg(cron.unschedule(jobid)) FROM cron.job WHERE jobname LIKE"
+					 "'%s_index_build_task%%';", extensionPrefix);
+	ExtensionExecuteQueryViaSPI(unscheduleStr->data, readOnly, SPI_OK_SELECT,
+								&isNull);
+}
+
+
+/*
+ * Schedule background jobs that will later be used to create indexes in the cluster.
+ */
+void
+ScheduleIndexBuildTasks(char *extensionPrefix)
+{
+	char scheduleInterval[50];
+	if (IndexBuildScheduleInSec < 60)
+	{
+		sprintf(scheduleInterval, "%d seconds", IndexBuildScheduleInSec);
+	}
+	else
+	{
+		sprintf(scheduleInterval, "* * * * *");
+	}
+
+	bool isNull = false;
+	bool readOnly = false;
+
+	for (int i = 1; i <= MaxNumActiveUsersIndexBuilds; i++)
+	{
+		StringInfo scheduleStr = makeStringInfo();
+		appendStringInfo(scheduleStr,
+						 "SELECT cron.schedule('%s_index_build_task_'"
+						 " || %d, '%s',"
+						 "'CALL %s.build_index_concurrently(%d);');",
+						 extensionPrefix, i, scheduleInterval,
+						 ApiInternalSchemaName, i);
+		ExtensionExecuteQueryViaSPI(scheduleStr->data, readOnly, SPI_OK_SELECT,
+									&isNull);
+	}
 }
 
 
@@ -2178,4 +2268,116 @@ SerializeIndexSpec(const IndexSpec *indexSpec, bool isGetIndexes,
 	}
 
 	return PgbsonWriterGetPgbson(&finalWriter);
+}
+
+
+static bool
+AreIndexOptionsStillEquivalent(const char *path, const bson_value_t *left,
+							   const bson_value_t *right)
+{
+	if (strcmp(path, "enableCompositeTerm") == 0)
+	{
+		if (left == NULL && right == NULL)
+		{
+			return true;
+		}
+
+		bool enableCompositeTermLeft = false;
+		bool enableCompositeTermRight = false;
+
+		if (left != NULL)
+		{
+			enableCompositeTermLeft = BsonValueAsBool(left);
+		}
+		if (right != NULL)
+		{
+			enableCompositeTermRight = BsonValueAsBool(right);
+		}
+
+		return enableCompositeTermLeft == enableCompositeTermRight;
+	}
+	else
+	{
+		/* Other fields do not change index equivalency */
+		return true;
+	}
+}
+
+
+/*
+ * Parses the index options spec and returns if the index specs
+ * are equivalent or not. Uses AreIndexOptionsStillEquivalent to
+ * compare for each field.
+ */
+static IndexOptionsEquivalency
+GetOptionsEquivalencyFromIndexOptions(HTAB *bsonElementHash,
+									  pgbson *leftIndexSpec,
+									  pgbson *rightIndexSpec)
+{
+	if (leftIndexSpec != NULL)
+	{
+		bson_iter_t leftOptionsIter;
+		PgbsonInitIterator(leftIndexSpec, &leftOptionsIter);
+
+		/* First throw all the values from the left options in a hash */
+		while (bson_iter_next(&leftOptionsIter))
+		{
+			pgbsonelement element = { 0 };
+			BsonIterToPgbsonElement(&leftOptionsIter, &element);
+
+			bool found = false;
+			hash_search(bsonElementHash, &element, HASH_ENTER,
+						&found);
+		}
+	}
+
+	/* Now check the right options against the hash */
+	if (rightIndexSpec != NULL)
+	{
+		bson_iter_t rightOptionsIter;
+		PgbsonInitIterator(rightIndexSpec, &rightOptionsIter);
+		while (bson_iter_next(&rightOptionsIter))
+		{
+			pgbsonelement element = { 0 };
+			BsonIterToPgbsonElement(&rightOptionsIter, &element);
+
+			bool found = false;
+			pgbsonelement *foundElement = hash_search(bsonElementHash, &element,
+													  HASH_REMOVE, &found);
+			if (!found)
+			{
+				/* right has a key and left doesn't - call compare function to see what to do */
+				if (!AreIndexOptionsStillEquivalent(element.path, NULL,
+													&element.bsonValue))
+				{
+					return IndexOptionsEquivalency_NotEquivalent;
+				}
+			}
+			else
+			{
+				/* They both exist, compare by value */
+				if (!AreIndexOptionsStillEquivalent(element.path,
+													&foundElement->bsonValue,
+													&element.bsonValue))
+				{
+					return IndexOptionsEquivalency_NotEquivalent;
+				}
+			}
+		}
+	}
+
+	/* Now check any excess values between left & right */
+	HASH_SEQ_STATUS status;
+	pgbsonelement *entry;
+	hash_seq_init(&status, bsonElementHash);
+	while ((entry = (pgbsonelement *) hash_seq_search(&status)) != NULL)
+	{
+		if (!AreIndexOptionsStillEquivalent(entry->path, &entry->bsonValue, NULL))
+		{
+			hash_seq_term(&status);
+			return IndexOptionsEquivalency_NotEquivalent;
+		}
+	}
+
+	return IndexOptionsEquivalency_Equivalent;
 }

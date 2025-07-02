@@ -37,6 +37,7 @@
 #include "vector/vector_spec.h"
 #include "utils/version_utils.h"
 #include "query/bson_compare.h"
+#include "index_am/index_am_utils.h"
 
 typedef struct
 {
@@ -57,7 +58,8 @@ typedef bool (*ModifyTreeToUseAlternatePath)(PlannerInfo *root, RelOptInfo *rel,
 											 ReplaceExtensionFunctionContext *context,
 											 MatchIndexPath matchIndexPath);
 typedef void (*NoIndexFoundHandler)(void);
-
+typedef bool (*EnableForceIndexPushdown)(PlannerInfo *root,
+										 ReplaceExtensionFunctionContext *context);
 
 /*
  * Force index pushdown operator support functions
@@ -92,6 +94,11 @@ typedef struct
 	 * path exist.
 	 */
 	ModifyTreeToUseAlternatePath alternatePath;
+
+	/*
+	 * Control switch to enable/disbale the force index pushdown
+	 */
+	EnableForceIndexPushdown enableForceIndexPushdown;
 
 	/*
 	 * Handler when no applicable index was found
@@ -129,6 +136,7 @@ static bool IsMatchingPathForQueryOperator(RelOptInfo *rel, Path *path,
 										   ReplaceExtensionFunctionContext *context,
 										   MatchIndexPath matchIndexPath,
 										   void *matchContext);
+static Expr * ProcessFullScanForOrderBy(SupportRequestIndexCondition *req, List *args);
 
 /*-------------------------------*/
 /* Force index support functions */
@@ -152,6 +160,12 @@ static void ThrowNoTextIndexFound(void);
 static void ThrowNoVectorIndexFound(void);
 
 static bool MatchIndexPathEquals(IndexPath *path, void *matchContext);
+static bool EnableGeoNearForceIndexPushdown(PlannerInfo *root,
+											ReplaceExtensionFunctionContext *context);
+static bool DefaultTrueForceIndexPushdown(PlannerInfo *root,
+										  ReplaceExtensionFunctionContext *context);
+static Expr * ProcessElemMatchOperator(bytea *options, Datum queryValue, const
+									   MongoIndexOperatorInfo *operator, List *args);
 
 
 static const ForceIndexSupportFuncs ForceIndexOperatorSupport[] =
@@ -161,7 +175,8 @@ static const ForceIndexSupportFuncs ForceIndexOperatorSupport[] =
 		.updateIndexes = &UpdateIndexListForGeonear,
 		.matchIndexPath = &MatchIndexPathForGeonear,
 		.alternatePath = &TryUseAlternateIndexGeonear,
-		.noIndexHandler = &ThrowGeoNearUnableToFindIndex
+		.noIndexHandler = &ThrowGeoNearUnableToFindIndex,
+		.enableForceIndexPushdown = &EnableGeoNearForceIndexPushdown
 	},
 	{
 		.operator = ForceIndexOpType_Text,
@@ -169,12 +184,14 @@ static const ForceIndexSupportFuncs ForceIndexOperatorSupport[] =
 		.matchIndexPath = &MatchIndexPathForText,
 		.noIndexHandler = &ThrowNoTextIndexFound,
 		.alternatePath = &PushTextQueryToRuntime,
+		.enableForceIndexPushdown = &DefaultTrueForceIndexPushdown
 	},
 	{
 		.operator = ForceIndexOpType_VectorSearch,
 		.updateIndexes = &UpdateIndexListForVector,
 		.matchIndexPath = &MatchIndexPathForVector,
 		.noIndexHandler = &ThrowNoVectorIndexFound,
+		.enableForceIndexPushdown = &DefaultTrueForceIndexPushdown
 	}
 };
 
@@ -182,7 +199,9 @@ static const int ForceIndexOperatorsCount = sizeof(ForceIndexOperatorSupport) /
 											sizeof(ForceIndexSupportFuncs);
 
 extern bool EnableVectorForceIndexPushdown;
+extern bool EnableGeonearForceIndexPushdown;
 extern bool EnableIndexOperatorBounds;
+extern bool UseNewElemMatchIndexPushdown;
 
 /* --------------------------------------------------------- */
 /* Top level exports */
@@ -213,14 +232,24 @@ dollar_support(PG_FUNCTION_ARGS)
 		/* Try to convert operator/function call to index conditions */
 		SupportRequestIndexCondition *req =
 			(SupportRequestIndexCondition *) supportRequest;
+
+		/* if we matched the condition to the index, then this function is not lossy -
+		 * The operator is a perfect match for the function.
+		 */
+		req->lossy = false;
+
 		Expr *finalNode = HandleSupportRequestCondition(req);
 		if (finalNode != NULL)
 		{
-			/* if we matched the condition to the index, then this function is not lossy -
-			 * The operator is a perfect match for the function.
-			 */
-			req->lossy = false;
-			responseNodes = lappend(responseNodes, finalNode);
+			if (IsA(finalNode, BoolExpr))
+			{
+				BoolExpr *boolExpr = (BoolExpr *) finalNode;
+				responseNodes = boolExpr->args;
+			}
+			else
+			{
+				responseNodes = list_make1(finalNode);
+			}
 		}
 	}
 
@@ -516,12 +545,25 @@ void
 ForceIndexForQueryOperators(PlannerInfo *root, RelOptInfo *rel,
 							ReplaceExtensionFunctionContext *context)
 {
-	if (context->forceIndexQueryOpData.type == ForceIndexOpType_None ||
-		(context->forceIndexQueryOpData.type == ForceIndexOpType_GeoNear &&
-		 !TryFindGeoNearOpExpr(root, context)))
+	if (context->forceIndexQueryOpData.type == ForceIndexOpType_None)
 	{
-		/* If no special operator requirement or geonear with no geonear operator (other geo operators)
-		 * then return */
+		/* If no special operator requirement */
+		return;
+	}
+
+	ForceIndexSupportFuncs *forceIndexFuncs = NULL;
+	for (int i = 0; i < ForceIndexOperatorsCount; i++)
+	{
+		if (ForceIndexOperatorSupport[i].operator == context->forceIndexQueryOpData.type)
+		{
+			forceIndexFuncs = (ForceIndexSupportFuncs *) &ForceIndexOperatorSupport[i];
+		}
+	}
+
+	if (forceIndexFuncs == NULL || !forceIndexFuncs->enableForceIndexPushdown(root,
+																			  context))
+	{
+		/* No index support functions !!, or force index pushdown not required then can't do anything */
 		return;
 	}
 
@@ -543,21 +585,6 @@ ForceIndexForQueryOperators(PlannerInfo *root, RelOptInfo *rel,
 														   path);
 		rel->partial_pathlist = NIL;
 		rel->pathlist = list_make1(matchingPath);
-		return;
-	}
-
-	ForceIndexSupportFuncs *forceIndexFuncs = NULL;
-	for (int i = 0; i < ForceIndexOperatorsCount; i++)
-	{
-		if (ForceIndexOperatorSupport[i].operator == context->forceIndexQueryOpData.type)
-		{
-			forceIndexFuncs = (ForceIndexSupportFuncs *) &ForceIndexOperatorSupport[i];
-		}
-	}
-
-	if (forceIndexFuncs == NULL)
-	{
-		/* No index support functions !!, can't do anything */
 		return;
 	}
 
@@ -622,7 +649,7 @@ void
 ConsiderIndexOrderByPushdown(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *rte,
 							 Index rti, ReplaceExtensionFunctionContext *context)
 {
-	if (list_length(root->query_pathkeys) != 1)
+	if (list_length(root->query_pathkeys) < 1)
 	{
 		return;
 	}
@@ -632,55 +659,68 @@ ConsiderIndexOrderByPushdown(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *
 		return;
 	}
 
-	PathKey *pathkey = (PathKey *) linitial(root->query_pathkeys);
-	if (pathkey->pk_eclass == NULL &&
-		list_length(pathkey->pk_eclass->ec_members) != 1)
+	ListCell *sortCell;
+	List *sortDetails = NIL;
+	foreach(sortCell, root->query_pathkeys)
 	{
-		return;
-	}
+		PathKey *pathkey = (PathKey *) lfirst(sortCell);
+		if (pathkey->pk_eclass == NULL &&
+			list_length(pathkey->pk_eclass->ec_members) != 1)
+		{
+			return;
+		}
 
-	EquivalenceMember *member = linitial(pathkey->pk_eclass->ec_members);
+		EquivalenceMember *member = linitial(pathkey->pk_eclass->ec_members);
 
-	if (!IsA(member->em_expr, FuncExpr))
-	{
-		return;
-	}
+		if (!IsA(member->em_expr, FuncExpr))
+		{
+			return;
+		}
 
-	FuncExpr *func = (FuncExpr *) member->em_expr;
-	if (func->funcid != BsonOrderByFunctionOid())
-	{
-		return;
-	}
+		FuncExpr *func = (FuncExpr *) member->em_expr;
+		if (func->funcid != BsonOrderByFunctionOid())
+		{
+			return;
+		}
 
-	/* This is an order by function */
-	Expr *firstArg = linitial(func->args);
-	Expr *secondArg = lsecond(func->args);
+		/* This is an order by function */
+		Expr *firstArg = linitial(func->args);
+		Expr *secondArg = lsecond(func->args);
 
-	if (!IsA(firstArg, Var) || !IsA(secondArg, Const))
-	{
-		return;
-	}
+		if (!IsA(firstArg, Var) || !IsA(secondArg, Const))
+		{
+			return;
+		}
 
-	Var *firstVar = (Var *) firstArg;
-	Const *secondConst = (Const *) secondArg;
+		Var *firstVar = (Var *) firstArg;
+		Const *secondConst = (Const *) secondArg;
 
-	if (firstVar->varno != (int) rti ||
-		firstVar->varattno != DOCUMENT_DATA_TABLE_DOCUMENT_VAR_ATTR_NUMBER ||
-		firstVar->vartype != BsonTypeId() ||
-		secondConst->consttype != BsonTypeId() || secondConst->constisnull)
-	{
-		return;
-	}
+		if (firstVar->varno != (int) rti ||
+			firstVar->varattno != DOCUMENT_DATA_TABLE_DOCUMENT_VAR_ATTR_NUMBER ||
+			firstVar->vartype != BsonTypeId() ||
+			secondConst->consttype != BsonTypeId() || secondConst->constisnull)
+		{
+			return;
+		}
 
-	pgbsonelement sortElement;
-	PgbsonToSinglePgbsonElement(
-		DatumGetPgBson(secondConst->constvalue), &sortElement);
+		pgbsonelement sortElement;
+		PgbsonToSinglePgbsonElement(
+			DatumGetPgBson(secondConst->constvalue), &sortElement);
 
-	int32_t sortDirection = BsonValueAsInt32(&sortElement.bsonValue);
-	if (sortDirection != 1)
-	{
-		/* Don't yet handle other sorts */
-		return;
+		int32_t sortDirection = BsonValueAsInt32(&sortElement.bsonValue);
+		if (sortDirection != 1)
+		{
+			/* Don't yet handle other sorts */
+			return;
+		}
+
+		SortIndexInputDetails *sortDetailsInput =
+			palloc0(sizeof(SortIndexInputDetails));
+		sortDetailsInput->sortPath = sortElement.path;
+		sortDetailsInput->sortPathKey = pathkey;
+		sortDetailsInput->sortVar = (Expr *) firstVar;
+		sortDetailsInput->sortDatum = (Expr *) secondConst;
+		sortDetails = lappend(sortDetails, sortDetailsInput);
 	}
 
 	/* Now match the sort to any index paths */
@@ -689,23 +729,38 @@ ConsiderIndexOrderByPushdown(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *
 	foreach(cell, rel->pathlist)
 	{
 		Path *path = lfirst(cell);
+
+		if (IsA(path, BitmapHeapPath))
+		{
+			BitmapHeapPath *bitmapPath = (BitmapHeapPath *) path;
+
+			if (IsA(bitmapPath->bitmapqual, IndexPath))
+			{
+				path = (Path *) bitmapPath->bitmapqual;
+			}
+		}
+
 		if (!IsA(path, IndexPath))
 		{
 			continue;
 		}
 
 		IndexPath *indexPath = (IndexPath *) path;
-		if (indexPath->indexinfo->relam != RumIndexAmId() ||
-			indexPath->indexinfo->nkeycolumns != 1 ||
-			indexPath->indexinfo->opfamily[0] != BsonRumCompositeIndexOperatorFamily())
+		if (indexPath->indexinfo->nkeycolumns != 1 ||
+			!IsOrderBySupportedOnOpClass(indexPath->indexinfo->relam,
+										 indexPath->indexinfo->opfamily[0]))
 		{
 			continue;
 		}
 
-		if (!ValidateIndexForQualifierValue(
-				indexPath->indexinfo->opclassoptions[0],
-				secondConst->constvalue,
-				BSON_INDEX_STRATEGY_DOLLAR_ORDERBY))
+		/* Order by pushdown is valid iff:
+		 * 1. The index is not a multi-key index
+		 * 2. The index is multi-key but the order-by term goes from MinKey to MaxKey
+		 *    (We can currently only support that for exists)
+		 */
+		int32_t maxPathKeySupported = -1;
+		if (!CompositeIndexSupportsOrderByPushdown(indexPath, sortDetails,
+												   &maxPathKeySupported))
 		{
 			continue;
 		}
@@ -713,12 +768,26 @@ ConsiderIndexOrderByPushdown(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *
 		IndexPath *newPath = makeNode(IndexPath);
 		memcpy(newPath, indexPath, sizeof(IndexPath));
 
-		Expr *orderElement = make_opclause(
-			BsonOrderByIndexOperatorId(), BsonTypeId(), false,
-			firstArg, secondArg, InvalidOid, InvalidOid);
-		newPath->indexorderbys = list_make1(orderElement);
-		newPath->path.pathkeys = root->query_pathkeys;
-		newPath->indexorderbycols = list_make1_int(0);
+		List *indexOrderBys = NIL;
+		List *indexPathKeys = NIL;
+		List *indexOrderbyCols = NIL;
+		for (int i = 0; i <= maxPathKeySupported; i++)
+		{
+			SortIndexInputDetails *sortDetailsInput =
+				(SortIndexInputDetails *) list_nth(sortDetails, i);
+
+			Expr *orderElement = make_opclause(
+				BsonOrderByIndexOperatorId(), BsonTypeId(), false,
+				(Expr *) sortDetailsInput->sortVar, (Expr *) sortDetailsInput->sortDatum,
+				InvalidOid, InvalidOid);
+			indexOrderBys = lappend(indexOrderBys, orderElement);
+			indexPathKeys = lappend(indexPathKeys, sortDetailsInput->sortPathKey);
+			indexOrderbyCols = lappend_int(indexOrderbyCols, 0);
+		}
+
+		newPath->indexorderbys = indexOrderBys;
+		newPath->indexorderbycols = indexOrderbyCols;
+		newPath->path.pathkeys = indexPathKeys;
 
 		/* Don't modify the list we're enumerating */
 		pathsToAdd = lappend(pathsToAdd, newPath);
@@ -747,7 +816,6 @@ static Expr *
 HandleSupportRequestCondition(SupportRequestIndexCondition *req)
 {
 	/* Input validation */
-
 	List *args;
 	const MongoIndexOperatorInfo *operator = GetMongoIndexQueryOperatorFromNode(req->node,
 																				&args);
@@ -759,6 +827,12 @@ HandleSupportRequestCondition(SupportRequestIndexCondition *req)
 
 	if (operator->indexStrategy == BSON_INDEX_STRATEGY_INVALID)
 	{
+		if (req->funcid == BsonFullScanFunctionOid())
+		{
+			/* Process this separate for orderby */
+			return ProcessFullScanForOrderBy(req, args);
+		}
+
 		return NULL;
 	}
 
@@ -789,7 +863,7 @@ HandleSupportRequestCondition(SupportRequestIndexCondition *req)
 		/* For text, we only match the operator family with the op family
 		 * For the bson text.
 		 */
-		if (operatorFamily != BsonRumTextPathOperatorFamily())
+		if (!IsTextPathOpFamilyOid(req->index->relam, operatorFamily))
 		{
 			return NULL;
 		}
@@ -798,6 +872,20 @@ HandleSupportRequestCondition(SupportRequestIndexCondition *req)
 			(Expr *) GetOpExprClauseFromIndexOperator(operator, args, options);
 		return finalExpression;
 	}
+
+	if (operator->indexStrategy == BSON_INDEX_STRATEGY_DOLLAR_ELEMMATCH &&
+		(IsCompositeOpFamilyOid(req->index->relam, operatorFamily) ||
+		 UseNewElemMatchIndexPushdown))
+	{
+		Expr *elemMatchExpr = ProcessElemMatchOperator(options, queryValue, operator,
+													   args);
+		if (elemMatchExpr != NULL)
+		{
+			req->lossy = true;
+			return elemMatchExpr;
+		}
+	}
+
 	if (operator->indexStrategy != BSON_INDEX_STRATEGY_INVALID)
 	{
 		/* Check if the index is valid for the function */
@@ -1145,8 +1233,9 @@ ReplaceFunctionOperatorsInPlanPath(PlannerInfo *root, RelOptInfo *rel, Path *pat
 				 * with the index options for text. This is used later to process restriction info
 				 * so that we can push down the TSQuery with the appropriate default language settings.
 				 */
-				if (indexPath->indexinfo->opfamily[iclause->indexcol] ==
-					BsonRumTextPathOperatorFamily())
+				if (IsTextPathOpFamilyOid(
+						indexPath->indexinfo->relam,
+						indexPath->indexinfo->opfamily[iclause->indexcol]))
 				{
 					/* If there's no options, set it. Otherwise, fail with "too many paths" */
 					QueryTextIndexData *textIndexData =
@@ -1200,7 +1289,7 @@ ReplaceFunctionOperatorsInPlanPath(PlannerInfo *root, RelOptInfo *rel, Path *pat
 				}
 			}
 
-			if (indexPath->indexinfo->relam == RumIndexAmId())
+			if (IsBsonRegularIndexAm(indexPath->indexinfo->relam))
 			{
 				indexPath->indexclauses = OptimizeIndexExpressionsForRange(
 					indexPath->indexclauses);
@@ -1267,6 +1356,15 @@ ProcessRestrictionInfoAndRewriteFuncExpr(Expr *clause,
 		{
 			return (Expr *) GetOpExprClauseFromIndexOperator(operator, args,
 															 NULL);
+		}
+		else if (IsA(clause, FuncExpr))
+		{
+			FuncExpr *funcExpr = (FuncExpr *) clause;
+			if (funcExpr->funcid == BsonFullScanFunctionOid() && trimClauses)
+			{
+				/* Trim these */
+				return NULL;
+			}
 		}
 	}
 	else if (IsA(clause, NullTest))
@@ -1658,11 +1756,12 @@ UpdateIndexListForText(List *existingIndex, ReplaceExtensionFunctionContext *con
 	foreach(indexCell, existingIndex)
 	{
 		IndexOptInfo *index = lfirst_node(IndexOptInfo, indexCell);
-		if (index->relam == RumIndexAmId() && index->nkeycolumns > 0)
+		if (IsBsonRegularIndexAm(index->relam) &&
+			index->nkeycolumns > 0)
 		{
 			for (int i = 0; i < index->nkeycolumns; i++)
 			{
-				if (index->opfamily[i] == BsonRumTextPathOperatorFamily())
+				if (IsTextPathOpFamilyOid(index->relam, index->opfamily[i]))
 				{
 					isValidTextIndexFound = true;
 					QueryTextIndexData *textIndexData =
@@ -1825,18 +1924,45 @@ MatchIndexPathEquals(IndexPath *path, void *matchContext)
 
 
 /*
+ * Enables/disables the force index pushdown for geonear query based on the configuruation
+ * setting `enableIndexForGeonear` or checks if the geonear order by clauses are really present
+ * in the query.
+ */
+static bool
+EnableGeoNearForceIndexPushdown(PlannerInfo *root,
+								ReplaceExtensionFunctionContext *context)
+{
+	if (EnableGeonearForceIndexPushdown)
+	{
+		/* Geonear with no geonear operator (other geo operators) should not force geo index */
+		return TryFindGeoNearOpExpr(root, context);
+	}
+
+	return false;
+}
+
+
+static bool
+DefaultTrueForceIndexPushdown(PlannerInfo *root, ReplaceExtensionFunctionContext *context)
+{
+	return true;
+}
+
+
+/*
  * Matches the indexPath for $text query. It just checks if the index used
  * is a text index, as there can only be at max one text index for a collection.
  */
 static bool
 MatchIndexPathForText(IndexPath *indexPath, void *matchContext)
 {
-	if (indexPath->indexinfo->relam == RumIndexAmId() &&
+	if (IsBsonRegularIndexAm(indexPath->indexinfo->relam) &&
 		indexPath->indexinfo->ncolumns > 0)
 	{
 		for (int ind = 0; ind < indexPath->indexinfo->ncolumns; ind++)
 		{
-			if (indexPath->indexinfo->opfamily[ind] == BsonRumTextPathOperatorFamily())
+			if (IsTextPathOpFamilyOid(indexPath->indexinfo->relam,
+									  indexPath->indexinfo->opfamily[ind]))
 			{
 				return true;
 			}
@@ -1890,4 +2016,195 @@ UpdateIndexListForVector(List *existingIndex,
 		}
 	}
 	return newIndexesListForVector;
+}
+
+
+static List *
+WalkExprAndAddSupportedElemMatchExprs(List *clauses, bytea *options)
+{
+	CHECK_FOR_INTERRUPTS();
+	check_stack_depth();
+
+	List *matchedArgs = NIL;
+	ListCell *elemMatchCell;
+	foreach(elemMatchCell, clauses)
+	{
+		Node *elemMatchExpr = (Node *) lfirst(elemMatchCell);
+
+		if (IsA(elemMatchCell, BoolExpr))
+		{
+			BoolExpr *boolExpr = (BoolExpr *) elemMatchExpr;
+			if (boolExpr->boolop != AND_EXPR)
+			{
+				/* We only support $elemMatch with AND expressions */
+				continue;
+			}
+
+			List *nestedExprs = WalkExprAndAddSupportedElemMatchExprs(
+				boolExpr->args, options);
+			matchedArgs = list_concat(matchedArgs, nestedExprs);
+			continue;
+		}
+
+		List *innerArgs;
+		const MongoIndexOperatorInfo *innerOperator = GetMongoIndexQueryOperatorFromNode(
+			elemMatchExpr,
+			&innerArgs);
+		if (innerOperator == NULL ||
+			innerOperator->indexStrategy == BSON_INDEX_STRATEGY_INVALID)
+		{
+			/* This is not a valid operator for elemMatch */
+			continue;
+		}
+
+		if (innerOperator->indexStrategy == BSON_INDEX_STRATEGY_DOLLAR_ELEMMATCH)
+		{
+			/* We don't support negation strategies for nested elemMatch
+			 * TODO(Composite): Can we do this safely?
+			 */
+			continue;
+		}
+
+		Node *operand = lsecond(innerArgs);
+		Datum innerQueryValue = ((Const *) operand)->constvalue;
+
+		/* Check if the index is valid for the function */
+		if (!ValidateIndexForQualifierValue(options, innerQueryValue,
+											innerOperator->indexStrategy))
+		{
+			continue;
+		}
+
+		/* Since $eq can fail to traverse array of array paths, elemMatch pushdown cannot handle
+		 * this since we need to skip the recheck.
+		 * TODO: If we can get the recheck skipped here, we can support this here too.
+		 */
+		pgbsonelement queryElement;
+		PgbsonToSinglePgbsonElement(DatumGetPgBson(innerQueryValue), &queryElement);
+		StringView queryPath = {
+			.string = queryElement.path,
+			.length = queryElement.pathLength
+		};
+		if (PathHasArrayIndexElements(&queryPath))
+		{
+			/* We don't support array index elements in elemMatch */
+			continue;
+		}
+
+		Expr *finalExpression =
+			(Expr *) GetOpExprClauseFromIndexOperator(innerOperator, innerArgs, options);
+		matchedArgs = lappend(matchedArgs, finalExpression);
+	}
+
+	return matchedArgs;
+}
+
+
+static Expr *
+ProcessElemMatchOperator(bytea *options, Datum queryValue, const
+						 MongoIndexOperatorInfo *operator, List *args)
+{
+	pgbson *queryBson = DatumGetPgBson(queryValue);
+	pgbsonelement argElement = { 0 };
+	PgbsonToSinglePgbsonElement(queryBson, &argElement);
+
+
+	BsonQueryOperatorContext context = { 0 };
+	BsonQueryOperatorContextCommonBuilder(&context);
+	context.documentExpr = linitial(args);
+
+	/* Convert the pgbson query into a query AST that processes bson */
+	Expr *expr = CreateQualForBsonExpression(&argElement.bsonValue,
+											 argElement.path, &context);
+
+	/* Get the underlying list of expressions that are AND-ed */
+	List *clauses = make_ands_implicit(expr);
+
+	List *matchedArgs = WalkExprAndAddSupportedElemMatchExprs(clauses, options);
+	if (matchedArgs == NIL)
+	{
+		return NULL;
+	}
+	else if (list_length(matchedArgs) == 1)
+	{
+		/* If there's only one argument for $elemMatch, return it */
+		return (Expr *) linitial(matchedArgs);
+	}
+	else
+	{
+		return make_ands_explicit(matchedArgs);
+	}
+}
+
+
+/*
+ * When querying a table with no filters and an orderby, there is a full scan
+ * filter applied that allows for index pushdowns. If this is the first key
+ * of a composite index, allow the pushdown to support cases like
+ * SELECT document from table order by a asc
+ */
+static Expr *
+ProcessFullScanForOrderBy(SupportRequestIndexCondition *req, List *args)
+{
+	Node *operand = lsecond(args);
+	if (!IsA(operand, Const))
+	{
+		return NULL;
+	}
+
+	/* Try to get the index options we serialized for the index.
+	 * If one doesn't exist, we can't handle push downs of this clause */
+	bytea *options = req->index->opclassoptions[req->indexcol];
+	if (options == NULL)
+	{
+		return NULL;
+	}
+
+	Oid operatorFamily = req->index->opfamily[req->indexcol];
+	Datum queryValue = ((Const *) operand)->constvalue;
+
+	if (!IsCompositeOpFamilyOid(req->index->relam, operatorFamily))
+	{
+		return NULL;
+	}
+
+	if (!ValidateIndexForQualifierValue(options, queryValue,
+										BSON_INDEX_STRATEGY_DOLLAR_ORDERBY))
+	{
+		return NULL;
+	}
+
+	pgbsonelement sortElement;
+	PgbsonToSinglePgbsonElement(DatumGetPgBson(queryValue), &sortElement);
+
+	int32_t pathIndex = GetCompositeOpClassColumnNumber(sortElement.path, options);
+	if (pathIndex != 0)
+	{
+		/* For a full scan, only push the first index */
+		return NULL;
+	}
+
+	/* If the index is valid for the function, convert it to an OpExpr for a
+	 * $range full scan.
+	 */
+	pgbsonelement sourceElement;
+	PgbsonToSinglePgbsonElement(DatumGetPgBson(queryValue), &sourceElement);
+	pgbson_writer writer;
+	PgbsonWriterInit(&writer);
+	pgbson_writer rangeWriter;
+	PgbsonWriterStartDocument(&writer, sourceElement.path, sourceElement.pathLength,
+							  &rangeWriter);
+	PgbsonWriterAppendBool(&rangeWriter, "fullScan", 8, true);
+	PgbsonWriterEndDocument(&writer, &rangeWriter);
+
+	Const *bsonConst = makeConst(BsonTypeId(), -1, InvalidOid, -1, PointerGetDatum(
+									 PgbsonWriterGetPgbson(&writer)), false,
+								 false);
+	OpExpr *opExpr = (OpExpr *) make_opclause(BsonRangeMatchOperatorOid(), BOOLOID,
+											  false,
+											  linitial(args),
+											  (Expr *) bsonConst, InvalidOid,
+											  InvalidOid);
+	opExpr->opfuncid = BsonRangeMatchFunctionId();
+	return (Expr *) opExpr;
 }

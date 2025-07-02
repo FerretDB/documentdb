@@ -13,10 +13,12 @@
 #include <funcapi.h>
 #include <utils/portal.h>
 #include <utils/varlena.h>
+#include <utils/typcache.h>
 #include <executor/spi.h>
 #include <tcop/dest.h>
 #include <tcop/pquery.h>
 #include <tcop/tcopprot.h>
+#include <executor/tstoreReceiver.h>
 #include <nodes/makefuncs.h>
 #include <utils/lsyscache.h>
 #include <metadata/metadata_cache.h>
@@ -33,6 +35,7 @@
 #include "io/bson_set_returning_functions.h"
 #include "commands/commands_common.h"
 #include "planner/documents_custom_planner.h"
+#include "infrastructure/cursor_store.h"
 
 
 /*
@@ -42,6 +45,8 @@
  */
 extern int32_t MaxWorkerCursorSize;
 extern bool EnablePrimaryKeyCursorScan;
+extern bool UseRawExecutorForQueryPlan;
+extern bool UseFileBasedPersistedCursors;
 
 static char LastOpenPortalName[NAMEDATALEN] = { 0 };
 
@@ -91,6 +96,34 @@ typedef struct TailableCursorContinuationEntry
 	/* contiunation token for the tailable cursor. */
 	const char *continuationToken;
 } TailableCursorContinuationEntry;
+
+
+/*
+ * TupleDestDestReceiver is internal representation of a DestReceiver which
+ * forards tuples to a tuple destination.
+ */
+typedef struct BsonStoreTupleDestReceiver
+{
+	DestReceiver pub;
+
+	pgbson_array_writer *writer;
+
+	MemoryContext writerContext;
+
+	uint32_t numRowsFetched;
+
+	uint32_t currentAccumulatedSize;
+
+	int32_t batchSize;
+
+	bool closeCursor;
+
+	const char *cursorName;
+
+	CursorFileState *cursorFileState;
+
+	bytea *continuationState;
+} BsonStoreTupleDestReceiver;
 
 static void HoldPortal(Portal portal);
 static uint32 CursorHashEntryHashFunc(const void *obj, size_t objsize);
@@ -142,6 +175,25 @@ static pgbson * ProcessCursorResultRowContinuationAttribute(HTAB *cursorMap,
 static void AppendLastContinuationTokenToCursor(pgbson_writer *writer,
 												pgbson *continuationDoc);
 
+static bool DrainStatementViaPortal(const char *cursorName, int cursorOptions,
+									PlannedStmt *queryPlan, ParamListInfo paramList,
+									uint32_t *accumulatedSize,
+									pgbson_array_writer *arrayWriter,
+									MemoryContext currentContext);
+
+static BsonStoreTupleDestReceiver * CreateBsonStoreTupleDestReceiver(
+	pgbson_array_writer *arrayWriter,
+	MemoryContext
+	writerContext,
+	int32_t batchSize,
+	const char *
+	cursorName,
+	uint32_t
+	accumulatedSize, bool
+	closeCursor);
+static void DrainStatementViaExecutor(PlannedStmt *queryPlan, ParamListInfo paramList,
+									  DestReceiver *destReceiver, MemoryContext
+									  currentContext);
 
 const char NodeId[] = "nodeId";
 uint32_t NodeIdLength = 7;
@@ -471,6 +523,36 @@ CreateAndDrainPersistedQuery(const char *cursorName, Query *query,
 }
 
 
+bytea *
+CreateAndDrainPersistedQueryWithFiles(const char *cursorName, Query *query,
+									  int batchSize, int32_t *numIterations, uint32_t
+									  accumulatedSize,
+									  pgbson_array_writer *arrayWriter, bool closeCursor)
+{
+	/* Set up cursor flags */
+	int cursorOptions = CURSOR_OPT_BINARY | CURSOR_OPT_HOLD;
+
+	/* Save the context before doing SPI */
+	MemoryContext currentContext = CurrentMemoryContext;
+
+	/* Plan the query */
+	ParamListInfo paramList = NULL;
+	PlannedStmt *queryPlan = pg_plan_query(query, NULL, cursorOptions, paramList);
+
+	BsonStoreTupleDestReceiver *receiver = CreateBsonStoreTupleDestReceiver(arrayWriter,
+																			CurrentMemoryContext,
+																			batchSize,
+																			cursorName,
+																			accumulatedSize,
+																			closeCursor);
+	DrainStatementViaExecutor(queryPlan, paramList, (DestReceiver *) receiver,
+							  currentContext);
+
+	/* return the continuation state */
+	return receiver->continuationState;
+}
+
+
 /*
  * Given a query that is a point read query, creates the portal for that
  * query in-line and then drains it and gets the first page.
@@ -498,11 +580,223 @@ CreateAndDrainPointReadQuery(const char *cursorName, Query *query,
 		queryPlan = pg_plan_query(query, NULL, cursorOptions, paramList);
 	}
 
+	if (UseRawExecutorForQueryPlan)
+	{
+		int32_t batchSize = INT32_MAX;
+		bool closeCursor = true;
+		BsonStoreTupleDestReceiver *receiver = CreateBsonStoreTupleDestReceiver(
+			arrayWriter,
+			CurrentMemoryContext,
+			batchSize, cursorName,
+			accumulatedSize,
+			closeCursor);
+		DrainStatementViaExecutor(queryPlan, paramList, (DestReceiver *) receiver,
+								  currentContext);
+		return true;
+	}
+
+	return DrainStatementViaPortal(cursorName, cursorOptions, queryPlan,
+								   paramList, &accumulatedSize, arrayWriter,
+								   currentContext);
+}
+
+
+static void
+BsonStoreDestReceiverStartup(DestReceiver *destReceiver, int operation,
+							 TupleDesc inputTupleDesc)
+{
+	/* nothing to do */
+}
+
+
+static bool
+BsonStoreDestReceiveCore(pgbson *resultBson,
+						 BsonStoreTupleDestReceiver *tupleDestReceiver)
+{
+	uint32_t datumSize = VARSIZE_ANY_EXHDR(resultBson);
+
+	/* if the new total size is > Max Bson Size */
+	if (datumSize > BSON_MAX_ALLOWED_SIZE)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BSONOBJECTTOOLARGE),
+						errmsg("Size %u is larger than MaxDocumentSize %u",
+							   datumSize, BSON_MAX_ALLOWED_SIZE)));
+	}
+
+	/* this is the overhead of the array index (The string "1", "2" etc). */
+	/* we use a simple const of 9 digits as 16 MB in bytes has 8 digits, so */
+	/* realistically we won't have more than 16,777,216 entries with trailing 0. */
+	const int perDocOverhead = 9;
+	int64_t totalSize = tupleDestReceiver->currentAccumulatedSize + datumSize +
+						perDocOverhead;
+
+	/* we need to allow at least 1 tuple per response. */
+	bool sizeLimitReached = (totalSize >= BSON_MAX_ALLOWED_SIZE &&
+							 tupleDestReceiver->numRowsFetched > 0);
+
+	if (sizeLimitReached ||
+		(tupleDestReceiver->numRowsFetched >= (uint32_t) tupleDestReceiver->batchSize))
+	{
+		/* We exhausted the current batch. We need to either persist or move on */
+		if (tupleDestReceiver->closeCursor)
+		{
+			/* We need to close the cursor stop - no point enumerating any further */
+			return false;
+		}
+		else if (UseFileBasedPersistedCursors)
+		{
+			if (tupleDestReceiver->cursorFileState == NULL)
+			{
+				MemoryContext oldContext = MemoryContextSwitchTo(
+					tupleDestReceiver->writerContext);
+				tupleDestReceiver->cursorFileState = CreateCursorFile(
+					tupleDestReceiver->cursorName);
+				MemoryContextSwitchTo(oldContext);
+			}
+
+			/* Dump the tuple into the cursor state */
+			WriteToCursorFile(tupleDestReceiver->cursorFileState, resultBson);
+		}
+		else
+		{
+			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INTERNALERROR),
+							errmsg(
+								"Cursor based paging with DestReceiver is not supported yet - this codepath should not be hit")));
+		}
+	}
+	else
+	{
+		/* We need to create a persistent hold store and dump the tuple there. */
+		MemoryContext oldContext = MemoryContextSwitchTo(
+			tupleDestReceiver->writerContext);
+		PgbsonArrayWriterWriteDocument(tupleDestReceiver->writer, resultBson);
+		MemoryContextSwitchTo(oldContext);
+		tupleDestReceiver->numRowsFetched++;
+		tupleDestReceiver->currentAccumulatedSize += (datumSize + perDocOverhead);
+	}
+
+	return true;
+}
+
+
+static bool
+BsonStoreDestReceiverReceive(TupleTableSlot *slot,
+							 DestReceiver *destReceiver)
+{
+	BsonStoreTupleDestReceiver *tupleDestReceiver =
+		(BsonStoreTupleDestReceiver *) destReceiver;
+
+	/*
+	 * DestReceiver doesn't support multiple result sets with different shapes.
+	 */
+	bool isNull = false;
+	Datum result = slot_getattr(slot, 1, &isNull);
+	if (isNull)
+	{
+		return true;
+	}
+
+	pgbson *resultBson = DatumGetPgBsonPacked(result);
+	return BsonStoreDestReceiveCore(resultBson, tupleDestReceiver);
+}
+
+
+static void
+BsonStoreDestReceiverShutdown(DestReceiver *destReceiver)
+{
+	BsonStoreTupleDestReceiver *tupleDestReceiver =
+		(BsonStoreTupleDestReceiver *) destReceiver;
+	if (tupleDestReceiver->cursorFileState != NULL)
+	{
+		tupleDestReceiver->continuationState = CursorFileStateClose(
+			tupleDestReceiver->cursorFileState);
+	}
+}
+
+
+static void
+BsonStoreDestReceiverDestroy(DestReceiver *destReceiver)
+{
+	/* nothing to do */
+}
+
+
+static BsonStoreTupleDestReceiver *
+CreateBsonStoreTupleDestReceiver(pgbson_array_writer *arrayWriter,
+								 MemoryContext writerContext,
+								 int32_t batchSize, const char *cursorName,
+								 uint32_t accumulatedSize, bool closeCursor)
+{
+	BsonStoreTupleDestReceiver *destReceiver =
+		(BsonStoreTupleDestReceiver *) palloc0(sizeof(BsonStoreTupleDestReceiver));
+
+	destReceiver->pub.rStartup = BsonStoreDestReceiverStartup;
+	destReceiver->pub.receiveSlot = BsonStoreDestReceiverReceive;
+	destReceiver->pub.rShutdown = BsonStoreDestReceiverShutdown;
+	destReceiver->pub.rDestroy = BsonStoreDestReceiverDestroy;
+	destReceiver->currentAccumulatedSize = accumulatedSize;
+	destReceiver->writer = arrayWriter;
+	destReceiver->writerContext = writerContext;
+	destReceiver->batchSize = batchSize;
+	destReceiver->cursorName = cursorName;
+	destReceiver->closeCursor = closeCursor;
+
+
+	return destReceiver;
+}
+
+
+/*
+ * For pure local execution, we know that we're parented by a
+ * function call, which has set up a Portal, a Snapshot and Transaction context.
+ * We can continue execution directly here. To execute this, we build a plan,
+ * start the executor and run it directly. Additionally, since we know we're pulling
+ * bson, we can create a custom DestReceiver that receives tuples directly into
+ * the target pgbson_array_writer. This avoids any temporary stores that would
+ * hold the data and instead just write it out to the target.
+ *
+ */
+static void
+DrainStatementViaExecutor(PlannedStmt *queryPlan, ParamListInfo paramList,
+						  DestReceiver *destReceiver, MemoryContext currentContext)
+{
+	ScanDirection scanDirection = ForwardScanDirection;
+	QueryEnvironment *queryEnv = create_queryEnv();
+	int eflags = 0;
+
+	MemoryContext localContext = AllocSetContextCreate(currentContext,
+													   "DocumentDBExecutePlan",
+													   ALLOCSET_DEFAULT_SIZES);
+	MemoryContext oldContext = MemoryContextSwitchTo(localContext);
+
+	/* Create a QueryDesc for the query */
+	QueryDesc *queryDesc = CreateQueryDesc(queryPlan, "",
+										   GetActiveSnapshot(), InvalidSnapshot,
+										   (DestReceiver *) destReceiver, paramList,
+										   queryEnv, 0);
+
+	ExecutorStart(queryDesc, eflags);
+	ExecutorRun(queryDesc, scanDirection, 0L, true);
+	ExecutorFinish(queryDesc);
+	ExecutorEnd(queryDesc);
+
+	FreeQueryDesc(queryDesc);
+	MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(localContext);
+}
+
+
+static bool
+DrainStatementViaPortal(const char *cursorName, int cursorOptions,
+						PlannedStmt *queryPlan, ParamListInfo paramList,
+						uint32_t *accumulatedSize,
+						pgbson_array_writer *arrayWriter,
+						MemoryContext currentContext)
+{
 	/* Create the cursor */
 	Portal queryPortal = CreatePortal(cursorName, false, false);
 	queryPortal->visible = true;
 	queryPortal->cursorOptions = cursorOptions;
-
 
 	/* Set the plan into the portal  */
 	PortalDefineQuery(queryPortal, NULL, "",
@@ -523,7 +817,7 @@ CreateAndDrainPointReadQuery(const char *cursorName, Query *query,
 	uint64_t currentAccumulatedSize = 0;
 	TerminationReason reason = FetchCursorAndWriteUntilPageOrSize(queryPortal, INT_MAX,
 																  arrayWriter,
-																  &accumulatedSize,
+																  accumulatedSize,
 																  cursorMap,
 																  &numRowsFetched,
 																  &currentAccumulatedSize,
@@ -719,6 +1013,52 @@ DrainPersistedCursor(const char *cursorName, int batchSize,
 	}
 	SPI_finish();
 	return reason == TerminationReason_CursorCompletion;
+}
+
+
+bytea *
+DrainPersistedFileCursor(const char *cursorName, int batchSize,
+						 int32_t *numIterations, uint32_t accumulatedSize,
+						 pgbson_array_writer *arrayWriter, bytea *cursorFileState)
+{
+	if (!UseFileBasedPersistedCursors)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INTERNALERROR),
+						errmsg("File based cursor is not enabled")));
+	}
+
+	CursorFileState *cursorState = DeserializeFileState(cursorFileState);
+
+	bool closeCursor = true;
+	BsonStoreTupleDestReceiver *destReceiver = CreateBsonStoreTupleDestReceiver(
+		arrayWriter,
+		CurrentMemoryContext,
+		batchSize, cursorName,
+		accumulatedSize,
+		closeCursor);
+	destReceiver->cursorFileState = cursorState;
+
+	pgbson *nextDocument = ReadFromCursorFile(cursorState);
+	while (nextDocument != NULL)
+	{
+		if (!BsonStoreDestReceiveCore(nextDocument, destReceiver))
+		{
+			/* Batch size limit reached */
+			break;
+		}
+
+		pfree(nextDocument);
+		nextDocument = ReadFromCursorFile(cursorState);
+	}
+
+	BsonStoreDestReceiverShutdown((DestReceiver *) destReceiver);
+
+	if (nextDocument == NULL)
+	{
+		return NULL;
+	}
+
+	return destReceiver->continuationState;
 }
 
 
@@ -1211,6 +1551,45 @@ BuildContinuationMap(pgbson *continuationValue, HTAB *cursorMap)
 
 
 /*
+ * Creates a tuple descriptor for the cursor result. This is deliberately made a raw tuple descriptor
+ * instead of a know SQL type for performance reasons and to avoid overhead of maintaining the new type.ACL_SELECT_FOR_UPDATE
+ *
+ * The tuple descriptor has maximim maxAttrNum of attributes.
+ *
+ * CODESYNC: Change this whenever we modify the OUT variables in sql/udfs/commands_crud/query_cursors_aggregate--latest.sql
+ */
+TupleDesc
+ConstructCursorResultTupleDesc(AttrNumber maxAttrNum)
+{
+	Assert(maxAttrNum >= 2 && maxAttrNum <= 4);
+	AttrNumber attrIndex = 0;
+
+	TupleDesc tupleDescriptor = CreateTemplateTupleDesc(maxAttrNum);
+
+	TupleDescInitEntry(tupleDescriptor, ++attrIndex, "cursor", DocumentDBCoreBsonTypeId(),
+					   -1, 0);
+	TupleDescInitEntry(tupleDescriptor, ++attrIndex, "continuation",
+					   DocumentDBCoreBsonTypeId(), -1, 0);
+
+	if (maxAttrNum > 2)
+	{
+		TupleDescInitEntry(tupleDescriptor, ++attrIndex, "persistConnection", BOOLOID, -1,
+						   0);
+		TupleDescInitEntry(tupleDescriptor, ++attrIndex, "cursorId", INT8OID, -1, 0);
+	}
+
+	if (tupleDescriptor->tdtypeid == RECORDOID && tupleDescriptor->tdtypmod < 0)
+	{
+		/* Register the type */
+		assign_record_type_typmod(tupleDescriptor);
+	}
+
+	tupleDescriptor->natts = maxAttrNum;
+	return tupleDescriptor;
+}
+
+
+/*
  * At the beginning of the cursor's execution, takes the serialized pgbson
  * and builds the cursor map for tailable cursror with the per node values.
  */
@@ -1469,11 +1848,11 @@ SetupCursorPagePreamble(pgbson_writer *topLevelWriter, pgbson_writer *cursorDoc,
  * Also creates the result tuple that's (document, continuation) and returns it.
  */
 Datum
-PostProcessCursorPage(PG_FUNCTION_ARGS,
-					  pgbson_writer *cursorDoc, pgbson_array_writer *arrayWriter,
+PostProcessCursorPage(pgbson_writer *cursorDoc, pgbson_array_writer *arrayWriter,
 					  pgbson_writer *topLevelWriter, int64_t cursorId,
 					  pgbson *continuation, bool persistConnection,
-					  pgbson *lastContinuationToken)
+					  pgbson *lastContinuationToken,
+					  TupleDesc cursorResultTupleDesc)
 {
 	/* Finish the cursor doc*/
 	PgbsonWriterEndArray(cursorDoc, arrayWriter);
@@ -1532,36 +1911,16 @@ PostProcessCursorPage(PG_FUNCTION_ARGS,
 	memset(values, 0, sizeof(values));
 	memset(nulls, 0, sizeof(nulls));
 
-	TupleDesc tupleDescriptor = NULL;
-	if (get_call_result_type(fcinfo, NULL, &tupleDescriptor) != TYPEFUNC_COMPOSITE)
-	{
-		elog(ERROR, "return type must be a row type");
-	}
-
-	if (tupleDescriptor->natts < 2 &&
-		tupleDescriptor->natts > 4)
-	{
-		elog(ERROR, "incorrect number of output arguments");
-	}
-
 	values[0] = PointerGetDatum(PgbsonWriterGetPgbson(topLevelWriter));
 	values[1] = queryFullyDrained ? (Datum) 0 : PointerGetDatum(continuation);
 	nulls[0] = false;
 	nulls[1] = queryFullyDrained;
+	values[2] = BoolGetDatum(persistConnection);
+	nulls[2] = false;
+	values[3] = Int64GetDatum(cursorId);
+	nulls[3] = false;
 
-	if (tupleDescriptor->natts >= 3)
-	{
-		values[2] = BoolGetDatum(persistConnection);
-		nulls[2] = false;
-	}
-
-	if (tupleDescriptor->natts == 4)
-	{
-		values[3] = Int64GetDatum(cursorId);
-		nulls[3] = false;
-	}
-
-	HeapTuple ret = heap_form_tuple(tupleDescriptor, values, nulls);
+	HeapTuple ret = heap_form_tuple(cursorResultTupleDesc, values, nulls);
 	return HeapTupleGetDatum(ret);
 }
 

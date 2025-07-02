@@ -9,6 +9,7 @@
 use crate::{
     context::ConnectionContext,
     error::{DocumentDBError, ErrorCode, Result},
+    postgres::PgDataClient,
     requests::{Request, RequestInfo, RequestType},
     responses::Response,
 };
@@ -17,9 +18,10 @@ use crate::{
 pub async fn handle(
     request: &Request<'_>,
     request_info: &RequestInfo<'_>,
-    context: &mut ConnectionContext,
+    connection_context: &mut ConnectionContext,
+    pg_data_client: &impl PgDataClient,
 ) -> Result<()> {
-    context.transaction = None;
+    connection_context.transaction = None;
     if let Some(request_transaction_info) = &request_info.transaction_info {
         if request_transaction_info.auto_commit {
             return Ok(());
@@ -27,7 +29,10 @@ pub async fn handle(
 
         if matches!(
             request.request_type(),
-            RequestType::ReIndex | RequestType::CreateIndexes | RequestType::DropIndexes
+            RequestType::ReIndex
+                | RequestType::CreateIndex
+                | RequestType::CreateIndexes
+                | RequestType::DropIndexes
         ) {
             return Err(DocumentDBError::documentdb_error(
                 ErrorCode::OperationNotSupportedInTransaction,
@@ -63,9 +68,14 @@ pub async fn handle(
             .session_id
             .expect("Given that there's a transaction, there must be a session")
             .to_vec();
-        let store = context.service_context.transaction_store();
+        let store = connection_context.service_context.transaction_store();
         let transaction_result = store
-            .create(context, request_transaction_info, session_id.clone())
+            .create(
+                connection_context,
+                request_transaction_info,
+                session_id.clone(),
+                pg_data_client,
+            )
             .await;
         log::trace!(
             "Transaction acquired: {:?}, {:?}",
@@ -74,17 +84,18 @@ pub async fn handle(
         );
 
         if let Err(e) = transaction_result {
-            match (request.request_type(), &e) {
+            return match (request.request_type(), &e) {
                 // Especially allow the transaction to remain unfilled if it is committing a committed transaction
                 (
                     RequestType::CommitTransaction,
                     DocumentDBError::DocumentDBError(ErrorCode::TransactionCommitted, _, _),
-                ) => return Ok(()),
-                _ => return Err(e),
-            }
+                ) => Ok(()),
+                _ => Err(e),
+            };
         }
 
-        context.transaction = Some((session_id, request_transaction_info.transaction_number));
+        connection_context.transaction =
+            Some((session_id, request_transaction_info.transaction_number));
     }
     Ok(())
 }

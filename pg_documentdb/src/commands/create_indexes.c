@@ -63,6 +63,7 @@
 #include "utils/version_utils.h"
 #include "vector/vector_common.h"
 #include "vector/vector_utilities.h"
+#include "index_am/index_am_utils.h"
 
 
 #define MAX_INDEX_OPTIONS_LENGTH 1500
@@ -184,9 +185,9 @@ extern int IndexTruncationLimitOverride;
 extern int MaxWildcardIndexKeySize;
 extern bool DefaultEnableLargeUniqueIndexKeys;
 extern bool SkipFailOnCollation;
-extern bool DisableStatisticsForUniqueColumns;
 extern bool EnableNewCompositeIndexOpclass;
 extern bool ForceWildcardReducedTerm;
+extern bool DefaultUseCompositeOpClass;
 
 char *AlternateIndexHandler = NULL;
 
@@ -310,14 +311,14 @@ static void ResolveWPPathOpsFromTreeInternal(const BsonIntermediatePathNode *tre
 											 nonIdFieldInclusion,
 											 WildcardProjFieldInclusionMode *
 											 idFieldInclusion);
-static char * GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
+static char * GenerateIndexExprStr(char *indexAmSuffix,
+								   bool unique, bool sparse, bool enableCompositeOpClass,
 								   IndexDefKey *indexDefKey,
 								   const BsonIntermediatePathNode *
 								   indexDefWildcardProjTree,
 								   const char *indexName, const char *defaultLanguage,
 								   const char *languageOverride,
 								   bool enableLargeIndexKeys,
-								   bool supportsAlternateIndexHandler,
 								   bool useReducedWildcardTerms);
 static char * Generate2dsphereIndexExprStr(const IndexDefKey *indexDefKey);
 static char * Generate2dsphereSparseExprStr(const IndexDefKey *indexDefKey);
@@ -391,15 +392,76 @@ ComputeIndexTermLimit(uint32_t baseIndexTermLimit)
 }
 
 
+inline static bool
+IsUniqueIndex(IndexDef *indexDef)
+{
+	return indexDef->unique == BoolIndexOption_True;
+}
+
+
+inline static bool
+IsWildCardIndex(IndexDef *indexDef)
+{
+	return indexDef->wildcardProjectionTree != NULL || indexDef->key->isWildcard ||
+		   indexDef->wildcardProjectionDocument != NULL;
+}
+
+
+inline static bool
+IsSinglePathIndex(IndexDef *indexDef)
+{
+	return indexDef->key->keyPathList != NULL &&
+		   ((IndexDefKeyPath *) linitial(indexDef->key->keyPathList))->
+		   indexKind == MongoIndexKind_Regular;
+}
+
+
+inline static bool
+IsCompositePathIndex(IndexDef *indexDef)
+{
+	return indexDef->enableCompositeTerm == BoolIndexOption_True;
+}
+
+
+inline static bool
+IsTextIndex(IndexDef *indexDef)
+{
+	return indexDef->key->hasTextIndexes;
+}
+
+
+inline static bool
+IsHashIndex(IndexDef *indexDef)
+{
+	return indexDef->key->hasHashedIndexes;
+}
+
+
 /*
- * Helper function to get the name of the index handler to use.
+ * Helper function to get the name of the index handler to use. If a new index handler is set via the
+ * `alternate_index_handler_name` GUC, we look up its catabilities and check of the index create request
+ * can be satisfied via the alternate index handler.
+ *
+ * Otherwise, we default to "rum" index.
  */
 inline static char *
-GetIndexAmHandlerName(bool supportsAlternateIndexHandler)
+GetIndexAmHandlerName(IndexDef *indexDef)
 {
-	if (supportsAlternateIndexHandler && AlternateIndexHandler != NULL)
+	if (AlternateIndexHandler != NULL && strlen(AlternateIndexHandler) > 0)
 	{
-		return AlternateIndexHandler;
+		const BsonIndexAmEntry *indexAm = GetBsonIndexAmByIndexAmName(
+			AlternateIndexHandler);
+
+		if ((IsUniqueIndex(indexDef) && indexAm->is_unique_index_supported) ||
+			(IsWildCardIndex(indexDef) && indexAm->is_wild_card_supported) ||
+			(IsSinglePathIndex(indexDef) && indexAm->is_single_path_index_supported) ||
+			(IsCompositePathIndex(indexDef) && indexAm->is_composite_index_supported) ||
+			(IsTextIndex(indexDef) && indexAm->is_text_index_supported) ||
+			(IsHashIndex(indexDef) && indexAm->is_hashed_index_supported))
+		{
+			ReportFeatureUsage(FEATURE_CREATE_INDEX_ALTERNATE_AM);
+			return AlternateIndexHandler;
+		}
 	}
 
 	return "rum";
@@ -440,6 +502,7 @@ command_create_indexes_non_concurrently(PG_FUNCTION_ARGS)
 		skip_check_collection_create = PG_GETARG_BOOL(2);
 	}
 
+	ThrowIfServerOrTransactionReadOnly();
 	pgbson *arg = PgbsonDeduplicateFields(PG_GETARG_PGBSON(1));
 	CreateIndexesArg createIndexesArg = ParseCreateIndexesArg(dbNameDatum,
 															  arg);
@@ -1882,6 +1945,44 @@ ParseIndexDefDocumentInternal(const bson_iter_t *indexesArrayIter,
 		}
 	}
 
+	if (indexDef->enableCompositeTerm == BoolIndexOption_True)
+	{
+		ReportFeatureUsage(FEATURE_CREATE_INDEX_COMPOSITE_BASED_TERM);
+
+		if (indexDef->key->isWildcard)
+		{
+			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
+							errmsg(
+								"enableCompositeTerm is not supported with wildcard indexes.")));
+		}
+
+		ListCell *keyCell;
+		foreach(keyCell, indexDef->key->keyPathList)
+		{
+			IndexDefKeyPath *keyPath = lfirst(keyCell);
+			if (keyPath->indexKind != MongoIndexKind_Regular)
+			{
+				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
+								errmsg(
+									"enableCompositeTerm is only supported with regular indexes.")));
+			}
+
+			if (keyPath->isWildcard)
+			{
+				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
+								errmsg(
+									"enableCompositeTerm is not supported with wildcard indexes.")));
+			}
+
+			if (keyPath->sortDirection != 1)
+			{
+				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
+								errmsg(
+									"enableCompositeTerm is only supported with ascending sort direction.")));
+			}
+		}
+	}
+
 	if (indexDef->key->hasCosmosIndexes &&
 		indexDef->cosmosSearchOptions == NULL)
 	{
@@ -2384,6 +2485,7 @@ ParseIndexDefKeyDocument(const bson_iter_t *indexDefDocIter)
 		/* determine keypath */
 		char *keyPath = NULL;
 		MongoIndexKind indexKind = MongoIndexKind_Regular;
+		int32_t sortOrder = 0;
 		if (isWildcardKeyPath)
 		{
 			if (wildcardOnWholeDocument)
@@ -2488,6 +2590,12 @@ ParseIndexDefKeyDocument(const bson_iter_t *indexDefDocIter)
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
 								errmsg(
 									"A numeric value in a $** index key pattern must be positive.")));
+			}
+
+			sortOrder = doubleValue < 0 ? -1 : 1;
+			if (sortOrder < 0)
+			{
+				indexDefKey->hasDescendingIndex = true;
 			}
 		}
 		else
@@ -2652,6 +2760,7 @@ ParseIndexDefKeyDocument(const bson_iter_t *indexDefDocIter)
 			indexDefKeyPath->indexKind = indexKind;
 			indexDefKeyPath->path = keyPath;
 			indexDefKeyPath->isWildcard = isWildcardKeyPath;
+			indexDefKeyPath->sortDirection = sortOrder;
 
 			indexDefKey->keyPathList = lappend(indexDefKey->keyPathList, indexDefKeyPath);
 		}
@@ -2793,6 +2902,14 @@ ParseCosmosSearchOptionsDoc(const bson_iter_t *indexDefDocIter)
 			}
 
 			cosmosSearchOptions->commonOptions.numDimensions = BsonValueAsInt32(keyValue);
+
+			if (cosmosSearchOptions->commonOptions.numDimensions > VECTOR_MAX_DIMENSIONS)
+			{
+				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
+								errmsg(
+									"vector index dimensions must be less than or equal to %d",
+									VECTOR_MAX_DIMENSIONS)));
+			}
 		}
 		else if (strcmp(searchOptionsIterKey, "compression") == 0)
 		{
@@ -2819,28 +2936,30 @@ ParseCosmosSearchOptionsDoc(const bson_iter_t *indexDefDocIter)
 
 				/* check if the half vector type is supported, older versions of
 				 * pgvector do not support half vector type */
-				MemoryContext savedMemoryContext = CurrentMemoryContext;
-				PG_TRY();
+				if (!IsPgvectorHalfVectorAvailable())
 				{
-					if (HalfVectorTypeId() == InvalidOid)
-					{
-						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
-										errmsg(
-											"Compression type 'half' is not supported.")));
-					}
-				}
-				PG_CATCH();
-				{
-					MemoryContextSwitchTo(savedMemoryContext);
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
 									errmsg(
-										"Compression type 'half' is not supported.")));
+										"Compression type 'half' is not supported."),
+									errdetail_log(
+										"The half vector is not supported by pgvector, please check the version of pgvector")));
 				}
-				PG_END_TRY();
 
 				ReportFeatureUsage(FEATURE_CREATE_INDEX_VECTOR_COMPRESSION_HALF);
 				cosmosSearchOptions->commonOptions.compressionType =
 					VectorIndexCompressionType_Half;
+			}
+			else if (StringViewEqualsCString(&str, "pq"))
+			{
+				if (!EnableVectorCompressionPQ)
+				{
+					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
+									errmsg(
+										"Compression type 'pq' is not enabled.")));
+				}
+				ReportFeatureUsage(FEATURE_CREATE_INDEX_VECTOR_COMPRESSION_PQ);
+				cosmosSearchOptions->commonOptions.compressionType =
+					VectorIndexCompressionType_PQ;
 			}
 			else
 			{
@@ -2858,14 +2977,47 @@ ParseCosmosSearchOptionsDoc(const bson_iter_t *indexDefDocIter)
 						errmsg("cosmosSearch index kind must be specified")));
 	}
 
-	/* The max limit error is thrown by pgvector, will be caught by the gateway */
-	/* So we don't check the max limit here */
-
 	if (cosmosSearchOptions->commonOptions.numDimensions <= 1)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
 						errmsg(
 							"vector index must specify dimensions greater than 1")));
+	}
+
+	/* Check max dimensions for non-compressed index */
+	if (cosmosSearchOptions->commonOptions.compressionType ==
+		VectorIndexCompressionType_None &&
+		cosmosSearchOptions->commonOptions.numDimensions >
+		VECTOR_MAX_DIMENSIONS_NON_COMPRESSED)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
+						errmsg(
+							"field cannot have more than %d dimensions for vector index",
+							VECTOR_MAX_DIMENSIONS_NON_COMPRESSED)));
+	}
+
+	/* Check max dimensions for half compressed index */
+	if (cosmosSearchOptions->commonOptions.compressionType ==
+		VectorIndexCompressionType_Half &&
+		cosmosSearchOptions->commonOptions.numDimensions >
+		VECTOR_MAX_DIMENSIONS_HALF_COMPRESSED)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
+						errmsg(
+							"field cannot have more than %d dimensions for vector index",
+							VECTOR_MAX_DIMENSIONS_HALF_COMPRESSED)));
+	}
+
+	/* Check max dimensions for pq compressed index */
+	if (cosmosSearchOptions->commonOptions.compressionType ==
+		VectorIndexCompressionType_PQ &&
+		cosmosSearchOptions->commonOptions.numDimensions >
+		VECTOR_MAX_DIMENSIONS_PQ_COMPRESSED)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTCREATEINDEX),
+						errmsg(
+							"field cannot have more than %d dimensions for vector index",
+							VECTOR_MAX_DIMENSIONS_PQ_COMPRESSED)));
 	}
 
 	if (cosmosSearchOptions->commonOptions.distanceMetric ==
@@ -3424,7 +3576,7 @@ CheckPartFilterExprOperatorsWalker(Node *node, void *context)
 				}
 
 				Datum existsRhsConstValue = ((Const *) existsRhsArg)->constvalue;
-				pgbson *existsRhsBson = (pgbson *) DatumGetPointer(existsRhsConstValue);
+				pgbson *existsRhsBson = DatumGetPgBson(existsRhsConstValue);
 				pgbsonelement element;
 				PgbsonToSinglePgbsonElement(existsRhsBson, &element);
 				bool existsPositiveMatch = BsonValueAsInt64(&element.bsonValue) != 0;
@@ -4449,6 +4601,11 @@ MakeIndexSpecForIndexDef(IndexDef *indexDef)
 		PgbsonWriterAppendInt32(&writer, "enableLargeIndexKeys", 20, 1);
 	}
 
+	if (indexDef->enableCompositeTerm == BoolIndexOption_True)
+	{
+		PgbsonWriterAppendInt32(&writer, "enableCompositeTerm", 19, 1);
+	}
+
 	if (!IsPgbsonWriterEmptyDocument(&writer))
 	{
 		indexSpec.indexOptions = PgbsonWriterGetPgbson(&writer);
@@ -4498,6 +4655,8 @@ CreatePostgresIndexCreationCmd(uint64 collectionId, IndexDef *indexDef, int inde
 	StringInfo cmdStr = makeStringInfo();
 	bool unique = indexDef->unique == BoolIndexOption_True;
 	bool sparse = indexDef->sparse == BoolIndexOption_True;
+	char *indexAmSuffix = GetIndexAmHandlerName(indexDef);
+
 	if (unique)
 	{
 		if (isTempCollection)
@@ -4518,27 +4677,26 @@ CreatePostgresIndexCreationCmd(uint64 collectionId, IndexDef *indexDef, int inde
 			enableLargeIndexKeys = true;
 		}
 
-		bool enableNewIndexOpClass = false;
-		if (EnableNewCompositeIndexOpclass &&
-			indexDef->enableCompositeTerm == BoolIndexOption_True)
+		bool enableNewIndexOpClass = EnableNewCompositeIndexOpclass &&
+									 DefaultUseCompositeOpClass;
+		if (indexDef->enableCompositeTerm != BoolIndexOption_Undefined)
 		{
-			enableNewIndexOpClass = true;
+			enableNewIndexOpClass = indexDef->enableCompositeTerm == BoolIndexOption_True;
 		}
 
-		bool supportsAlternateIndexHandler = false;
 		bool useReducedWildcardTermGeneration = false;
 		appendStringInfo(cmdStr,
 						 " ADD CONSTRAINT " DOCUMENT_DATA_TABLE_INDEX_NAME_FORMAT
-						 " EXCLUDE USING %s_rum (%s) %s%s%s",
-						 indexId, ExtensionObjectPrefix,
-						 GenerateIndexExprStr(unique, sparse, enableNewIndexOpClass,
+						 " EXCLUDE USING %s_%s (%s) %s%s%s",
+						 indexId, ExtensionObjectPrefix, indexAmSuffix,
+						 GenerateIndexExprStr(indexAmSuffix, unique,
+											  sparse, enableNewIndexOpClass,
 											  indexDef->key,
 											  indexDef->wildcardProjectionTree,
 											  indexDef->name,
 											  indexDef->defaultLanguage,
 											  indexDef->languageOverride,
 											  enableLargeIndexKeys,
-											  supportsAlternateIndexHandler,
 											  useReducedWildcardTermGeneration),
 						 indexDef->partialFilterExpr ? "WHERE (" : "",
 						 indexDef->partialFilterExpr ?
@@ -4639,7 +4797,8 @@ CreatePostgresIndexCreationCmd(uint64 collectionId, IndexDef *indexDef, int inde
 	{
 		appendStringInfo(cmdStr,
 						 "CREATE INDEX %s " DOCUMENT_DATA_TABLE_INDEX_NAME_FORMAT,
-						 concurrently ? "CONCURRENTLY" : "", indexId);
+						 concurrently ? "CONCURRENTLY" : "",
+						 indexId);
 
 		if (isTempCollection)
 		{
@@ -4660,25 +4819,12 @@ CreatePostgresIndexCreationCmd(uint64 collectionId, IndexDef *indexDef, int inde
 								   BoolIndexOption_False;
 		}
 
-		bool enableNewIndexOpClass = false;
-		if (EnableNewCompositeIndexOpclass &&
-			indexDef->enableCompositeTerm == BoolIndexOption_True)
+		bool enableNewIndexOpClass = EnableNewCompositeIndexOpclass &&
+									 DefaultUseCompositeOpClass;
+		if (indexDef->enableCompositeTerm != BoolIndexOption_Undefined)
 		{
-			enableNewIndexOpClass = true;
+			enableNewIndexOpClass = indexDef->enableCompositeTerm == BoolIndexOption_True;
 		}
-
-		/* Currently alternate index handler is only supported for single path simple indexes, this will be updated as we add more support. */
-		bool supportsAlternateIndexHandler = AlternateIndexHandler != NULL &&
-											 !indexDef->unique &&
-											 indexDef->wildcardProjectionTree == NULL &&
-											 !indexDef->key->isWildcard &&
-											 list_length(indexDef->key->keyPathList) ==
-											 1 &&
-											 ((IndexDefKeyPath *) linitial(
-												  indexDef->key->keyPathList))->indexKind
-											 == MongoIndexKind_Regular;
-
-		char *indexAmSuffix = GetIndexAmHandlerName(supportsAlternateIndexHandler);
 
 		bool useReducedWildcardTermGeneration = ForceWildcardReducedTerm ||
 												(indexDef->enableReducedWildcardTerms ==
@@ -4687,14 +4833,14 @@ CreatePostgresIndexCreationCmd(uint64 collectionId, IndexDef *indexDef, int inde
 						 " USING %s_%s (%s) %s%s%s",
 						 ExtensionObjectPrefix,
 						 indexAmSuffix,
-						 GenerateIndexExprStr(unique, sparse, enableNewIndexOpClass,
+						 GenerateIndexExprStr(indexAmSuffix,
+											  unique, sparse, enableNewIndexOpClass,
 											  indexDef->key,
 											  indexDef->wildcardProjectionTree,
 											  indexDef->name,
 											  indexDef->defaultLanguage,
 											  indexDef->languageOverride,
 											  enableLargeIndexKeys,
-											  supportsAlternateIndexHandler,
 											  useReducedWildcardTermGeneration),
 						 indexDef->partialFilterExpr ? "WHERE (" : "",
 						 indexDef->partialFilterExpr ?
@@ -5024,17 +5170,15 @@ ResolveWPPathOpsFromTreeInternal(const BsonIntermediatePathNode *treeParentNode,
  * have a "wildcardProjection" specification.
  */
 static char *
-GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
+GenerateIndexExprStr(char *indexAmSuffix,
+					 bool unique, bool sparse, bool enableCompositeOpClass,
 					 IndexDefKey *indexDefKey,
 					 const BsonIntermediatePathNode *indexDefWildcardProjTree,
 					 const char *indexName, const char *defaultLanguage,
 					 const char *languageOverride, bool enableLargeIndexKeys,
-					 bool supportsAlternateIndexHandler,
 					 bool useReducedWildcardTerms)
 {
 	StringInfo indexExprStr = makeStringInfo();
-
-	char *indexOpClassAmName = GetIndexAmHandlerName(supportsAlternateIndexHandler);
 
 	char *languageOptionKey = "";
 	char *languageOptionValue = "";
@@ -5056,8 +5200,7 @@ GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
 	char indexTermSizeLimitArg[22] = { 0 };
 	bool enableTruncation = enableLargeIndexKeys || ForceIndexTermTruncation;
 
-	bool usingNewUniqueIndexOpClass = unique && enableLargeIndexKeys &&
-									  IsClusterVersionAtleast(DocDB_V0, 24, 0);
+	bool usingNewUniqueIndexOpClass = unique && enableLargeIndexKeys;
 
 	/* For unique with truncation, instead of creating a unique hash for every column, we simply create a single
 	 * value with a new operator that handles unique constraints. That way for a composite unique index, we support
@@ -5068,12 +5211,13 @@ GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
 	if (usingNewUniqueIndexOpClass)
 	{
 		appendStringInfo(indexExprStr,
-						 "%s.generate_unique_shard_document(document, shard_key_value, '%s'::%s.bson, %s) %s.bson_rum_unique_shard_path_ops WITH OPERATOR(%s.=#=)",
+						 "%s.generate_unique_shard_document(document, shard_key_value, '%s'::%s.bson, %s) %s.bson_%s_unique_shard_path_ops WITH OPERATOR(%s.=#=)",
 						 DocumentDBApiInternalSchemaName,
 						 GenerateUniqueProjectionSpec(indexDefKey),
 						 CoreSchemaName,
 						 sparse ? "true" : "false",
 						 DocumentDBApiInternalSchemaName,
+						 indexAmSuffix,
 						 DocumentDBApiInternalSchemaName);
 		firstColumnWritten = true;
 	}
@@ -5106,7 +5250,7 @@ GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
 							 "%s document %s.bson_%s_text_path_ops(weights=%s%s%s%s%s%s)",
 							 firstColumnWritten ? "," : "",
 							 ApiCatalogSchemaName,
-							 indexOpClassAmName,
+							 indexAmSuffix,
 							 quote_literal_cstr(SerializeWeightedPaths(
 													indexDefKey->textPathList)),
 							 list_length(indexDefKey->textPathList) == 0 ?
@@ -5128,7 +5272,7 @@ GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
 							 "(path='', iswildcard=true%s%s%s)",
 							 firstColumnWritten ? "," : "",
 							 ApiCatalogSchemaName,
-							 indexOpClassAmName,
+							 indexAmSuffix,
 							 indexTermSizeLimitArg,
 							 wildcardIndexTruncatedPathLimit,
 							 useReducedWildcardOption);
@@ -5157,7 +5301,7 @@ GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
 							 "(includeid=%s%s%s",
 							 firstColumnWritten ? "," : "",
 							 ApiCatalogSchemaName,
-							 indexOpClassAmName,
+							 indexAmSuffix,
 							 includeId ? "true" : "false",
 							 indexTermSizeLimitArg,
 							 wildcardIndexTruncatedPathLimit);
@@ -5200,7 +5344,8 @@ GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
 			 enableCompositeOpClass &&
 			 !unique && !indexDefKey->isWildcard &&
 			 !indexDefKey->hasTextIndexes && !indexDefKey->hasHashedIndexes &&
-			 !indexDefKey->has2dIndex && !indexDefKey->has2dsphereIndex)
+			 !indexDefKey->has2dIndex && !indexDefKey->has2dsphereIndex &&
+			 !indexDefKey->hasDescendingIndex)
 	{
 		if (indexDefWildcardProjTree)
 		{
@@ -5248,7 +5393,7 @@ GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
 						 "%s document %s.bson_%s_composite_path_ops(pathspec=%s%s)",
 						 firstColumnWritten ? "," : "",
 						 ApiInternalSchemaNameV2,
-						 indexOpClassAmName,
+						 indexAmSuffix,
 						 quote_literal_cstr(
 							 StringListGetBsonArrayRepr(keyPathStrings)),
 						 indexTermSizeLimitArg);
@@ -5325,7 +5470,7 @@ GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
 									 "%s document %s.bson_%s_single_path_ops(path=%s%s%s%s%s)",
 									 firstColumnWritten ? "," : "",
 									 ApiCatalogSchemaName,
-									 indexOpClassAmName,
+									 indexAmSuffix,
 									 quote_literal_cstr(keyPath),
 									 indexKeyPath->isWildcard ? ",iswildcard=true" : "",
 									 indexTermSizeLimitArg,
@@ -5341,8 +5486,9 @@ GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
 							/* Add a unique hash path for this column that includes the shard key */
 							appendStringInfo(indexExprStr,
 											 ", ((shard_key_value, document)::%s.shard_key_and_document) "
-											 "%s.bson_rum_exclusion_ops(path=%s) WITH OPERATOR(%s.=)",
+											 "%s.bson_%s_exclusion_ops(path=%s) WITH OPERATOR(%s.=)",
 											 ApiCatalogSchemaName, ApiCatalogSchemaName,
+											 indexAmSuffix,
 											 quote_literal_cstr(keyPath),
 											 ApiCatalogSchemaName);
 						}
@@ -5365,7 +5511,7 @@ GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
 									 firstColumnWritten ? "," : "",
 									 ApiCatalogSchemaName,
 									 ExtensionObjectPrefix,
-									 indexOpClassAmName,
+									 indexAmSuffix,
 									 quote_literal_cstr(keyPath));
 					break;
 				}
@@ -5383,7 +5529,7 @@ GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
 									 "%s document %s.bson_%s_text_path_ops(weights=%s%s%s%s%s%s)",
 									 firstColumnWritten ? "," : "",
 									 ApiCatalogSchemaName,
-									 indexOpClassAmName,
+									 indexAmSuffix,
 									 quote_literal_cstr(SerializeWeightedPaths(
 															indexDefKey->textPathList)),
 									 indexKeyPath->isWildcard ? ", iswildcard=true" : "",
@@ -5433,7 +5579,7 @@ GenerateIndexExprStr(bool unique, bool sparse, bool enableCompositeOpClass,
 							 "%s document %s.bson_%s_text_path_ops(weights=%s%s%s%s%s%s)",
 							 firstColumnWritten ? "," : "",
 							 ApiCatalogSchemaName,
-							 indexOpClassAmName,
+							 indexAmSuffix,
 							 quote_literal_cstr(SerializeWeightedPaths(
 													indexDefKey->textPathList)),
 							 indexDefKey->isWildcard ? ", iswildcard=true" : "",
@@ -6077,11 +6223,6 @@ GenerateUniqueProjectionSpec(IndexDefKey *indexDefKey)
 void
 UpdateIndexStatsForPostgresIndex(uint64 collectionId, List *indexIdList)
 {
-	if (!DisableStatisticsForUniqueColumns)
-	{
-		return;
-	}
-
 	StringInfo indexExprStringInfo = makeStringInfo();
 	ListCell *cell;
 	foreach(cell, indexIdList)
@@ -6099,8 +6240,8 @@ UpdateIndexStatsForPostgresIndex(uint64 collectionId, List *indexIdList)
 			IndexInfo *indexInfo = BuildIndexInfo(indexRel);
 			RelationClose(indexRel);
 
-			/* Only do this for RUM indexes. Vectore and GEO indexes do need statistics. */
-			if (indexInfo->ii_Am != RumIndexAmId())
+			/* Only do this for RUM style indexes. Vector and Geospatial indexes do need statistics. */
+			if (!IsBsonRegularIndexAm(indexInfo->ii_Am))
 			{
 				continue;
 			}

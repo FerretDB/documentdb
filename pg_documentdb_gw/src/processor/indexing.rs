@@ -5,18 +5,19 @@
  *
  *-------------------------------------------------------------------------
  */
+#![allow(clippy::unnecessary_to_owned)]
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bson::{Document, RawDocumentBuf};
-use tokio_postgres::types::Type;
 
+use crate::postgres::PgDataClient;
 use crate::{
     configuration::DynamicConfiguration,
     context::ConnectionContext,
     error::{DocumentDBError, ErrorCode, Result},
-    postgres::{PgDocument, Timeout},
+    postgres::PgDocument,
     requests::{Request, RequestInfo},
     responses::{PgResponse, RawResponse, Response},
 };
@@ -25,11 +26,12 @@ use super::cursor::save_cursor;
 
 pub async fn process_create_indexes(
     request: &Request<'_>,
-    request_info: &RequestInfo<'_>,
+    request_info: &mut RequestInfo<'_>,
     connection_context: &ConnectionContext,
     dynamic_config: &Arc<dyn DynamicConfiguration>,
+    pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
-    let db = request_info.db()?;
+    let db = &request_info.db()?.to_string();
     if db == "config" || db == "admin" {
         return Err(DocumentDBError::documentdb_error(
             ErrorCode::IllegalOperation,
@@ -37,41 +39,40 @@ pub async fn process_create_indexes(
         ));
     }
 
-    let results = connection_context
-        .pg()
-        .await?
-        .query_db_bson(
-            connection_context
-                .service_context
-                .query_catalog()
-                .create_indexes_background(),
-            db,
-            &PgDocument(request.document()),
-            Timeout::command(request_info.max_time_ms),
-        )
+    let create_indexes_rows = pg_data_client
+        .execute_create_indexes(request, request_info, db, connection_context)
         .await?;
-    let row = results
+
+    let row = create_indexes_rows
         .first()
         .ok_or(DocumentDBError::pg_response_empty())?;
     let success: bool = row.get(1);
-    let response = PgResponse::new(results);
+    let response = PgResponse::new(create_indexes_rows);
     if success {
-        wait_for_index(request_info, response, connection_context, dynamic_config).await
+        wait_for_index(
+            request_info,
+            response,
+            connection_context,
+            dynamic_config,
+            pg_data_client,
+        )
+        .await
     } else {
         parse_create_index_error(&response)
     }
 }
 
 pub async fn wait_for_index(
-    request_info: &RequestInfo<'_>,
+    request_info: &mut RequestInfo<'_>,
     create_result: PgResponse,
-    context: &ConnectionContext,
+    connection_context: &ConnectionContext,
     dynamic_config: &Arc<dyn DynamicConfiguration>,
+    pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
     let start_time = Instant::now();
-    let create_request_details: PgDocument = create_result.first()?.get(2);
+    let index_build_id: PgDocument = pg_data_client.get_index_build_id(&create_result)?;
 
-    if create_request_details.0.is_empty() {
+    if index_build_id.0.is_empty() {
         return Ok(Response::Pg(create_result));
     }
 
@@ -80,28 +81,18 @@ pub async fn wait_for_index(
     ));
     loop {
         interval.tick().await;
-        let results = context
-            .pg()
-            .await?
-            .query(
-                context
-                    .service_context
-                    .query_catalog()
-                    .check_build_index_status(),
-                &[Type::BYTEA],
-                &[&create_request_details],
-                Timeout::command(request_info.max_time_ms),
-            )
+        let wait_for_index_rows = pg_data_client
+            .execute_wait_for_index(request_info, &index_build_id, connection_context)
             .await?;
 
-        let row = results
+        let row = wait_for_index_rows
             .first()
             .ok_or(DocumentDBError::pg_response_empty())?;
 
         let success: bool = row.get(1);
 
         if !success {
-            return parse_create_index_error(&PgResponse::new(results));
+            return parse_create_index_error(&PgResponse::new(wait_for_index_rows));
         }
 
         let complete: bool = row.get(2);
@@ -163,73 +154,63 @@ fn parse_create_index_error(response: &PgResponse) -> Result<Response> {
 }
 
 pub async fn process_reindex(
-    _request: &Request<'_>,
-    request_info: &RequestInfo<'_>,
-    context: &ConnectionContext,
+    request_info: &mut RequestInfo<'_>,
+    connection_context: &ConnectionContext,
+    pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
-    let results = context
-        .pg()
-        .await?
-        .query(
-            context.service_context.query_catalog().re_index(),
-            &[Type::TEXT, Type::TEXT],
-            &[&request_info.db()?, &request_info.collection()?],
-            Timeout::command(request_info.max_time_ms),
-        )
-        .await?;
-    Ok(Response::Pg(PgResponse::new(results)))
+    pg_data_client
+        .execute_reindex(request_info, connection_context)
+        .await
 }
 
 pub async fn process_drop_indexes(
     request: &Request<'_>,
-    request_info: &RequestInfo<'_>,
-    context: &ConnectionContext,
+    request_info: &mut RequestInfo<'_>,
+    connection_context: &ConnectionContext,
+    pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
-    let results = context
-        .pg()
-        .await?
-        .query_db_bson(
-            context.service_context.query_catalog().drop_indexes(),
-            request_info.db()?,
-            &PgDocument(request.document()),
-            Timeout::transaction(request_info.max_time_ms),
-        )
+    let response = pg_data_client
+        .execute_drop_indexes(request, request_info, connection_context)
         .await?;
-
-    let response = PgResponse::new(results);
 
     // TODO: It should not be needed to convert the document, but the backend returns ok:true instead of ok:1
     let mut response = Document::try_from(response.as_raw_document()?)?;
-    let response_code = response.get_bool("ok").map_err(|e| {
+    let is_response_ok = response.get_bool("ok").map_err(|e| {
         DocumentDBError::internal_error(format!("PG returned invalid response: {}", e))
     })?;
 
-    response.insert("ok", if response_code { 1 } else { 0 });
-    Ok(Response::Raw(RawResponse(RawDocumentBuf::from_document(
-        &response,
-    )?)))
+    response.insert("ok", if is_response_ok { 1 } else { 0 });
+
+    if is_response_ok {
+        Ok(Response::Raw(RawResponse(RawDocumentBuf::from_document(
+            &response,
+        )?)))
+    } else {
+        let error_message = response.get_str("errmsg").map_err(|e| {
+            DocumentDBError::internal_error(format!("PG returned invalid response: {}", e))
+        })?;
+        let error_code = response.get_i32("code").map_err(|e| {
+            DocumentDBError::internal_error(format!("PG returned invalid response: {}", e))
+        })?;
+
+        Err(DocumentDBError::PostgresDocumentDBError(
+            error_code,
+            error_message.to_string(),
+            std::backtrace::Backtrace::capture(),
+        ))
+    }
 }
 
 pub async fn process_list_indexes(
     request: &Request<'_>,
-    request_info: &RequestInfo<'_>,
-    context: &ConnectionContext,
+    request_info: &mut RequestInfo<'_>,
+    connection_context: &ConnectionContext,
+    pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
-    let client = context.pg().await?;
-
-    let results = client
-        .query_db_bson(
-            context
-                .service_context
-                .query_catalog()
-                .list_indexes_cursor_first_page(),
-            request_info.db()?,
-            &PgDocument(request.document()),
-            Timeout::transaction(request_info.max_time_ms),
-        )
+    let (response, conn) = pg_data_client
+        .execute_list_indexes(request, request_info, connection_context)
         .await?;
 
-    let response = PgResponse::new(results);
-    save_cursor(context, client, &response, request_info).await?;
+    save_cursor(connection_context, conn, &response, request_info).await?;
     Ok(Response::Pg(response))
 }

@@ -69,6 +69,7 @@ typedef struct TraverseValidateState
 {
 	CompareMatchValueFunc matchFunc;
 	CompareResult compareResult;
+	const char *collationString;
 } TraverseValidateState;
 
 /* The core comparison function extension for compare set bit position array for Bitwise operators */
@@ -100,6 +101,7 @@ bool CompareArrayForBitsAnySet(bson_iter_t *sourceArrayIter,
 							   bson_iter_t *filterArrayIter,
 							   bool isSignExtended);
 
-Datum BsonOrderby(pgbson *leftBson, pgbson *rightBson, bool validateSort);
+Datum BsonOrderby(pgbson *leftBson, pgbson *rightBson, bool validateSort,
+				  const char *collationString);
 
 #endif

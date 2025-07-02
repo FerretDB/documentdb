@@ -1,10 +1,28 @@
-### documentdb v0.103-0 (Unreleased) ###
+### documentdb v0.105-0 (Unreleased) ###
+* Support `$bucketAuto` aggregation stage, with granularity types: `POWERSOF2`, `1-2-5`, `R5`, `R10`, `R20`, `R40`, `R80`, `E6`, `E12`, `E24`, `E48`, `E96`, `E192` *[Feature]*
+* Support `conectionStatus` command *[Feature]*.
+
+### documentdb v0.104-0 (June 09, 2025) ###
+* Add string case support for `$toDate` operator
+* Support `sort` with collation in runtime*[Feature]*
+* Support collation with `$indexOfArray` aggregation operator. *[Feature]*
+* Support collation with arrays and objects comparisons *[Feature]*
+* Support background index builds *[Bugfix]* (#36)
+* Enable user CRUD by default *[Feature]*
+* Enable let support for delete queries *[Feature]*. Requires `EnableVariablesSupportForWriteCommands` to be `on`.
+* Enable rum_enable_index_scan as default on *[Perf]*
+* Add public `documentdb-local` Docker image with gateway to GHCR
+* Support `compact` command *[Feature]*. Requires `documentdb.enablecompact` GUC to be `on`.
+* Enable role privileges for `usersInfo` command *[Feature]* 
+
+### documentdb v0.103-0 (May 09, 2025) ###
 * Support collation with aggregation and find on sharded collections *[Feature]*
 * Support `$convert` on `binData` to `binData`, `string` to `binData` and `binData` to `string` (except with `format: auto`) *[Feature]*
 * Fix list_databases for databases with size > 2 GB *[Bugfix]* (#119)
 * Support half-precision vector indexing, vectors can have up to 4,000 dimensions *[Feature]*
 * Support ARM64 architecture when building docker container *[Preview]*
-* Support collation with `$documents` and `$replceWith` stage of the aggregation pipeline *[Feature]*
+* Support collation with `$documents` and `$replaceWith` stage of the aggregation pipeline *[Feature]*
+* Push pg_documentdb_gw for documentdb connections *[Feature]*
 
 ### DocumentDB v0.102.0-ferretdb-2.1.0 (April 2, 2025) ###
 

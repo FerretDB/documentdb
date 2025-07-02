@@ -67,6 +67,7 @@ Oid BsonLessThanEqualMatchRuntimeOperatorId(void);
 Oid BsonLessThanEqualMatchIndexFunctionId(void);
 Oid BsonRangeMatchFunctionId(void);
 Oid BsonRangeMatchOperatorOid(void);
+Oid BsonFullScanFunctionOid(void);
 Oid BsonInMatchFunctionId(void);
 Oid BsonNinMatchFunctionId(void);
 Oid BsonNotEqualMatchFunctionId(void);
@@ -168,7 +169,16 @@ Oid ApiCatalogCollectionIndexIdSequenceId(void);
 
 /* order by */
 Oid BsonOrderByFunctionOid(void);
+Oid BsonOrderByWithCollationFunctionOid(void);
 Oid BsonOrderByPartitionFunctionOid(void);
+Oid BsonOrderByPartitionWithCollationFunctionOid(void);
+Oid BsonOrderByCompareFunctionOId(void);
+Oid BsonOrderByLtFunctionOId(void);
+Oid BsonOrderByEqFunctionOId(void);
+Oid BsonOrderByGtFunctionOId(void);
+Oid BsonOrderyByLtOperatorId(void);
+Oid BsonOrderyByEqOperatorId(void);
+Oid BsonOrderyByGtOperatorId(void);
 Oid BsonOrderByIndexOperatorId(void);
 
 /* Postgres internal functions */
@@ -214,8 +224,9 @@ Oid Float8MultiplyOperatorId(void);
 
 /* Vector Functions */
 Oid PgDoubleToVectorFunctionOid(void);
+Oid PgDoubleToSparseVecFunctionOid(bool missingOK);
 Oid VectorAsVectorFunctionOid(void);
-Oid VectorAsHalfVecFunctionOid(void);
+Oid VectorAsHalfVecFunctionOid(bool missingOK);
 Oid ApiCatalogBsonExtractVectorFunctionId(void);
 Oid ApiBsonSearchParamFunctionId(void);
 Oid ApiBsonDocumentAddScoreFieldFunctionId(void);
@@ -335,11 +346,14 @@ Oid BsonAvgAggregateFunctionOid(void);
 Oid BsonRepathAndBuildFunctionOid(void);
 Oid BsonExpressionGetFunctionOid(void);
 Oid BsonExpressionGetWithLetFunctionOid(void);
+Oid BsonExpressionGetWithLetAndCollationFunctionOid(void);
 Oid BsonExpressionPartitionGetFunctionOid(void);
 Oid BsonExpressionPartitionByFieldsGetFunctionOid(void);
 Oid BsonExpressionPartitionGetWithLetFunctionOid(void);
+Oid BsonExpressionPartitionGetWithLetAndCollationFunctionOid(void);
 Oid BsonExpressionMapFunctionOid(void);
 Oid BsonExpressionMapWithLetFunctionOid(void);
+Oid BsonExpressionAppendCollationFunctionOid(void);
 Oid BsonMaxAggregateFunctionOid(void);
 Oid BsonMinAggregateFunctionOid(void);
 Oid PgRandomFunctionOid(void);
@@ -377,6 +391,7 @@ Oid BsonDollarLookupJoinFilterFunctionOid(void);
 Oid BsonLookupExtractFilterArrayFunctionOid(void);
 Oid BsonLookupUnwindFunctionOid(void);
 Oid BsonDistinctUnwindFunctionOid(void);
+Oid BsonDollarBucketAutoFunctionOid(void);
 Oid BsonDistinctAggregateFunctionOid(void);
 Oid RowGetBsonFunctionOid(void);
 Oid ApiChangeStreamAggregationFunctionOid(void);
