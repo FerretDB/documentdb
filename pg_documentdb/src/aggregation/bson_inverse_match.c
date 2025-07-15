@@ -61,7 +61,8 @@ static bool InverseMatchVisitTopLevelField(pgbsonelement *element, const
 										   StringView *filterPath,
 										   void *state);
 static bool InverseMatchContinueProcessIntermediateArray(void *state, const
-														 bson_value_t *value);
+														 bson_value_t *value, bool
+														 isArrayIndexSearch);
 
 static const TraverseBsonExecutionFuncs InverseMatchExecutionFuncs = {
 	.ContinueProcessIntermediateArray = InverseMatchContinueProcessIntermediateArray,
@@ -220,8 +221,8 @@ EvaluateInverseMatch(pgbson *document, const InverseMatchArgs *args)
 
 /*
  * Parses the {"path": <document>, "input": <document or array of documents>, "defaultResult": <bool> }
- * and stores it into the args parameter. It just validates the input as the rest of validation is done at the top level query and transformed to the
- * expected spec at this stage of the query.
+ * and stores it into the args parameter. It just validates the input as the rest of validation is done at
+ * the top level query and transformed to the expected spec at this stage of the query.
  */
 static void
 PopulateInverseMatchArgs(InverseMatchArgs *args, bson_iter_t *specIter)
@@ -255,7 +256,7 @@ PopulateInverseMatchArgs(InverseMatchArgs *args, bson_iter_t *specIter)
 
 	/*
 	 * We support parsing as an expression to support cases where the input might come from a previous stage,
-	 * i.e: $project in order to build the input in a specific shape and reference it via a path expression.
+	 * e.g., $project in order to build the input in a specific shape and reference it via a path expression.
 	 */
 	ParseAggregationExpressionContext parseContext = { 0 };
 	ParseAggregationExpressionData(&args->queryInputExpression, &queryInput,
@@ -337,7 +338,7 @@ InverseMatchVisitTopLevelField(pgbsonelement *element, const StringView *filterP
 /* This function stops the traversing of the bson in intermediate array fields. */
 static bool
 InverseMatchContinueProcessIntermediateArray(void *state, const
-											 bson_value_t *value)
+											 bson_value_t *value, bool isArrayIndexSearch)
 {
 	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 					errmsg(

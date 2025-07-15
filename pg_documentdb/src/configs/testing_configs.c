@@ -54,6 +54,9 @@ bool DefaultUseCompositeOpClass = DEFAULT_USE_NEW_COMPOSITE_INDEX_OPCLASS;
 #define DEFAULT_ENABLE_INDEX_ORDERBY_PUSHDOWN false
 bool EnableIndexOrderbyPushdown = DEFAULT_ENABLE_INDEX_ORDERBY_PUSHDOWN;
 
+#define DEFAULT_ENABLE_DESCENDING_COMPOSITE_INDEX false
+bool EnableDescendingCompositeIndex = DEFAULT_ENABLE_DESCENDING_COMPOSITE_INDEX;
+
 #define DEFAULT_MAX_WORKER_CURSOR_SIZE BSON_MAX_ALLOWED_SIZE
 int32_t MaxWorkerCursorSize = DEFAULT_MAX_WORKER_CURSOR_SIZE;
 
@@ -70,6 +73,9 @@ extern int32 PEC_InternalDocumentSourceDensifyMaxMemoryBytes;
 
 #define DEFAULT_FORCE_DISABLE_SEQ_SCAN false
 bool ForceDisableSeqScan = DEFAULT_FORCE_DISABLE_SEQ_SCAN;
+
+#define DEFAULT_CURRENTOP_ADD_SQL_COMMAND false
+bool CurrentOpAddSqlCommand = DEFAULT_CURRENTOP_ADD_SQL_COMMAND;
 
 void
 InitializeTestConfigurations(const char *prefix, const char *newGucPrefix)
@@ -177,6 +183,13 @@ InitializeTestConfigurations(const char *prefix, const char *newGucPrefix)
 		NULL, &EnableIndexOrderbyPushdown, DEFAULT_ENABLE_INDEX_ORDERBY_PUSHDOWN,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
+	DefineCustomBoolVariable(
+		psprintf("%s.enableDescendingCompositeIndex", newGucPrefix),
+		gettext_noop(
+			"Whether to enable descending composite index support"),
+		NULL, &EnableDescendingCompositeIndex, DEFAULT_ENABLE_DESCENDING_COMPOSITE_INDEX,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
 	DefineCustomIntVariable(
 		psprintf("%s.indexTermLimitOverride", prefix),
 		gettext_noop(
@@ -207,7 +220,7 @@ InitializeTestConfigurations(const char *prefix, const char *newGucPrefix)
 	DefineCustomBoolVariable(
 		psprintf("%s.enableNativeColocation", prefix),
 		gettext_noop(
-			"Determines whether to turn on colocation of tables in a given mongo database (and disabled outside the database)"),
+			"Determines whether to turn on colocation of tables in a given collection database (and disabled outside the database)"),
 		NULL, &EnableNativeColocation, DEFAULT_ENABLE_NATIVE_COLOCATION,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
@@ -240,5 +253,12 @@ InitializeTestConfigurations(const char *prefix, const char *newGucPrefix)
 		gettext_noop(
 			"Whether to force disable sequential type scans on the collection."),
 		NULL, &ForceDisableSeqScan, DEFAULT_FORCE_DISABLE_SEQ_SCAN,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.currentOpAddSqlCommand", newGucPrefix),
+		gettext_noop(
+			"Whether to add the SQL command to the current operation view."),
+		NULL, &CurrentOpAddSqlCommand, DEFAULT_CURRENTOP_ADD_SQL_COMMAND,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 }

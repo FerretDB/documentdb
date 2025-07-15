@@ -51,6 +51,7 @@ const int MaximumLookupPipelineDepth = 20;
 extern bool EnableLookupIdJoinOptimizationOnCollation;
 extern bool EnableNowSystemVariable;
 extern bool EnableMatchWithLetInLookup;
+extern bool EnableLookupInnerJoin;
 
 /*
  * Struct having parsed view of the
@@ -372,7 +373,11 @@ HandleFacet(const bson_value_t *existingValue, Query *query,
 
 	/* First step, move the current query into a CTE */
 	CommonTableExpr *baseCte = makeNode(CommonTableExpr);
-	baseCte->ctename = psprintf("facet_base_%d", context->nestedPipelineLevel);
+
+	/* Adding the stage number to the CTE alias (which is done in CreateCteSelectQuery()) is not enough to avoid conflict
+	 * when there are multiple top level facets due to the facet stage is planned (see facet explains)*/
+	baseCte->ctename = psprintf("facet_base_%d_%d", context->stageNum,
+								context->nestedPipelineLevel);
 	baseCte->ctequery = (Node *) query;
 
 	/* Second step: Build UNION ALL query */
@@ -399,10 +404,7 @@ HandleLookup(const bson_value_t *existingValue, Query *query,
 {
 	ReportFeatureUsage(FEATURE_STAGE_LOOKUP);
 
-	LookupContext lookupContext;
-	memset(&lookupContext, 0, sizeof(LookupContext));
-	lookupContext.isLookupUnwind = false;
-
+	LookupContext lookupContext = { 0 };
 	return HandleLookupCore(existingValue, query, context, &lookupContext);
 }
 
@@ -1249,7 +1251,8 @@ BuildFacetUnionAllQuery(int numStages, const bson_value_t *facetValue,
 		/* Levels up is unused as we reset it after we build the aggregation and the final levelsup
 		 * is determined. */
 		int levelsUpUnused = 0;
-		Query *baseQuery = CreateCteSelectQuery(baseCte, "facetsub", numStages,
+		Query *baseQuery = CreateCteSelectQuery(baseCte, "facetsub",
+												parentContext->stageNum,
 												levelsUpUnused);
 
 		/* Mutate the Query to add the aggregation pipeline */
@@ -1898,9 +1901,12 @@ ParseLookupStage(const bson_value_t *existingValue, LookupArgs *args)
 /*
  * Helper method to create Lookup's JOIN RTE - this is the entry in the RTE
  * That goes in the Lookup's FROM clause and ties the two tables together.
+ *
+ * Note: useInnerJoin makes use of the INNER JOIN instead of LEFT JOIN
  */
 inline static RangeTblEntry *
-MakeLookupJoinRte(List *joinVars, List *colNames, List *joinLeftCols, List *joinRightCols)
+MakeLookupJoinRte(List *joinVars, List *colNames, List *joinLeftCols, List *joinRightCols,
+				  bool useInnerJoin)
 {
 	/* Add an RTE for the JoinExpr */
 	RangeTblEntry *joinRte = makeNode(RangeTblEntry);
@@ -1908,7 +1914,7 @@ MakeLookupJoinRte(List *joinVars, List *colNames, List *joinLeftCols, List *join
 	joinRte->rtekind = RTE_JOIN;
 	joinRte->relid = InvalidOid;
 	joinRte->subquery = NULL;
-	joinRte->jointype = JOIN_LEFT;
+	joinRte->jointype = useInnerJoin ? JOIN_INNER : JOIN_LEFT;
 	joinRte->joinmergedcols = 0; /* No using clause */
 	joinRte->joinaliasvars = joinVars;
 	joinRte->joinleftcols = joinLeftCols;
@@ -2591,8 +2597,10 @@ ProcessLookupCoreWithLet(Query *query, AggregationPipelineBuildContext *context,
 	MakeBsonJoinVarsFromQuery(rightQueryRteIndex, rightQuery, &outputVars,
 							  &outputColNames, &rightJoinCols);
 
+	bool useInnerJoin = !lookupContext->preserveNullAndEmptyArrays &&
+						EnableLookupInnerJoin;
 	RangeTblEntry *joinRte = MakeLookupJoinRte(outputVars, outputColNames, leftJoinCols,
-											   rightJoinCols);
+											   rightJoinCols, useInnerJoin);
 
 
 	lookupQuery->rtable = list_make3(leftTree, rightTree, joinRte);
@@ -2799,7 +2807,7 @@ ProcessLookupCoreWithLet(Query *query, AggregationPipelineBuildContext *context,
 			Expr *coalesceExpr = GetEmptyBsonCoalesce(rightDocExpr);
 			list_nth_cell(mergeDocumentsArgs, 1)->ptr_value = coalesceExpr;
 		}
-		else
+		else if (!useInnerJoin)
 		{
 			NullTest *nullTest = makeNode(NullTest);
 			nullTest->argisrow = false;
@@ -2811,6 +2819,7 @@ ProcessLookupCoreWithLet(Query *query, AggregationPipelineBuildContext *context,
 			existingQuals = lappend(existingQuals, nullTest);
 			lookupQuery->jointree->quals = (Node *) make_ands_explicit(existingQuals);
 		}
+
 		mergeDocumentsArgs = lappend(mergeDocumentsArgs,
 									 MakeTextConst(lookupArgs->lookupAs.string,
 												   lookupArgs->lookupAs.length));

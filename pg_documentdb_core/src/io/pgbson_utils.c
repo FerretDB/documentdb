@@ -183,7 +183,7 @@ AddNumberToBsonValue(bson_value_t *state, const bson_value_t *number,
 
 /*
  * Subtracts the number stored in subtrahend to state and modifies state.
- * returns true if substraction happened (type was supported)
+ * returns true if subtraction happened (type was supported)
  */
 bool
 SubtractNumberFromBsonValue(bson_value_t *state, const bson_value_t *subtrahend,
@@ -1029,9 +1029,11 @@ TraverseBsonCore(bson_iter_t *documentIterator, const StringView *traversePath,
 											   &remainingPath, state,
 											   executionFunctions,
 											   inArrayContextInner);
+			bool isArrayIndexSearch = true;
 			if (!executionFunctions->ContinueProcessIntermediateArray(state,
 																	  bson_iter_value(
-																		  documentIterator)))
+																		  documentIterator),
+																	  isArrayIndexSearch))
 			{
 				return false;
 			}
@@ -1069,8 +1071,10 @@ TraverseBsonCore(bson_iter_t *documentIterator, const StringView *traversePath,
 																 inArrayContextInner);
 
 				const bson_value_t *nestedValue = bson_iter_value(&nestedIterator);
+				bool isArrayIndexSearch = false;
 				if (!executionFunctions->ContinueProcessIntermediateArray(state,
-																		  nestedValue))
+																		  nestedValue,
+																		  isArrayIndexSearch))
 				{
 					return false;
 				}

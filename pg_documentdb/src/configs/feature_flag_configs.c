@@ -99,6 +99,9 @@ bool ForceRumOrderedIndexScan = DEFAULT_FORCE_RUM_ORDERED_INDEX_SCAN;
 #define DEFAULT_ENABLE_NEW_OPERATOR_SELECTIVITY false
 bool EnableNewOperatorSelectivityMode = DEFAULT_ENABLE_NEW_OPERATOR_SELECTIVITY;
 
+#define DEFAULT_DISABLE_DOLLAR_FUNCTION_SELECTIVITY false
+bool DisableDollarSupportFuncSelectivity = DEFAULT_DISABLE_DOLLAR_FUNCTION_SELECTIVITY;
+
 #define DEFAULT_ENABLE_RUM_INDEX_SCAN true
 bool EnableRumIndexScan = DEFAULT_ENABLE_RUM_INDEX_SCAN;
 
@@ -111,6 +114,9 @@ bool EnableSortbyIdPushDownToPrimaryKey =
 
 #define DEFAULT_USE_NEW_ELEMMATCH_INDEX_PUSHDOWN false
 bool UseNewElemMatchIndexPushdown = DEFAULT_USE_NEW_ELEMMATCH_INDEX_PUSHDOWN;
+
+#define DEFAULT_LOOKUP_ENABLE_INNER_JOIN false
+bool EnableLookupInnerJoin = DEFAULT_LOOKUP_ENABLE_INNER_JOIN;
 
 
 /*
@@ -279,6 +285,14 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 			"Determines whether to use the new selectivity logic."),
 		NULL, &EnableNewOperatorSelectivityMode,
 		DEFAULT_ENABLE_NEW_OPERATOR_SELECTIVITY,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.disableDollarSupportFuncSelectivity", newGucPrefix),
+		gettext_noop(
+			"Disables the selectivity calculation for dollar support functions - override on top of enableNewSelectivityMode."),
+		NULL, &DisableDollarSupportFuncSelectivity,
+		DEFAULT_DISABLE_DOLLAR_FUNCTION_SELECTIVITY,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
@@ -585,6 +599,14 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 			"Whether or not to use the new elemMatch index pushdown logic."),
 		NULL, &UseNewElemMatchIndexPushdown,
 		DEFAULT_USE_NEW_ELEMMATCH_INDEX_PUSHDOWN,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.enableLookupInnerJoin", newGucPrefix),
+		gettext_noop(
+			"Whether or not to enable lookup inner join."),
+		NULL, &EnableLookupInnerJoin,
+		DEFAULT_LOOKUP_ENABLE_INNER_JOIN,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(

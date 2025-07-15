@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  * Copyright (c) Microsoft Corporation.  All rights reserved.
  *
- * src/bson/bson_positional_query.c
+ * src/aggregation/bson_positional_query.c
  *
  * Implementation of the BSON Positional $ operator (shared between projection and update)
  *
@@ -32,7 +32,7 @@
  */
 typedef struct BsonPositionalQueryQual
 {
-	/* The path to the query filter (e.g. a.b.c) */
+	/* The path to the query filter (e.g., a.b.c) */
 	const char *path;
 
 	/* The expression to evaluate for this filter */
@@ -87,7 +87,8 @@ static bool PositionalQueryVisitArrayField(pgbsonelement *element, const
 										   StringView *filterPath,
 										   int arrayIndex, void *state);
 static bool PositionalQueryContinueProcessIntermediateArray(void *state, const
-															bson_value_t *value);
+															bson_value_t *value, bool
+															isArrayIndexSearch);
 static void PositionalSetIntermediateArrayIndex(void *state, int32_t index);
 
 /* --------------------------------------------------------- */
@@ -341,7 +342,8 @@ ProcessSingleFuncExpr(FuncExpr *expr, List **finalList, bool isArrayMatch, const
  */
 static bool
 PositionalQueryContinueProcessIntermediateArray(void *state, const
-												bson_value_t *value)
+												bson_value_t *value, bool
+												isArrayIndexSearch)
 {
 	TraverseBsonPositionalQualState *queryState =
 		(TraverseBsonPositionalQualState *) state;

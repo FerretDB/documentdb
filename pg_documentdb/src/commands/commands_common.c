@@ -1,9 +1,9 @@
 /*-------------------------------------------------------------------------
  * Copyright (c) Microsoft Corporation.  All rights reserved.
  *
- * src/oss_backend/commands/commands_common.c
+ * src/commands/commands_common.c
  *
- * Implementation of a set of common methods for Mongo commands.
+ * Implementation of a set of common methods for commands in general.
  *
  *-------------------------------------------------------------------------
  */
@@ -34,7 +34,7 @@ extern int MaxCustomCommandTimeout;
 extern bool EnableVariablesSupportForWriteCommands;
 
 /*
- *  This is a list of Mongo command options that are not currently supported.
+ *  This is a list of command options that are not currently supported.
  *  At runtime, we ignore these optional fields.
  *
  *  Note: Please keep this array sorted.
@@ -405,7 +405,7 @@ TryGetErrorMessageAndCode(ErrorData *errorData, int *code, char **errmessage)
 
 
 /*
- * Ensures that the _id field in a write document conforms to the requirements of Mongo
+ * Ensures that the _id field in a write document conforms to the protocol requirements
  * Right now this ensures that the _id is not undefined or an array or a regex pattern
  */
 void

@@ -2,7 +2,7 @@
 /*-------------------------------------------------------------------------
  * Copyright (c) Microsoft Corporation.  All rights reserved.
  *
- * src/oss_backend/commands/current_op.c
+ * src/commands/current_op.c
  *
  * Implementation of the current_op command.
  *-------------------------------------------------------------------------
@@ -74,7 +74,7 @@ typedef struct
 	/* Seconds that the command is running */
 	int secs_running;
 
-	/* The mongo specific operationId for the operation */
+	/* The operationId for the operation */
 	const char *operationId;
 
 	/* The raw mongo table (if it could be determined) */
@@ -92,10 +92,10 @@ typedef struct
 	/* The seconds since the backend last state change */
 	int64 state_change_since;
 
-	/* Mongo collection name determined from the table name */
+	/* collection name determined from the table name */
 	const char *processedMongoCollection;
 
-	/* Mongo collection name determined from the table name */
+	/* collection name determined from the table name */
 	const char *processedMongoDatabase;
 
 	/* During processing, whether or not to add index build stats */
@@ -134,6 +134,7 @@ static void WriteGlobalPidOfLockingProcess(SingleWorkerActivity *activity,
 static void WriteIndexSpec(SingleWorkerActivity *activity, pgbson_writer *commandWriter);
 
 extern char *CurrentOpApplicationName;
+extern bool CurrentOpAddSqlCommand;
 
 
 /* Single node scenario - the global_pid can be assumed to be just the one for the coordinator */
@@ -410,6 +411,13 @@ CurrentOpWorkerCore(void *specPointer)
 			continue;
 		}
 
+		if (activity->query != NULL &&
+			IsVersionRefreshQueryString(activity->query))
+		{
+			/* Skip version refresh query calls */
+			continue;
+		}
+
 		/* by default we would want to just send the activity up - but we really
 		 * need to post-process the activity here. This is because things like
 		 * index progress need to be handled fully on the worker (the tables aren't
@@ -648,13 +656,12 @@ WorkerGetBaseActivities()
 /*
  * Given an activity on a worker node via SingleWorkerActivity,
  * writes the activity to the target pgbson_writer. The activity
- * is written in the Mongo Compatible currentOp format.
+ * is written in a format compatible with the currentOp command output.
  */
 static void
 WriteOneActivityToDocument(SingleWorkerActivity *workerActivity,
 						   pgbson_writer *singleActivityWriter)
 {
-	/* First step - detect the mongo collection */
 	DetectMongoCollection(workerActivity);
 
 	PgbsonWriterAppendUtf8(singleActivityWriter, "shard", 5, "defaultShard");
@@ -753,6 +760,12 @@ WriteOneActivityToDocument(SingleWorkerActivity *workerActivity,
 	if (waitingForLock)
 	{
 		WriteGlobalPidOfLockingProcess(workerActivity, singleActivityWriter);
+	}
+
+	if (CurrentOpAddSqlCommand)
+	{
+		/* If the command requested the SQL command, add it */
+		PgbsonWriterAppendUtf8(singleActivityWriter, "sql", 3, workerActivity->query);
 	}
 
 	/* If the command requested logging index build progress, query and log it */
@@ -966,7 +979,7 @@ DetectApiInternalSchemaCommand(const char *topLevelQuery, const char *schemaName
  * Parses the "query" of the pg_stat_activity and returns the top level "op"
  * for that query. Also updates the "command" document for the operation in the
  * writer.
- * Note that beyond Mongo's commands, we add a "workerCommand" type for internal
+ * Note that beyond standard commands, we add a "workerCommand" type for internal
  * queries e.g. the actual CREATE INDEX or ALTER TABLE, or the update_one calls.
  * TODO: Can we figure out a way to do a binary search for this code?
  */

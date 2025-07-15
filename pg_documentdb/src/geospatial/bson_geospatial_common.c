@@ -67,7 +67,8 @@ static bool GeographyValidateTopLevelField(pgbsonelement *element, const
 										   StringView *filterPath,
 										   void *state);
 static bool ContinueProcessIntermediateArray(void *state, const
-											 bson_value_t *value);
+											 bson_value_t *value, bool
+											 isArrayIndexSearch);
 static bool BsonValueAddLegacyPointDatum(const bson_value_t *value,
 										 ProcessCommonGeospatialState *state,
 										 bool *isNull);
@@ -622,7 +623,8 @@ BsonValueAddLegacyPointDatum(const bson_value_t *value,
  * Continue always for intermediate arrays to find all possible points
  */
 static bool
-ContinueProcessIntermediateArray(void *state, const bson_value_t *value)
+ContinueProcessIntermediateArray(void *state, const bson_value_t *value,
+								 bool isArrayIndexSearch)
 {
 	ProcessCommonGeospatialState *processState = (ProcessCommonGeospatialState *) state;
 
@@ -703,7 +705,7 @@ GeographyVisitTopLevelField(pgbsonelement *element, const
 
 	/*
 	 * First parse this as Legacy
-	 * Second if not successful Try to parse this as GeoJson, some mongo validations are just ignored by Postigs,
+	 * Second if not successful Try to parse this as GeoJson, some validations are just ignored by Postigs,
 	 * we have our custom parser to accomodate these.
 	 * e.g of such cases:
 	 * 1- [10, "text"] - Point like this is treated as valid in Postgis after converting "text" to 0.
@@ -712,7 +714,7 @@ GeographyVisitTopLevelField(pgbsonelement *element, const
 	 *    Ref: https://json-c.github.io/json-c/json-c-0.10/doc/html/json__object_8h.html
 	 *
 	 * 2- GeoJson type "Point" can also be defined as a document {x: 10, y: 10} which is not GeoJson standard
-	 *    but mongo supports it
+	 *    but we need to support it
 	 *
 	 * 3- Bson document can have different number types e.g. Decimal which will not be recognized by Postgis in
 	 *    Json format
