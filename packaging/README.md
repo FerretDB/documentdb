@@ -3,10 +3,10 @@
 ## Building Debian/Ubuntu Packages
 
 Run `./packaging/build_packages.sh -h` and follow the instructions.
-E.g. to build for Debian 12 and PostgreSQL 16, run:
+E.g. to build for Debian 12 and PostgreSQL 16 for `0.102.0~ferretdb~2.0.0~rc.2` version, run:
 
 ```sh
-./packaging/build_packages.sh --os deb12 --pg 16
+./packaging/build_packages.sh --os deb12 --pg 16 --version 0.102.0~ferretdb~2.0.0~rc.2
 ```
 
 ## Building RPM Packages
