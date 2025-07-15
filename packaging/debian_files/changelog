@@ -1,5 +1,12 @@
 documentdb (DOCUMENTDB_VERSION) unstable; urgency=medium
 
+  * Support `$bucketAuto` aggregation stage, with granularity types: `POWERSOF2`, `1-2-5`, `R5`, `R10`, `R20`, `R40`, `R80`, `E6`, `E12`, `E24`, `E48`, `E96`, `E192` [Feature]
+  * Support `conectionStatus` command [Feature]
+
+-- FerretDB Packages <packages@ferretdb.io>  Tue, 09 Jul 2025 12:00:00 +0000
+
+documentdb (0.104-0) unstable; urgency=medium
+
   * Add string case support for $toDate operator
   * Support sort with collation in runtime [Feature]
   * Support collation with $indexOfArray aggregation operator [Feature]

@@ -1,8 +1,22 @@
-### documentdb v0.105-0 (Unreleased) ###
+### DocumentDB v0.105.0-ferretdb-2.4.0 (July 15, 2025) ###
+
+This version works best with FerretDB v2.4.0.
+
+Debian and Ubuntu `.deb` packages are provided
+[on the release page](https://github.com/FerretDB/documentdb/releases/tag/v0.105.0-ferretdb-2.4.0).
+See installation instructions [in our documentation](https://docs.ferretdb.io/installation/documentdb/deb/).
+
+Docker images are available
+[in the registry](https://github.com/FerretDB/documentdb/pkgs/container/postgres-documentdb).
+See installation instructions [in our documentation](https://docs.ferretdb.io/installation/documentdb/docker/).
+We always recommend specifying the full image tag (e.g., `17-0.105.0-ferretdb-2.4.0`, not just `17` or `17-0.105.0`)
+to avoid unexpected updates.
+
+### documentdb v0.105-0 (July 09, 2025) ###
 * Support `$bucketAuto` aggregation stage, with granularity types: `POWERSOF2`, `1-2-5`, `R5`, `R10`, `R20`, `R40`, `R80`, `E6`, `E12`, `E24`, `E48`, `E96`, `E192` *[Feature]*
 * Support `conectionStatus` command *[Feature]*.
 
-### DocumentDB v0.104.0-ferretdb-2.3.0 (Jun 10, 2025) ###
+### DocumentDB v0.104.0-ferretdb-2.3.0 (June 10, 2025) ###
 
 This version works best with FerretDB v2.3.0 and v2.3.1.
 
@@ -33,7 +47,7 @@ to avoid unexpected updates.
 * Support `compact` command *[Feature]*. Requires `documentdb.enablecompact` GUC to be `on`.
 * Enable role privileges for `usersInfo` command *[Feature]*
 
-### DocumentDB v0.103.0-ferretdb-2.2.0 (May 9, 2025) ###
+### DocumentDB v0.103.0-ferretdb-2.2.0 (May 09, 2025) ###
 
 This version works best with FerretDB v2.2.0.
 
