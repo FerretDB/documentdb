@@ -24,7 +24,7 @@ function GetPostgresPath()
   local pgVersion=$1
   local osVersion=$(cat /etc/os-release | grep "^ID=");
 
-  if [[ "$osVersion" == "ID=ubuntu" || "$osVersion" == "ID=debian"|| "$osVersion" == "ID=mariner" ]]; then
+  if [[ "$osVersion" == "ID=ubuntu" || "$osVersion" == "ID=debian"|| "$osVersion" == "ID=mariner" || "$osVersion" == "ID=azurelinux" ]]; then
     echo "/usr/lib/postgresql/$pgVersion/bin"
   else
     echo "/usr/pgsql-$pgVersion/bin"
@@ -132,6 +132,8 @@ function SetupPostgresConfigurations()
   requiredLibraries="pg_cron, ${preloadLibraries}";
   echo shared_preload_libraries = \'$requiredLibraries\' | tee -a $installdir/postgresql.conf
   echo cron.database_name = \'postgres\' | tee -a $installdir/postgresql.conf
+  echo documentdb.enableBackgroundWorker = 'true' | tee -a $installdir/postgresql.conf
+  echo documentdb.enableBackgroundWorkerJobs = 'true' | tee -a $installdir/postgresql.conf
   echo ssl = off | tee -a $installdir/postgresql.conf
 }
 

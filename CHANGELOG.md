@@ -1,3 +1,6 @@
+### documentdb v1.106-0 (Unreleased) ###
+- Add internal extension that provides extensions to the `rum` index. *[Feature]*
+
 ### DocumentDB v0.105.0-ferretdb-2.4.0 (July 15, 2025) ###
 
 This version works best with FerretDB v2.4.0.

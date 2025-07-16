@@ -44,11 +44,11 @@ bool RumHasMultiKeyPaths = false;
 /* --------------------------------------------------------- */
 /* Forward declaration */
 /* --------------------------------------------------------- */
-
+extern BsonIndexAmEntry RumIndexAmEntry;
 static bool loaded_rum_routine = false;
 static IndexAmRoutine rum_index_routine = { 0 };
 
-RumIndexArrayStateFuncs *IndexArrayStateFuncs = NULL;
+const RumIndexArrayStateFuncs *IndexArrayStateFuncs = NULL;
 
 typedef enum IndexMultiKeyStatus
 {
@@ -75,6 +75,8 @@ typedef struct DocumentDBRumIndexState
 
 	bool isForcedOrderScan;
 } DocumentDBRumIndexState;
+
+typedef const RumIndexArrayStateFuncs *(*GetIndexArrayStateFuncsFunc)(void);
 
 extern Datum gin_bson_composite_path_extract_query(PG_FUNCTION_ARGS);
 
@@ -141,7 +143,7 @@ extensionrumhandler(PG_FUNCTION_ARGS)
 
 
 void
-RegisterIndexArrayStateFuncs(RumIndexArrayStateFuncs *funcs)
+RegisterIndexArrayStateFuncs(const RumIndexArrayStateFuncs *funcs)
 {
 	if (IndexArrayStateFuncs != NULL)
 	{
@@ -204,9 +206,71 @@ LoadRumRoutine(void)
 {
 	bool missingOk = false;
 	void **ignoreLibFileHandle = NULL;
-	Datum (*rumhandler) (FunctionCallInfo) =
-		load_external_function("$libdir/rum", "rumhandler", !missingOk,
-							   ignoreLibFileHandle);
+
+	/* Load the rum handler function from the shared library
+	 * Allow overrides via the documentdb_rum extension
+	 */
+
+	Datum (*rumhandler) (FunctionCallInfo);
+	const char *rumLibPath;
+
+	ereport(LOG, (errmsg("Loading RUM handler with DocumentDBRumLibraryLoadOption: %d",
+						 DocumentDBRumLibraryLoadOption)));
+	switch (DocumentDBRumLibraryLoadOption)
+	{
+		case RumLibraryLoadOption_RequireDocumentDBRum:
+		{
+			rumLibPath = "$libdir/pg_documentdb_rum";
+			rumhandler = load_external_function(rumLibPath,
+												"documentdb_rumhandler", !missingOk,
+												ignoreLibFileHandle);
+			ereport(LOG, (errmsg(
+							  "Loaded documentdb_rumhandler successfully via pg_documentdb_rum")));
+			break;
+		}
+
+		case RumLibraryLoadOption_PreferDocumentDBRum:
+		{
+			rumLibPath = "$libdir/pg_documentdb_rum";
+			rumhandler = load_external_function(rumLibPath,
+												"documentdb_rumhandler", missingOk,
+												ignoreLibFileHandle);
+
+			if (rumhandler == NULL)
+			{
+				rumLibPath = "$libdir/rum";
+				rumhandler = load_external_function(rumLibPath, "rumhandler",
+													!missingOk,
+													ignoreLibFileHandle);
+				ereport(LOG,
+						(errmsg(
+							 "Loaded documentdb_rum handler successfully via rum as a fallback")));
+			}
+			else
+			{
+				ereport(LOG,
+						(errmsg(
+							 "Loaded documentdb_rumhandler successfully via pg_documentdb_rum")));
+			}
+
+			break;
+		}
+
+		case RumLibraryLoadOption_None:
+		{
+			rumLibPath = "$libdir/rum";
+			rumhandler = load_external_function(rumLibPath, "rumhandler", !missingOk,
+												ignoreLibFileHandle);
+			ereport(LOG, (errmsg("Loaded documentdb_rum handler successfully via rum")));
+			break;
+		}
+
+		default:
+		{
+			ereport(ERROR, (errmsg("Unknown RUM library load option: %d",
+								   DocumentDBRumLibraryLoadOption)));
+		}
+	}
 
 	LOCAL_FCINFO(fcinfo, 0);
 
@@ -214,6 +278,46 @@ LoadRumRoutine(void)
 	Datum rumHandlerDatum = rumhandler(fcinfo);
 	IndexAmRoutine *indexRoutine = (IndexAmRoutine *) DatumGetPointer(rumHandlerDatum);
 	rum_index_routine = *indexRoutine;
+
+	/* Load optional explain function */
+	missingOk = true;
+	TryExplainIndexFunc explain_index_func =
+		load_external_function(rumLibPath,
+							   "try_explain_rum_index", !missingOk,
+							   ignoreLibFileHandle);
+
+	if (explain_index_func != NULL)
+	{
+		RumIndexAmEntry.add_explain_output = explain_index_func;
+	}
+
+	if (IndexArrayStateFuncs == NULL)
+	{
+		/* Try to see if the custom rum handler has support for multi-key indexes */
+		GetIndexArrayStateFuncsFunc get_index_array_state_funcs =
+			load_external_function(rumLibPath,
+								   "get_rum_index_array_state_funcs", !missingOk,
+								   ignoreLibFileHandle);
+
+		if (get_index_array_state_funcs != NULL)
+		{
+			ereport(LOG, (errmsg(
+							  "Loaded RUM index array state functions successfully via the rum library")));
+			RegisterIndexArrayStateFuncs(get_index_array_state_funcs());
+		}
+		else
+		{
+			ereport(LOG, (errmsg(
+							  "RUM index array state functions not found, skipping registration")));
+		}
+	}
+	else
+	{
+		ereport(LOG, (errmsg(
+						  "RUM index array state functions already registered, skipping registration")));
+	}
+
+
 	loaded_rum_routine = true;
 	pfree(indexRoutine);
 }

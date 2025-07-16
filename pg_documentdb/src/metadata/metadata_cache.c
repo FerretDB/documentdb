@@ -111,6 +111,7 @@ PGDLLEXPORT char *ApiDataSchemaName = "documentdb_data";
 PGDLLEXPORT char *ApiAdminRole = "documentdb_admin_role";
 PGDLLEXPORT char *ApiAdminRoleV2 = "documentdb_admin_role";
 PGDLLEXPORT char *ApiReadOnlyRole = "documentdb_readonly_role";
+PGDLLEXPORT char *ApiBgWorkerRole = "documentdb_bg_worker_role";
 PGDLLEXPORT char *ApiSchemaName = "documentdb_api";
 PGDLLEXPORT char *ApiSchemaNameV2 = "documentdb_api";
 PGDLLEXPORT char *ApiInternalSchemaName = "documentdb_api_internal";
@@ -122,6 +123,7 @@ PGDLLEXPORT char *ApiExtensionName = "documentdb";
 PGDLLEXPORT char *ApiCatalogSchemaName = "documentdb_api_catalog";
 PGDLLEXPORT char *ApiCatalogSchemaNameV2 = "documentdb_api_catalog";
 PGDLLEXPORT char *ApiGucPrefix = "documentdb";
+PGDLLEXPORT char *ApiGucPrefixV2 = "documentdb";
 PGDLLEXPORT char *PostgisSchemaName = "public";
 
 /* Schema functions migrated from a public API to an internal API schema
@@ -3528,25 +3530,13 @@ BsonDollarMergeHandleWhenMatchedFunctionOid(void)
 		List *functionNameList = list_make2(makeString(DocumentDBApiInternalSchemaName),
 											makeString(
 												"bson_dollar_merge_handle_when_matched"));
-		Oid *paramOids;
-		int nargs = 3;
-		if (IsClusterVersionAtleast(DocDB_V0, 102, 0))
-		{
-			paramOids = (Oid *) palloc(sizeof(Oid) * 5);
-			paramOids[0] = BsonTypeId();
-			paramOids[1] = BsonTypeId();
-			paramOids[2] = INT4OID;
-			paramOids[3] = BsonTypeId();
-			paramOids[4] = INT4OID;
-			nargs = 5;
-		}
-		else
-		{
-			paramOids = (Oid *) palloc(sizeof(Oid) * 3);
-			paramOids[0] = BsonTypeId();
-			paramOids[1] = BsonTypeId();
-			paramOids[2] = INT4OID;
-		}
+		Oid paramOids[5];
+		int nargs = 5;
+		paramOids[0] = BsonTypeId();
+		paramOids[1] = BsonTypeId();
+		paramOids[2] = INT4OID;
+		paramOids[3] = BsonTypeId();
+		paramOids[4] = INT4OID;
 
 		bool missingOK = false;
 
@@ -3568,25 +3558,13 @@ BsonDollarMergeAddObjectIdFunctionOid(void)
 		List *functionNameList = list_make2(makeString(DocumentDBApiInternalSchemaName),
 											makeString(
 												"bson_dollar_merge_add_object_id"));
-		Oid *paramOids;
-		int nargs = 2;
-		if (IsClusterVersionAtleast(DocDB_V0, 102, 0))
-		{
-			paramOids = (Oid *) palloc(sizeof(Oid) * 3);
-			paramOids[0] = BsonTypeId();
-			paramOids[1] = BsonTypeId();
-			paramOids[2] = BsonTypeId();
-			nargs = 3;
-		}
-		else
-		{
-			paramOids = (Oid *) palloc(sizeof(Oid) * 2);
-			paramOids[0] = BsonTypeId();
-			paramOids[1] = BsonTypeId();
-		}
+		Oid paramOids[3];
+		int nargs = 3;
+		paramOids[0] = BsonTypeId();
+		paramOids[1] = BsonTypeId();
+		paramOids[2] = BsonTypeId();
 
 		bool missingOK = false;
-
 		Cache.ApiInternalBsonDollarMergeAddObjectIdFunctionId =
 			LookupFuncName(functionNameList, nargs, paramOids, missingOK);
 	}

@@ -116,11 +116,6 @@ typedef struct OutArgs
 	StringView targetCollection;
 } OutArgs;
 
-/* GUC to enable $merge target collection creatation if not exist */
-extern bool EnableMergeTargetCreation;
-
-/* GUC to enable $merge across databases */
-extern bool EnableMergeAcrossDB;
 
 /* GUC to enable $out aggregation stage */
 extern bool EnableCollation;
@@ -651,24 +646,10 @@ HandleMerge(const bson_value_t *existingValue, Query *query,
 	/* if target collection not exist create one */
 	if (targetCollection == NULL)
 	{
-		/* Currently, if a collection is created and a subsequent query fails, we don't create a table, but the collection_id still increments, which is not the desired behavior.
-		 * TODO: We need to devise a strategy to prevent the increment of collection_id if a query fails after the creation of a collection.
-		 */
-		if (EnableMergeTargetCreation)
-		{
-			int ignoreCollectionID = 0;
-			VaildateMergeOnFieldValues(&mergeArgs.on, ignoreCollectionID);
-			targetCollection = CreateCollectionForInsert(databaseNameDatum,
-														 collectionNameDatum);
-		}
-		else
-		{
-			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
-							errmsg(
-								"$merge target collection create not supported yet, Please create target collection first and try again"),
-							errdetail_log(
-								"$merge target collection create not supported yet, Please create target collection first and try again")));
-		}
+		int ignoreCollectionID = 0;
+		VaildateMergeOnFieldValues(&mergeArgs.on, ignoreCollectionID);
+		targetCollection = CreateCollectionForInsert(databaseNameDatum,
+													 collectionNameDatum);
 	}
 	else
 	{
@@ -801,15 +782,8 @@ MakeActionWhenMatched(WhenMatchedAction whenMatched, Var *sourceDocVar, Var *tar
 												 Int32GetDatum(whenMatched),
 												 false, true);
 	List *args = NIL;
-	if (IsClusterVersionAtleast(DocDB_V0, 102, 0))
-	{
-		args = list_make5(sourceDocVar, targetDocVar, inputActionForWhenMathced,
-						  schemaValidatorInfoConst, validationLevelConst);
-	}
-	else
-	{
-		args = list_make3(sourceDocVar, targetDocVar, inputActionForWhenMathced);
-	}
+	args = list_make5(sourceDocVar, targetDocVar, inputActionForWhenMathced,
+					  schemaValidatorInfoConst, validationLevelConst);
 
 	FuncExpr *resultExpr = makeFuncExpr(
 		BsonDollarMergeHandleWhenMatchedFunctionOid(), BsonTypeId(), args, InvalidOid,
@@ -879,15 +853,8 @@ MakeActionWhenNotMatched(WhenNotMatchedAction whenNotMatched, Var *sourceDocVar,
 
 	/* let's build func expr for `document` column */
 	List *argsForAddObjecIdFunc = NIL;
-	if (IsClusterVersionAtleast(DocDB_V0, 102, 0))
-	{
-		argsForAddObjecIdFunc = list_make3(sourceDocVar, generatedObjectIdVar,
-										   schemaValidatorInfoConst);
-	}
-	else
-	{
-		argsForAddObjecIdFunc = list_make2(sourceDocVar, generatedObjectIdVar);
-	}
+	argsForAddObjecIdFunc = list_make3(sourceDocVar, generatedObjectIdVar,
+									   schemaValidatorInfoConst);
 
 	FuncExpr *addObjecIdFuncExpr = makeFuncExpr(
 		BsonDollarMergeAddObjectIdFunctionOid(), BsonTypeId(), argsForAddObjecIdFunc,
@@ -1058,12 +1025,6 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 			if (args->targetDB.length == 0)
 			{
 				args->targetDB = currentDBName;
-			}
-			else if (!EnableMergeAcrossDB && !StringViewEquals(&currentDBName,
-															   &args->targetDB))
-			{
-				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
-								errmsg("merge is not supported across databases")));
 			}
 		}
 		else if (strcmp(key, "on") == 0)
@@ -2179,5 +2140,5 @@ ParseOutStage(const bson_value_t *existingValue, const char *currentNameSpace,
 static inline bool
 CheckSchemaValidationEnabledForDollarMergeOut(void)
 {
-	return EnableSchemaValidation && IsClusterVersionAtleast(DocDB_V0, 102, 0);
+	return EnableSchemaValidation;
 }

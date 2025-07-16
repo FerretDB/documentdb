@@ -74,6 +74,9 @@ extern bool EnableUsernamePasswordConstraints;
 /* GUC that controls whether the usersInfo command returns privileges*/
 extern bool EnableUsersInfoPrivileges;
 
+/* GUC that controls whether native authentication is enabled*/
+extern bool IsNativeAuthEnabled;
+
 PG_FUNCTION_INFO_V1(documentdb_extension_create_user);
 PG_FUNCTION_INFO_V1(documentdb_extension_drop_user);
 PG_FUNCTION_INFO_V1(documentdb_extension_update_user);
@@ -85,6 +88,8 @@ static char * ParseDropUserSpec(pgbson *dropSpec);
 static void ParseUpdateUserSpec(pgbson *updateSpec, UpdateUserSpec *spec);
 static Datum UpdateNativeUser(UpdateUserSpec *spec);
 static void ParseGetUserSpec(pgbson *getSpec, GetUserSpec *spec);
+static void CreateNativeUser(const CreateUserSpec *createUserSpec);
+static void DropNativeUser(const char *dropUser);
 static void ParseUsersInfoDocument(const bson_value_t *usersInfoBson, GetUserSpec *spec);
 static char * PrehashPassword(const char *password);
 static bool IsCallingUserExternal(void);
@@ -289,8 +294,8 @@ documentdb_extension_create_user(PG_FUNCTION_ARGS)
 	const char *cmdStr = FormatSqlQuery(
 		"SELECT COUNT(*) FROM pg_roles parent JOIN pg_auth_members am ON parent.oid = am.roleid JOIN pg_roles child " \
 		"ON am.member = child.oid WHERE child.rolcanlogin = true AND parent.rolname IN ('%s', '%s') " \
-		"AND child.rolname NOT IN ('%s', '%s');", ApiAdminRoleV2, ApiReadOnlyRole,
-		ApiAdminRoleV2, ApiReadOnlyRole);
+		"AND child.rolname NOT IN ('%s', '%s', '%s');", ApiAdminRoleV2, ApiReadOnlyRole,
+		ApiAdminRoleV2, ApiReadOnlyRole, ApiBgWorkerRole);
 
 	bool readOnly = true;
 	bool isNull = false;
@@ -337,26 +342,7 @@ documentdb_extension_create_user(PG_FUNCTION_ARGS)
 	}
 	else
 	{
-		/*Verify that the calling user is a native user */
-		if (IsCallingUserExternal())
-		{
-			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INSUFFICIENTPRIVILEGE),
-							errmsg(
-								"Only native users can create other native users.")));
-		}
-
-		ReportFeatureUsage(FEATURE_USER_CREATE);
-
-		StringInfo createUserInfo = makeStringInfo();
-		appendStringInfo(createUserInfo,
-						 "CREATE ROLE %s WITH LOGIN PASSWORD '%s';",
-						 quote_identifier(createUserSpec.createUser),
-						 PrehashPassword(createUserSpec.pwd));
-
-		readOnly = false;
-		isNull = false;
-		ExtensionExecuteQueryViaSPI(createUserInfo->data, readOnly, SPI_OK_UTILITY,
-									&isNull);
+		CreateNativeUser(&createUserSpec);
 	}
 
 	/* Grant pgRole to user created */
@@ -443,6 +429,13 @@ ParseCreateUserSpec(pgbson *createSpec, CreateUserSpec *spec)
 		}
 		else if (strcmp(key, "roles") == 0)
 		{
+			if (!BSON_ITER_HOLDS_ARRAY(&createIter))
+			{
+				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
+								errmsg(
+									"'roles' field must be an array")));
+			}
+
 			spec->roles = *bson_iter_value(&createIter);
 
 			if (IsBsonValueEmptyDocument(&spec->roles))
@@ -632,6 +625,43 @@ ValidateAndObtainUserRole(const bson_value_t *rolesDocument)
 
 
 /*
+ * CreateNativeUser creates a native PostgreSQL role for the user
+ */
+static void
+CreateNativeUser(const CreateUserSpec *createUserSpec)
+{
+	/*Verify that native authentication is enabled*/
+	if (!IsNativeAuthEnabled)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
+						errmsg(
+							"Native authentication is not enabled. Enable native authentication on this cluster to perform native user management operations.")));
+	}
+
+	ReportFeatureUsage(FEATURE_USER_CREATE);
+
+	/*Verify that the calling user is also native*/
+	if (IsCallingUserExternal())
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INSUFFICIENTPRIVILEGE),
+						errmsg(
+							"Only native users can create other native users. Authenticate as a built-in native administrative user to perform native user management operations.")));
+	}
+
+	StringInfo createUserInfo = makeStringInfo();
+	appendStringInfo(createUserInfo,
+					 "CREATE ROLE %s WITH LOGIN PASSWORD %s;",
+					 quote_identifier(createUserSpec->createUser),
+					 quote_literal_cstr(PrehashPassword(createUserSpec->pwd)));
+
+	bool readOnly = false;
+	bool isNull = false;
+	ExtensionExecuteQueryViaSPI(createUserInfo->data, readOnly, SPI_OK_UTILITY,
+								&isNull);
+}
+
+
+/*
  * documentdb_extension_drop_user implements the
  * core logic to drop a user
  */
@@ -700,23 +730,7 @@ documentdb_extension_drop_user(PG_FUNCTION_ARGS)
 	}
 	else
 	{
-		/*Verify that the calling user is also native*/
-		if (IsCallingUserExternal())
-		{
-			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INSUFFICIENTPRIVILEGE),
-							errmsg(
-								"Only native users can drop other native users.")));
-		}
-
-		ReportFeatureUsage(FEATURE_USER_DROP);
-
-		StringInfo dropUserInfo = makeStringInfo();
-		appendStringInfo(dropUserInfo, "DROP ROLE %s;", quote_identifier(dropUser));
-
-		bool readOnly = false;
-		bool isNull = false;
-		ExtensionExecuteQueryViaSPI(dropUserInfo->data, readOnly, SPI_OK_UTILITY,
-									&isNull);
+		DropNativeUser(dropUser);
 	}
 
 	pgbson_writer finalWriter;
@@ -776,6 +790,40 @@ ParseDropUserSpec(pgbson *dropSpec)
 	}
 
 	return dropUser;
+}
+
+
+/*
+ * DropNativeUser drops a native PostgreSQL role for the user
+ */
+static void
+DropNativeUser(const char *dropUser)
+{
+	/*Verify that native authentication is enabled*/
+	if (!IsNativeAuthEnabled)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
+						errmsg(
+							"Native authentication is not enabled. Enable native authentication on this cluster to perform native user management operations.")));
+	}
+
+	ReportFeatureUsage(FEATURE_USER_DROP);
+
+	/*Verify that the calling user is also native*/
+	if (IsCallingUserExternal())
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INSUFFICIENTPRIVILEGE),
+						errmsg(
+							"Only native users can create other native users. Authenticate as a built-in native administrative user to perform native user management operations.")));
+	}
+
+	StringInfo dropUserInfo = makeStringInfo();
+	appendStringInfo(dropUserInfo, "DROP ROLE %s;", quote_identifier(dropUser));
+
+	bool readOnly = false;
+	bool isNull = false;
+	ExtensionExecuteQueryViaSPI(dropUserInfo->data, readOnly, SPI_OK_UTILITY,
+								&isNull);
 }
 
 
@@ -914,13 +962,22 @@ ParseUpdateUserSpec(pgbson *updateSpec, UpdateUserSpec *spec)
 static Datum
 UpdateNativeUser(UpdateUserSpec *spec)
 {
+	/*Verify that native authentication is enabled*/
+	if (!IsNativeAuthEnabled)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
+						errmsg(
+							"Native authentication is not enabled. Enable native authentication on this cluster to perform native user management operations.")));
+	}
+
 	ReportFeatureUsage(FEATURE_USER_UPDATE);
 
 	/*Verify that the calling user is also native*/
 	if (IsCallingUserExternal())
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INSUFFICIENTPRIVILEGE),
-						errmsg("Only native users can update other native users.")));
+						errmsg(
+							"Only native users can create other native users. Authenticate as a built-in native administrative user to perform native user management operations.")));
 	}
 
 	if (spec->pwd == NULL || spec->pwd[0] == '\0')
@@ -968,6 +1025,7 @@ documentdb_extension_get_users(PG_FUNCTION_ARGS)
 	}
 
 	ReportFeatureUsage(FEATURE_USER_GET);
+
 	if (PG_ARGISNULL(0))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
@@ -1874,8 +1932,8 @@ GetAllUsersInfo(void)
 	const char *cmdStr = FormatSqlQuery(
 		"WITH r AS (SELECT child.rolname::text AS child_role, parent.rolname::text AS parent_role FROM pg_roles parent JOIN pg_auth_members am ON parent.oid = am.roleid JOIN " \
 		"pg_roles child ON am.member = child.oid WHERE child.rolcanlogin = true AND parent.rolname IN ('%s', '%s') AND child.rolname NOT IN " \
-		"('%s', '%s')) SELECT ARRAY_AGG(%s.row_get_bson(r) ORDER BY child_role) FROM r;",
-		ApiAdminRoleV2, ApiReadOnlyRole, ApiAdminRoleV2, ApiReadOnlyRole,
+		"('%s', '%s', '%s')) SELECT ARRAY_AGG(%s.row_get_bson(r) ORDER BY child_role) FROM r;",
+		ApiAdminRoleV2, ApiReadOnlyRole, ApiAdminRoleV2, ApiReadOnlyRole, ApiBgWorkerRole,
 		CoreSchemaName);
 
 	bool readOnly = true;
