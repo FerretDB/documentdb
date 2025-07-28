@@ -51,10 +51,10 @@ jobs:
         libpq-dev \
         libicu-dev \
         libkrb5-dev \
-        postgresql-16-cron \
-        postgresql-16-pgvector \
-        postgresql-16-postgis-3 \
-        postgresql-16-rum 
+        postgresql-15-cron \
+        postgresql-15-pgvector \
+        postgresql-15-postgis-3 \
+        postgresql-15-rum
         export CLEAN_SETUP=1
         export INSTALL_DEPENDENCIES_ROOT=/tmp/install_setup
         mkdir -p /tmp/install_setup
