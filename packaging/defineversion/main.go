@@ -18,12 +18,11 @@ import (
 // but with a leading `v`.
 var semVerTag = regexp.MustCompile(`^v(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$`)
 
-// versions represents Docker image names and tags, and Debian and Fedora package versions.
+// versions represents Docker image names and tags, and package versions used by Debian and Fedora.
 type versions struct {
 	dockerDevelopmentImages []string
 	dockerProductionImages  []string
-	debian                  string
-	fedora                  string
+	packageVersion          string
 }
 
 // parseGitTag parses git tag in specific format and returns SemVer components.
@@ -83,7 +82,7 @@ func debugEnv(action *githubactions.Action) {
 	}
 }
 
-// defineVersion extracts Docker image names and tags, Debian and Fedora package versions
+// defineVersion extracts Docker image names and tags, and package versions used by Debian and Fedora
 // using the environment variables defined by GitHub Actions.
 //
 // The Debian and Fedora package versions are based on `default_version` in the control file.
@@ -142,12 +141,16 @@ func defineVersion(controlDefaultVersion, pgVersion string, getenv githubactions
 	return res, nil
 }
 
-// defineVersionForPR defines Docker image names and tags, and Debian and Fedora package versions for PR.
+// defineVersionForPR defines Docker image names and tags, and package version for PR.
 // See [defineVersion].
 func defineVersionForPR(controlDefaultVersion, pgVersion, owner, repo, branch string) *versions {
 	// for branches like "dependabot/submodules/XXX"
 	parts := strings.Split(branch, "/")
 	branch = parts[len(parts)-1]
+
+	packageVersion := fmt.Sprintf("%s-pr-%s", controlDefaultVersion, branch)
+	packageVersion = disallowedDebian.ReplaceAllString(packageVersion, "~")
+	packageVersion = disallowedFedora.ReplaceAllString(packageVersion, "~")
 
 	res := &versions{
 		dockerDevelopmentImages: []string{
@@ -156,8 +159,7 @@ func defineVersionForPR(controlDefaultVersion, pgVersion, owner, repo, branch st
 		dockerProductionImages: []string{
 			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-pr-%s-prod", owner, repo, pgVersion, branch),
 		},
-		debian: disallowedDebian.ReplaceAllString(fmt.Sprintf("%s-pr-%s", controlDefaultVersion, branch), "~"),
-		fedora: disallowedFedora.ReplaceAllString(fmt.Sprintf("%s-pr-%s", controlDefaultVersion, branch), "~"),
+		packageVersion: packageVersion,
 	}
 
 	// PRs are only for testing; no Quay.io and Docker Hub repos
@@ -165,7 +167,7 @@ func defineVersionForPR(controlDefaultVersion, pgVersion, owner, repo, branch st
 	return res
 }
 
-// defineVersionForBranch defines Docker image names and tags, and Debian package version for branch.
+// defineVersionForBranch defines Docker image names and tags, and package version for branch.
 // See [defineVersion].
 func defineVersionForBranch(controlDefaultVersion, pgVersion, owner, repo, branch string) (*versions, error) {
 	if branch != "ferretdb" {
@@ -179,8 +181,7 @@ func defineVersionForBranch(controlDefaultVersion, pgVersion, owner, repo, branc
 		dockerProductionImages: []string{
 			fmt.Sprintf("ghcr.io/%s/postgres-%s-dev:%s-ferretdb-prod", owner, repo, pgVersion),
 		},
-		debian: fmt.Sprintf("%s~ferretdb", controlDefaultVersion),
-		fedora: fmt.Sprintf("%s~ferretdb", controlDefaultVersion),
+		packageVersion: fmt.Sprintf("%s~ferretdb", controlDefaultVersion),
 	}
 
 	// forks don't have Quay.io and Docker Hub orgs
@@ -201,7 +202,7 @@ func defineVersionForBranch(controlDefaultVersion, pgVersion, owner, repo, branc
 	return res, nil
 }
 
-// defineVersionForTag defines Docker image names and tags, Debian and Fedora package versions for tag.
+// defineVersionForTag defines Docker image names and tags, and package version for tag.
 // See [defineVersion].
 func defineVersionForTag(controlDefaultVersion, pgVersion, owner, repo, tag string) (*versions, error) {
 	major, minor, patch, prerelease, err := parseGitTag(tag)
@@ -224,9 +225,12 @@ func defineVersionForTag(controlDefaultVersion, pgVersion, owner, repo, tag stri
 		tags = append(tags, "latest")
 	}
 
+	packageVersion := fmt.Sprintf("%s-%s", tagVersion, prerelease)
+	packageVersion = disallowedDebian.ReplaceAllString(packageVersion, "~")
+	packageVersion = disallowedFedora.ReplaceAllString(packageVersion, "~")
+
 	res := versions{
-		debian: disallowedDebian.ReplaceAllString(fmt.Sprintf("%s-%s", tagVersion, prerelease), "~"),
-		fedora: disallowedFedora.ReplaceAllString(fmt.Sprintf("%s-%s", tagVersion, prerelease), "~"),
+		packageVersion: packageVersion,
 	}
 
 	for _, t := range tags {
@@ -259,8 +263,7 @@ func defineVersionForTag(controlDefaultVersion, pgVersion, owner, repo, tag stri
 func setSummary(action *githubactions.Action, version *versions) {
 	var buf strings.Builder
 
-	fmt.Fprintf(&buf, "Debian package version (`upstream_version` only): `%s`\n\n", version.debian)
-	fmt.Fprintf(&buf, "Fedora package version: `%s`\n\n", version.fedora)
+	fmt.Fprintf(&buf, "Package version (Debian with `upstream_version` only, or Fedora): `%s`\n\n", version.packageVersion)
 
 	w := tabwriter.NewWriter(&buf, 1, 1, 1, ' ', tabwriter.Debug)
 	fmt.Fprintf(w, "\tType\tDocker image\t\n")
@@ -285,7 +288,7 @@ func setSummary(action *githubactions.Action, version *versions) {
 func main() {
 	controlFileF := flag.String("control-file", "../pg_documentdb/documentdb.control", "pg_documentdb/documentdb.control file path")
 	pgVersionF := flag.String("pg-version", "17", "Major PostgreSQL version")
-	packageVersionOnlyF := flag.Bool("package-version-only", false, "Only set output for Debian and Fedora package versions")
+	packageVersionOnlyF := flag.Bool("package-version-only", false, "Only set output for package version")
 
 	flag.Parse()
 
@@ -314,14 +317,12 @@ func main() {
 		action.Fatalf("%s", err)
 	}
 
-	action.SetOutput("debian_version", res.debian)
-	action.SetOutput("fedora_version", res.fedora)
+	action.SetOutput("package_version", res.packageVersion)
 
 	if *packageVersionOnlyF {
 		// Only 3 summaries are shown in the GitHub Actions UI by default,
-		// and Docker summaries are more important (and include Debian and Fedora versions anyway).
-		action.Infof("Debian package version (`upstream_version` only): `%s`", res.debian)
-		action.Infof("Fedora package version: `%s`", res.fedora)
+		// and Docker summaries are more important (and include package version anyway).
+		action.Infof("package version (Debian with `upstream_version` only, or Fedora): `%s`", res.packageVersion)
 
 		return
 	}
