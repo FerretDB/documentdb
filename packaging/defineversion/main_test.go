@@ -449,7 +449,7 @@ func TestSummary(t *testing.T) {
 	setSummary(action, result)
 
 	expectedStdout := strings.ReplaceAll(`
-Package version (Debian with 'upstream_version' only, or Fedora): '0.103.0~ferretdb'
+Package version (Debian with 'upstream_version' only, or RPM): '0.103.0~ferretdb'
 
  |Type        |Docker image                                                                                                                           |
  |----        |------------                                                                                                                           |
@@ -462,7 +462,7 @@ Package version (Debian with 'upstream_version' only, or Fedora): '0.103.0~ferre
 	assert.Equal(t, expectedStdout, stdout.String(), "stdout does not match")
 
 	expectedSummary := strings.ReplaceAll(`
-Package version (Debian with 'upstream_version' only, or Fedora): '0.103.0~ferretdb'
+Package version (Debian with 'upstream_version' only, or RPM): '0.103.0~ferretdb'
 
  |Type        |Docker image                                                                                                                           |
  |----        |------------                                                                                                                           |

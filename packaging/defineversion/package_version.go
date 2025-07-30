@@ -14,9 +14,9 @@ var controlDefaultVer = regexp.MustCompile(`(?m)^default_version = '(?P<major>[0
 // See https://www.debian.org/doc/debian-policy/ch-controlfields.html#version.
 var disallowedDebian = regexp.MustCompile(`[^A-Za-z0-9\.+~]`)
 
-// disallowedFedora matches disallowed characters of Fedora pre-release string.
+// disallowedRPM matches disallowed characters of pre-release string.
 // See https://fedoraproject.org/wiki/PackagingDrafts/TildeVersioning#Basic_versioning_rules.
-var disallowedFedora = regexp.MustCompile(`[^A-Za-z0-9\._+~]`)
+var disallowedRPM = regexp.MustCompile(`[^A-Za-z0-9\._+~]`)
 
 // getControlDefaultVersion returns the default_version field from the control file
 // in SemVer format (0.103-0 -> 0.103.0).

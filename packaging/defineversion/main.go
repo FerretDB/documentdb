@@ -18,7 +18,7 @@ import (
 // but with a leading `v`.
 var semVerTag = regexp.MustCompile(`^v(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$`)
 
-// versions represents Docker image names and tags, and package versions used by Debian and Fedora.
+// versions represents Docker image names and tags, and package versions used by Debian and RPM.
 type versions struct {
 	dockerDevelopmentImages []string
 	dockerProductionImages  []string
@@ -82,10 +82,10 @@ func debugEnv(action *githubactions.Action) {
 	}
 }
 
-// defineVersion extracts Docker image names and tags, and package versions used by Debian and Fedora
+// defineVersion extracts Docker image names and tags, and package versions used by Debian and RPM
 // using the environment variables defined by GitHub Actions.
 //
-// The Debian and Fedora package versions are based on `default_version` in the control file.
+// The Debian and RPM package versions are based on `default_version` in the control file.
 // See https://www.debian.org/doc/debian-policy/ch-controlfields.html#version,
 // and https://fedoraproject.org/wiki/PackagingDrafts/TildeVersioning#Basic_versioning_rules.
 // The Debian uses `upstream_version` only.
@@ -150,7 +150,7 @@ func defineVersionForPR(controlDefaultVersion, pgVersion, owner, repo, branch st
 
 	packageVersion := fmt.Sprintf("%s-pr-%s", controlDefaultVersion, branch)
 	packageVersion = disallowedDebian.ReplaceAllString(packageVersion, "~")
-	packageVersion = disallowedFedora.ReplaceAllString(packageVersion, "~")
+	packageVersion = disallowedRPM.ReplaceAllString(packageVersion, "~")
 
 	res := &versions{
 		dockerDevelopmentImages: []string{
@@ -227,7 +227,7 @@ func defineVersionForTag(controlDefaultVersion, pgVersion, owner, repo, tag stri
 
 	packageVersion := fmt.Sprintf("%s-%s", tagVersion, prerelease)
 	packageVersion = disallowedDebian.ReplaceAllString(packageVersion, "~")
-	packageVersion = disallowedFedora.ReplaceAllString(packageVersion, "~")
+	packageVersion = disallowedRPM.ReplaceAllString(packageVersion, "~")
 
 	res := versions{
 		packageVersion: packageVersion,
@@ -263,7 +263,7 @@ func defineVersionForTag(controlDefaultVersion, pgVersion, owner, repo, tag stri
 func setSummary(action *githubactions.Action, version *versions) {
 	var buf strings.Builder
 
-	fmt.Fprintf(&buf, "Package version (Debian with `upstream_version` only, or Fedora): `%s`\n\n", version.packageVersion)
+	fmt.Fprintf(&buf, "Package version (Debian with `upstream_version` only, or RPM): `%s`\n\n", version.packageVersion)
 
 	w := tabwriter.NewWriter(&buf, 1, 1, 1, ' ', tabwriter.Debug)
 	fmt.Fprintf(w, "\tType\tDocker image\t\n")
@@ -322,7 +322,7 @@ func main() {
 	if *packageVersionOnlyF {
 		// Only 3 summaries are shown in the GitHub Actions UI by default,
 		// and Docker summaries are more important (and include package version anyway).
-		action.Infof("package version (Debian with `upstream_version` only, or Fedora): `%s`", res.packageVersion)
+		action.Infof("package version (Debian with `upstream_version` only, or RPM): `%s`", res.packageVersion)
 
 		return
 	}
