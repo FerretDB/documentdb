@@ -122,7 +122,7 @@ jobs:
           cd packaging/defineversion
           go mod tidy
           go mod verify
-          go run . -control-file ../../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }} -debian-only
+          go run . -control-file ../../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }} -package-version-only
 
       - name: Build ${{ steps.version.outputs.package_version }}
         if: steps.version.outputs.package_version != ''
