@@ -56,7 +56,6 @@ RUN if ![[ "${OS_VERSION}" = "8" || "${OS_VERSION}" = "9" ]]; then \
     else \
         echo "TARGETARCH ${TARGETARCH} not recognized for PGDG repo setup. Must be amd64 or arm64." && exit 1; \
     fi && \
-    echo "Setting up PGDG repo for RHEL ${OS_VERSION} ARCH ${postgresql_arch}" && \
     dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${OS_VERSION}-${postgresql_arch}/pgdg-redhat-repo-latest.noarch.rpm && \
     dnf -qy module disable postgresql && \
     dnf -y install postgresql${POSTGRES_VERSION} \

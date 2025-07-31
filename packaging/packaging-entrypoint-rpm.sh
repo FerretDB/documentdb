@@ -46,11 +46,9 @@ tar -czf ~/rpmbuild/SOURCES/${PACKAGE_NAME}-${PACKAGE_VERSION}.tar.gz -C /tmp "$
 # Build the RPM package
 rpmbuild -ba ~/rpmbuild/SPECS/documentdb.spec
 
-ARCH=$(uname -m)
-
 # Rename and copy RPMs to the output directory
 mkdir -p /output
-for rpm_file in ~/rpmbuild/RPMS/"${ARCH}"/*.rpm; do
+for rpm_file in ~/rpmbuild/RPMS/"$(uname -m)"/*.rpm; do
     base_rpm=$(basename "$rpm_file")
     mv "$rpm_file" "/output/${OS}-${base_rpm}"
 done
