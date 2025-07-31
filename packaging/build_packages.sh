@@ -192,7 +192,7 @@ if [[ $TEST_CLEAN_INSTALL == true ]]; then
         docker run --rm documentdb-test-packages:latest
 
     elif [[ "$PACKAGE_TYPE" == "rpm" ]]; then
-        rpm_package_name=$(ls "$abs_output_dir" | grep -E "${OS}-postgresql${PG}-documentdb-${DOCUMENTDB_VERSION}.*\.x86_64\.rpm" | head -n 1)
+        rpm_package_name=$(ls "$abs_output_dir" | grep -E "${OS}-postgresql${PG}-documentdb-${DOCUMENTDB_VERSION}.*\.rpm" | head -n 1)
         if [[ -z "$rpm_package_name" ]]; then
             echo "Error: Could not find the built RPM package in $abs_output_dir for testing."
             exit 1

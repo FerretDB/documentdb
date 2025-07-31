@@ -94,7 +94,7 @@ func TestDefineVersion(t *testing.T) {
 				dockerProductionImages: []string{
 					"ghcr.io/ferretdb/postgres-documentdb-dev:17-pr-define-version-prod",
 				},
-				debian: "0.103.0~pr~define~version",
+				packageVersion: "0.103.0~pr~define~version",
 			},
 		},
 		"pull_request-other": {
@@ -114,7 +114,7 @@ func TestDefineVersion(t *testing.T) {
 				dockerProductionImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:17-pr-define-version-prod",
 				},
-				debian: "0.103.0~pr~define~version",
+				packageVersion: "0.103.0~pr~define~version",
 			},
 		},
 
@@ -135,7 +135,7 @@ func TestDefineVersion(t *testing.T) {
 				dockerProductionImages: []string{
 					"ghcr.io/ferretdb/postgres-documentdb-dev:17-pr-define-version-prod",
 				},
-				debian: "0.103.0~pr~define~version",
+				packageVersion: "0.103.0~pr~define~version",
 			},
 		},
 		"pull_request_target-other": {
@@ -155,7 +155,7 @@ func TestDefineVersion(t *testing.T) {
 				dockerProductionImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:17-pr-define-version-prod",
 				},
-				debian: "0.103.0~pr~define~version",
+				packageVersion: "0.103.0~pr~define~version",
 			},
 		},
 
@@ -180,7 +180,7 @@ func TestDefineVersion(t *testing.T) {
 					"ghcr.io/ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
 					"quay.io/ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
 				},
-				debian: "0.103.0~ferretdb",
+				packageVersion: "0.103.0~ferretdb",
 			},
 		},
 		"push/ferretdb-other": {
@@ -200,7 +200,7 @@ func TestDefineVersion(t *testing.T) {
 				dockerProductionImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb-prod",
 				},
-				debian: "0.103.0~ferretdb",
+				packageVersion: "0.103.0~ferretdb",
 			},
 		},
 
@@ -268,7 +268,7 @@ func TestDefineVersion(t *testing.T) {
 					"quay.io/ferretdb/postgres-documentdb:17-0.103.0-ferretdb-2.2.0-beta.1",
 					"quay.io/ferretdb/postgres-documentdb:latest",
 				},
-				debian: "0.103.0~ferretdb~2.2.0~beta.1",
+				packageVersion: "0.103.0~ferretdb~2.2.0~beta.1",
 			},
 		},
 		"push/tag/release-other": {
@@ -294,7 +294,7 @@ func TestDefineVersion(t *testing.T) {
 					"ghcr.io/otherorg/postgres-otherrepo:17-0.103.0-ferretdb-2.2.0-beta.1",
 					"ghcr.io/otherorg/postgres-otherrepo:latest",
 				},
-				debian: "0.103.0~ferretdb~2.2.0~beta.1",
+				packageVersion: "0.103.0~ferretdb~2.2.0~beta.1",
 			},
 		},
 
@@ -332,7 +332,7 @@ func TestDefineVersion(t *testing.T) {
 					"ghcr.io/ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
 					"quay.io/ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
 				},
-				debian: "0.103.0~ferretdb",
+				packageVersion: "0.103.0~ferretdb",
 			},
 		},
 		"schedule-other": {
@@ -352,7 +352,7 @@ func TestDefineVersion(t *testing.T) {
 				dockerProductionImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb-prod",
 				},
-				debian: "0.103.0~ferretdb",
+				packageVersion: "0.103.0~ferretdb",
 			},
 		},
 
@@ -377,7 +377,7 @@ func TestDefineVersion(t *testing.T) {
 					"ghcr.io/ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
 					"quay.io/ferretdb/postgres-documentdb-dev:17-ferretdb-prod",
 				},
-				debian: "0.103.0~ferretdb",
+				packageVersion: "0.103.0~ferretdb",
 			},
 		},
 		"workflow_run-other": {
@@ -397,7 +397,7 @@ func TestDefineVersion(t *testing.T) {
 				dockerProductionImages: []string{
 					"ghcr.io/otherorg/postgres-otherrepo-dev:17-ferretdb-prod",
 				},
-				debian: "0.103.0~ferretdb",
+				packageVersion: "0.103.0~ferretdb",
 			},
 		},
 	} {
@@ -443,13 +443,13 @@ func TestSummary(t *testing.T) {
 		dockerProductionImages: []string{
 			"quay.io/ferretdb/postgres-documentdb:latest",
 		},
-		debian: "0.103.0~ferretdb",
+		packageVersion: "0.103.0~ferretdb",
 	}
 
 	setSummary(action, result)
 
 	expectedStdout := strings.ReplaceAll(`
-Debian package version ('upstream_version' only): '0.103.0~ferretdb'
+Package version (Debian with 'upstream_version' only, or RPM): '0.103.0~ferretdb'
 
  |Type        |Docker image                                                                                                                           |
  |----        |------------                                                                                                                           |
@@ -462,7 +462,7 @@ Debian package version ('upstream_version' only): '0.103.0~ferretdb'
 	assert.Equal(t, expectedStdout, stdout.String(), "stdout does not match")
 
 	expectedSummary := strings.ReplaceAll(`
-Debian package version ('upstream_version' only): '0.103.0~ferretdb'
+Package version (Debian with 'upstream_version' only, or RPM): '0.103.0~ferretdb'
 
  |Type        |Docker image                                                                                                                           |
  |----        |------------                                                                                                                           |

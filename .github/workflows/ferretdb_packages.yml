@@ -52,11 +52,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deb:
+  packages:
     strategy:
       fail-fast: false
       matrix:
-        os: [deb11, deb12, ubuntu22.04, ubuntu24.04]
+        os: [deb11, deb12, ubuntu22.04, ubuntu24.04, rhel8, rhel9]
         arch: [amd64, arm64]
         pg: [15, 16, 17]
         include:
@@ -64,8 +64,15 @@ jobs:
             runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
+        exclude:
+          # pg 15 is not supported for rpm packages
+          # https://github.com/FerretDB/documentdb/blob/ferretdb/packaging/README.md
+          - os: rhel8
+            pg: 15
+          - os: rhel9
+            pg: 15
 
-    name: .debs (${{ matrix.os }}, ${{ matrix.arch }}, Pg${{ matrix.pg }})
+    name: packages (${{ matrix.os }}, ${{ matrix.arch }}, Pg${{ matrix.pg }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
 
@@ -115,17 +122,17 @@ jobs:
           cd packaging/defineversion
           go mod tidy
           go mod verify
-          go run . -control-file ../../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }} -debian-only
+          go run . -control-file ../../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }} -package-version-only
 
-      - name: Build ${{ steps.version.outputs.debian_version }}
-        if: steps.version.outputs.debian_version != ''
-        run: ./packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg }} --version ${{ steps.version.outputs.debian_version }} --test-clean-install
+      - name: Build ${{ steps.version.outputs.package_version }}
+        if: steps.version.outputs.package_version != ''
+        run: ./packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg }} --version ${{ steps.version.outputs.package_version }} --test-clean-install
 
-      - name: Upload .deb packages
+      - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
-          path: packaging/*.deb
+          name: ${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.pg }}-${{ steps.version.outputs.package_version }}
+          path: packaging/*(.deb|.rpm)
           retention-days: 1
           if-no-files-found: error
           compression-level: 0
@@ -141,7 +148,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 40
 
-    needs: deb
+    needs: packages
 
     if: >
       github.event_name != 'pull_request_target' ||
