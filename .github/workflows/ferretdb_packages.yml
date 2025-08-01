@@ -56,19 +56,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        distribution:
-          - os: deb11
-            package: deb
-          - os: deb12
-            package: deb
-          - os: ubuntu22.04
-          - package: deb
-          - os: ubuntu24.04
-          - package: deb
-          - os: rhel8
-            package: rpm
-          - os: rhel9
-            package: rpm
+        os: [deb11, deb12, ubuntu22.04, ubuntu24.04, rhel8, rhel9]
         arch: [amd64, arm64]
         pg: [15, 16, 17]
         include:
@@ -76,6 +64,18 @@ jobs:
             runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
+          - os: deb11
+            package: deb
+          - os: deb12
+            package: deb
+          - os: ubuntu22.04
+            package: deb
+          - os: ubuntu24.04
+            package: deb
+          - os: rhel8
+            package: rpm
+          - os: rhel9
+            package: rpm
         exclude:
           # pg 15 is not supported for rpm packages
           # https://github.com/FerretDB/documentdb/blob/ferretdb/packaging/README.md
@@ -83,8 +83,11 @@ jobs:
             pg: 15
           - os: rhel9
             pg: 15
+          # TODO https://github.com/microsoft/documentdb/issues/259
+          - arch: arm64
+            package: rpm
 
-    name: .${{ matrix.distribution.package }} (${{ matrix.distribution.os }}, ${{ matrix.arch }}, Pg${{ matrix.pg }})
+    name: .${{ matrix.package }} (${{ matrix.os }}, ${{ matrix.arch }}, Pg${{ matrix.pg }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
 
@@ -138,12 +141,12 @@ jobs:
 
       - name: Build ${{ steps.version.outputs.package_version }}
         if: steps.version.outputs.package_version != ''
-        run: ./packaging/build_packages.sh --os ${{ matrix.distribution.os }} --pg ${{ matrix.pg }} --version ${{ steps.version.outputs.package_version }} --test-clean-install
+        run: ./packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg }} --version ${{ steps.version.outputs.package_version }} --test-clean-install
 
       - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.distribution.os }}-${{ matrix.arch }}-${{ matrix.pg }}-${{ steps.version.outputs.package_version }}
+          name: ${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.pg }}-${{ steps.version.outputs.package_version }}
           path: |
             - packaging/*.deb
             - packaging/*.rpm
