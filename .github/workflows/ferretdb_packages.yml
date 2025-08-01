@@ -52,11 +52,11 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deb:
+  packages:
     strategy:
       fail-fast: false
       matrix:
-        os: [deb11, deb12, ubuntu22.04, ubuntu24.04]
+        os: [deb11, deb12, ubuntu22.04, ubuntu24.04, rhel8, rhel9]
         arch: [amd64, arm64]
         pg: [15, 16, 17]
         include:
@@ -64,8 +64,19 @@ jobs:
             runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
+        exclude:
+          # No PostgreSQL 15 for RHEL.
+          - os: rhel8
+            pg: 15
+          - os: rhel9
+            pg: 15
+          # TODO https://github.com/microsoft/documentdb/issues/259
+          - arch: arm64
+            os: rhel8
+          - arch: arm64
+            os: rhel9
 
-    name: .debs (${{ matrix.os }}, ${{ matrix.arch }}, Pg${{ matrix.pg }})
+    name: ${{ matrix.os }}, ${{ matrix.arch }}, Pg${{ matrix.pg }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
 
@@ -115,17 +126,19 @@ jobs:
           cd packaging/defineversion
           go mod tidy
           go mod verify
-          go run . -control-file ../../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }} -debian-only
+          go run . -control-file ../../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }} -package-version-only
 
-      - name: Build ${{ steps.version.outputs.debian_version }}
-        if: steps.version.outputs.debian_version != ''
-        run: ./packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg }} --version ${{ steps.version.outputs.debian_version }} --test-clean-install
+      - name: Build ${{ steps.version.outputs.package_version }}
+        if: steps.version.outputs.package_version != ''
+        run: ./packaging/build_packages.sh --os ${{ matrix.os }} --pg ${{ matrix.pg }} --version ${{ steps.version.outputs.package_version }} --test-clean-install
 
-      - name: Upload .deb packages
+      - name: Upload packages
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
-          path: packaging/*.deb
+          name: ${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.pg }}-${{ steps.version.outputs.package_version }}
+          path: |
+            packaging/*.rpm
+            packaging/*.deb
           retention-days: 1
           if-no-files-found: error
           compression-level: 0
@@ -137,11 +150,11 @@ jobs:
           git diff --exit-code
 
   docker:
-    name: Docker (Pg${{ matrix.pg }})
+    name: Docker Pg${{ matrix.pg }}
     runs-on: ubuntu-24.04
     timeout-minutes: 40
 
-    needs: deb
+    needs: packages
 
     if: >
       github.event_name != 'pull_request_target' ||
@@ -197,10 +210,12 @@ jobs:
           go mod verify
           go run . -control-file ../../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }}
 
-      - name: Download deb12-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
+      # Official Docker images are built on top of Debian 12:
+      # docker run --rm postgres:15 cat /etc/os-release
+      - name: Download deb12-${{ matrix.pg }}-${{ steps.version.outputs.package_version }}
         uses: actions/download-artifact@v4
         with:
-          pattern: deb12-*-${{ matrix.pg }}-${{ steps.version.outputs.debian_version }}
+          pattern: deb12-*-${{ matrix.pg }}-${{ steps.version.outputs.package_version }}
           path: packaging
           merge-multiple: true
 
@@ -218,7 +233,7 @@ jobs:
         run: >
           make -C packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
-          DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
+          DOCUMENTDB_VERSION=${{ steps.version.outputs.package_version }}
           FILE=development
           OUTPUT='type=image'
           TAGS='${{ steps.version.outputs.docker_development_tag_flags }}'
@@ -228,7 +243,7 @@ jobs:
         run: >
           make -C packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
-          DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
+          DOCUMENTDB_VERSION=${{ steps.version.outputs.package_version }}
           FILE=production
           OUTPUT='type=image'
           TAGS='${{ steps.version.outputs.docker_production_tag_flags }}'
@@ -258,7 +273,7 @@ jobs:
         run: >
           make -C packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
-          DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
+          DOCUMENTDB_VERSION=${{ steps.version.outputs.package_version }}
           FILE=development
           OUTPUT='type=image,push=true'
           TAGS='${{ steps.version.outputs.docker_development_tag_flags }}'
@@ -268,7 +283,7 @@ jobs:
         run: >
           make -C packaging docker-build
           POSTGRES_VERSION=${{ matrix.pg }}
-          DOCUMENTDB_VERSION=${{ steps.version.outputs.debian_version }}
+          DOCUMENTDB_VERSION=${{ steps.version.outputs.package_version }}
           FILE=production
           OUTPUT='type=image,push=true'
           TAGS='${{ steps.version.outputs.docker_production_tag_flags }}'
