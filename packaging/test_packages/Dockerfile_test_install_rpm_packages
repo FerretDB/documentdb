@@ -4,7 +4,6 @@ FROM ${BASE_IMAGE}
 ARG POSTGRES_VERSION=16
 ARG RPM_PACKAGE_REL_PATH
 ARG OS_VERSION_ARG
-ARG TARGETARCH
 
 ENV POSTGRES_VERSION=${POSTGRES_VERSION}
 ENV OS_VERSION=${OS_VERSION_ARG}
@@ -46,17 +45,13 @@ RUN dnf -y swap curl-minimal curl && \
     krb5-devel
 
 # install actual dependencies
-RUN if ![[ "${OS_VERSION}" = "8" || "${OS_VERSION}" = "9" ]]; then \
+RUN if [ "${OS_VERSION}" = "9" ]; then \
+        dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-9-x86_64/pgdg-redhat-repo-latest.noarch.rpm; \
+    elif [ "${OS_VERSION}" = "8" ]; then \
+        dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-8-x86_64/pgdg-redhat-repo-latest.noarch.rpm; \
+    else \
         echo "OS_VERSION ${OS_VERSION} not recognized for PGDG repo setup. Must be 8 or 9." && exit 1; \
     fi && \
-    if [ "${TARGETARCH}" = "amd64" ]; then \
-        postgresql_arch="x86_64"; \
-    elif [ "${TARGETARCH}" = "arm64" ]; then \
-        postgresql_arch="aarch64"; \
-    else \
-        echo "TARGETARCH ${TARGETARCH} not recognized for PGDG repo setup. Must be amd64 or arm64." && exit 1; \
-    fi && \
-    dnf install -y https://download.postgresql.org/pub/repos/yum/reporpms/EL-${OS_VERSION}-${postgresql_arch}/pgdg-redhat-repo-latest.noarch.rpm && \
     dnf -qy module disable postgresql && \
     dnf -y install postgresql${POSTGRES_VERSION} \
     postgresql${POSTGRES_VERSION}-devel \

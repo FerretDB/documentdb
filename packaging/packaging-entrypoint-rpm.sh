@@ -48,7 +48,7 @@ rpmbuild -ba ~/rpmbuild/SPECS/documentdb.spec
 
 # Rename and copy RPMs to the output directory
 mkdir -p /output
-for rpm_file in ~/rpmbuild/RPMS/"$(uname -m)"/*.rpm; do
+for rpm_file in ~/rpmbuild/RPMS/x86_64/*.rpm; do
     base_rpm=$(basename "$rpm_file")
     mv "$rpm_file" "/output/${OS}-${base_rpm}"
 done
