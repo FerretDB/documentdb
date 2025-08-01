@@ -64,6 +64,18 @@ jobs:
             runner: ubuntu-24.04
           - arch: arm64
             runner: ubuntu-24.04-arm
+          - os: deb11
+            package: deb
+          - os: deb12
+            package: deb
+          - os: ubuntu22.04
+            package: deb
+          - os: ubuntu24.04
+            package: deb
+          - os: rhel8
+            package: rpm
+          - os: rhel9
+            package: rpm
         exclude:
           # pg 15 is not supported for rpm packages
           # https://github.com/FerretDB/documentdb/blob/ferretdb/packaging/README.md
@@ -71,8 +83,13 @@ jobs:
             pg: 15
           - os: rhel9
             pg: 15
+          # TODO https://github.com/microsoft/documentdb/issues/259
+          - arch: arm64
+            package: rhel8
+          - arch: arm64
+            package: rhel9
 
-    name: packages (${{ matrix.os }}, ${{ matrix.arch }}, Pg${{ matrix.pg }})
+    name: .${{ matrix.package }} (${{ matrix.os }}, ${{ matrix.arch }}, Pg${{ matrix.pg }})
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
 
@@ -132,7 +149,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.pg }}-${{ steps.version.outputs.package_version }}
-          path: packaging/*(.deb|.rpm)
+          path: |
+            - packaging/*.deb
+            - packaging/*.rpm
           retention-days: 1
           if-no-files-found: error
           compression-level: 0
