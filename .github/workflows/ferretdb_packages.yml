@@ -150,8 +150,7 @@ jobs:
         with:
           name: ${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.pg }}-${{ steps.version.outputs.package_version }}
           path: |
-            - packaging/*.deb
-            - packaging/*.rpm
+            - packaging/*.${{ matrix.package }}
           retention-days: 1
           if-no-files-found: error
           compression-level: 0
