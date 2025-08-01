@@ -149,8 +149,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.pg }}-${{ steps.version.outputs.package_version }}
-          path: |
-            - packaging/*.${{ matrix.package }}
+          path: packaging/*.${{ matrix.package }}
           retention-days: 1
           if-no-files-found: error
           compression-level: 0
