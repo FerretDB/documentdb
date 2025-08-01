@@ -85,7 +85,9 @@ jobs:
             pg: 15
           # TODO https://github.com/microsoft/documentdb/issues/259
           - arch: arm64
-            package: rpm
+            package: rhel8
+          - arch: arm64
+            package: rhel9
 
     name: .${{ matrix.package }} (${{ matrix.os }}, ${{ matrix.arch }}, Pg${{ matrix.pg }})
     runs-on: ${{ matrix.runner }}
