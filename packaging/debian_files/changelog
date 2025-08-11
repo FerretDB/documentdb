@@ -1,9 +1,24 @@
-documentdb (DOCUMENTDB_VERSION) unstable; urgency=medium
+documentdb (0.106-0) unstable; urgency=medium
 
-  * Support `$bucketAuto` aggregation stage, with granularity types: `POWERSOF2`, `1-2-5`, `R5`, `R10`, `R20`, `R40`, `R80`, `E6`, `E12`, `E24`, `E48`, `E96`, `E192` [Feature]
-  * Support `conectionStatus` command [Feature]
+  * Add internal extension that provides extensions to the rum index [Feature]
+  * Enable let support for update queries [Feature]. Requires EnableVariablesSupportForWriteCommands to be on.
+  * Enable let support for findAndModify queries [Feature]. Requires EnableVariablesSupportForWriteCommands to be on.
+  * Add internal extension that provides extensions to the rum index [Feature]
+  * Optimized query for usersInfo command
+  * Support collation with delete [Feature]. Requires EnableCollation to be on.
+  * Support for index hints for find/aggregate/count/distinct [Feature]
+  * Support createRole command [Feature]
+  * Add schema changes for Role CRUD APIs [Feature]
+  * Add support for using EntraId tokens via Plain Auth
 
--- FerretDB Packages <packages@ferretdb.io>  Tue, 09 Jul 2025 12:00:00 +0000
+ -- FerretDB Packages <packages@ferretdb.io>  Thu, 07 Aug 2025 12:00:00 +0000
+
+documentdb (0.105-0) unstable; urgency=medium
+
+  * Support $bucketAuto aggregation stage, with granularity types: POWERSOF2, 1-2-5, R5, R10, R20, R40, R80, E6, E12, E24, E48, E96, E192 [Feature]
+  * Support conectionStatus command [Feature]
+
+ -- FerretDB Packages <packages@ferretdb.io>  Wed, 09 Jul 2025 12:00:00 +0000
 
 documentdb (0.104-0) unstable; urgency=medium
 
@@ -19,7 +34,7 @@ documentdb (0.104-0) unstable; urgency=medium
   * Support compact command [Feature]. Requires documentdb.enablecompact GUC to be on.
   * Enable role privileges for usersInfo command [Feature]
 
- -- FerretDB Packages <packages@ferretdb.io>  Tue, 10 Jun 2025 12:00:00 +0000
+ -- FerretDB Packages <packages@ferretdb.io>  Mon, 09 Jun 2025 12:00:00 +0000
 
 documentdb (0.103-0) unstable; urgency=medium
 
