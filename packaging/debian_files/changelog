@@ -1,4 +1,4 @@
-documentdb (0.106-0) unstable; urgency=medium
+documentdb (DOCUMENTDB_VERSION) unstable; urgency=medium
 
   * Add internal extension that provides extensions to the rum index [Feature]
   * Enable let support for update queries [Feature]. Requires EnableVariablesSupportForWriteCommands to be on.
