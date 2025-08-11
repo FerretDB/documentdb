@@ -8,6 +8,7 @@
 * Support for index hints for find/aggregate/count/distinct *[Feature]*
 * Support `createRole` command *[Feature]*
 * Add schema changes for Role CRUD APIs *[Feature]*
+* Add support for using EntraId tokens via Plain Auth
 
 ### DocumentDB v0.105.0-ferretdb-2.4.0 (July 15, 2025) ###
 
