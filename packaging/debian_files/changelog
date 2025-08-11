@@ -15,7 +15,7 @@ documentdb (0.106-0) unstable; urgency=medium
 documentdb (0.105-0) unstable; urgency=medium
 
   * Support $bucketAuto aggregation stage, with granularity types: POWERSOF2, 1-2-5, R5, R10, R20, R40, R80, E6, E12, E24, E48, E96, E192 [Feature]
-  * Support conectionStatus command [Feature]
+  * Support connectionStatus command [Feature]
 
  -- FerretDB Packages <packages@ferretdb.io>  Wed, 09 Jul 2025 12:00:00 +0000
 

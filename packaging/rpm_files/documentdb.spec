@@ -116,7 +116,7 @@ rm -rf %{buildroot}/usr/src/documentdb/build
 
 * Wed Jul 09 2025 FerretDB Packages <packages@ferretdb.io> - 0.105-0-1
 - Support $bucketAuto aggregation stage, with granularity types: POWERSOF2, 1-2-5, R5, R10, R20, R40, R80, E6, E12, E24, E48, E96, E192 *[Feature]*
-- Support conectionStatus command *[Feature]*.
+- Support connectionStatus command *[Feature]*.
 
 * Mon Jun 09 2025 FerretDB Packages <packages@ferretdb.io> - 0.104-0-1
 - Add string case support for $toDate operator
