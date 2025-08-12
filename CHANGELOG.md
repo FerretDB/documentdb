@@ -1,9 +1,19 @@
-### documentdb v1.106-0 (Unreleased) ###
-* Add internal extension that provides extensions to the `rum` index. *[Feature]*
+### DocumentDB v0.106.0-ferretdb-2.5.0 (August 12, 2025) ###
+
+This version works best with FerretDB v2.5.0.
+
+Docker images are available
+[in the registry](https://github.com/FerretDB/documentdb/pkgs/container/postgres-documentdb).
+`.deb` packages for Debian and Ubuntu, and `.rpm` packages for Red Hat Enterprise Linux (RHEL) are provided
+[on the release page](https://github.com/FerretDB/documentdb/releases/tag/v0.106.0-ferretdb-2.5.0).
+See installation instructions [in our documentation](https://docs.ferretdb.io/installation/documentdb/).
+
+### documentdb v1.106-0 (August 07, 2025) ###
+* Add internal extension that provides extensions to the `rum` index *[Feature]*
 * Enable let support for update queries *[Feature]*. Requires `EnableVariablesSupportForWriteCommands` to be `on`.
 * Enable let support for findAndModify queries *[Feature]*. Requires `EnableVariablesSupportForWriteCommands` to be `on`.
-* Add internal extension that provides extensions to the `rum` index. *[Feature]*
-* Optimized query for `usersInfo` command.
+* Add internal extension that provides extensions to the `rum` index *[Feature]*
+* Optimized query for `usersInfo` command
 * Support collation with `delete` *[Feature]*. Requires `EnableCollation` to be `on`.
 * Support for index hints for find/aggregate/count/distinct *[Feature]*
 * Support `createRole` command *[Feature]*
@@ -26,7 +36,7 @@ to avoid unexpected updates.
 
 ### documentdb v0.105-0 (July 09, 2025) ###
 * Support `$bucketAuto` aggregation stage, with granularity types: `POWERSOF2`, `1-2-5`, `R5`, `R10`, `R20`, `R40`, `R80`, `E6`, `E12`, `E24`, `E48`, `E96`, `E192` *[Feature]*
-* Support `conectionStatus` command *[Feature]*.
+* Support `connectionStatus` command *[Feature]*.
 
 ### DocumentDB v0.104.0-ferretdb-2.3.0 (June 10, 2025) ###
 

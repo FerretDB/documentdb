@@ -2,7 +2,7 @@ module github.com/FerretDB/documentdb/packaging/defineversion
 
 go 1.24
 
-toolchain go1.24.3
+toolchain go1.24.6
 
 require (
 	github.com/sethvargo/go-githubactions v1.3.1
