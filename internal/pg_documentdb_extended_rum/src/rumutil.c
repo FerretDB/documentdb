@@ -27,6 +27,7 @@
 #include "utils/lsyscache.h"
 #include "utils/syscache.h"
 #include "utils/typcache.h"
+#include "commands/progress.h"
 
 #include "pg_documentdb_rum.h"
 
@@ -35,6 +36,8 @@ PG_MODULE_MAGIC;
 void _PG_init(void);
 
 PG_FUNCTION_INFO_V1(documentdb_rumhandler);
+
+static char * rumbuildphasename(int64 phasenum);
 
 /* Kind of relation optioms for rum index */
 static relopt_kind rum_relopt_kind;
@@ -130,6 +133,24 @@ _PG_init(void)
 		NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
+		DOCUMENTDB_RUM_GUC_PREFIX ".enable_parallel_index_build",
+		"Sets whether or not to enable parallel index build",
+		NULL,
+		&RumEnableParallelIndexBuild,
+		RUM_DEFAULT_ENABLE_PARALLEL_INDEX_BUILD,
+		PGC_USERSET, 0,
+		NULL, NULL, NULL);
+
+	DefineCustomIntVariable(
+		DOCUMENTDB_RUM_GUC_PREFIX ".parallel_index_workers_override",
+		"Sets the number of parallel index workers to use (default: -1, meaning no override)",
+		NULL,
+		&RumParallelIndexWorkersOverride,
+		RUM_DEFAULT_PARALLEL_INDEX_WORKERS_OVERRIDE, -1, INT_MAX,
+		PGC_USERSET, 0,
+		NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
 		DOCUMENTDB_RUM_GUC_PREFIX ".forceRumOrderedIndexScan",
 		"Sets whether or not to force a run ordered index scan",
 		NULL,
@@ -217,6 +238,7 @@ documentdb_rumhandler(PG_FUNCTION_ARGS)
 	amroutine->amgettuple = rumgettuple;
 	amroutine->amgetbitmap = rumgetbitmap;
 	amroutine->amendscan = rumendscan;
+	amroutine->ambuildphasename = rumbuildphasename;
 	amroutine->ammarkpos = NULL;
 	amroutine->amrestrpos = NULL;
 #if PG_VERSION_NUM >= 100000
@@ -1322,4 +1344,45 @@ FunctionCall10Coll(FmgrInfo *flinfo, Oid collation, Datum arg1, Datum arg2,
 #endif
 
 	return result;
+}
+
+
+static char *
+rumbuildphasename(int64 phasenum)
+{
+	switch (phasenum)
+	{
+		case PROGRESS_CREATEIDX_SUBPHASE_INITIALIZE:
+		{
+			return "initializing";
+		}
+
+		case PROGRESS_RUM_PHASE_INDEXBUILD_TABLESCAN:
+		{
+			return "scanning table";
+		}
+
+		case PROGRESS_RUM_PHASE_PERFORMSORT_1:
+		{
+			return "sorting tuples (workers)";
+		}
+
+		case PROGRESS_RUM_PHASE_MERGE_1:
+		{
+			return "merging tuples (workers)";
+		}
+
+		case PROGRESS_RUM_PHASE_PERFORMSORT_2:
+		{
+			return "sorting tuples";
+		}
+
+		case PROGRESS_RUM_PHASE_MERGE_2:
+		{
+			return "merging tuples";
+		}
+
+		default:
+			return NULL;
+	}
 }

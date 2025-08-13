@@ -16,6 +16,7 @@
 
 #include <catalog/pg_am.h>
 #include <catalog/pg_class.h>
+#include <catalog/pg_opfamily.h>
 #include <storage/lmgr.h>
 #include <optimizer/planner.h>
 #include "optimizer/pathnode.h"
@@ -49,6 +50,7 @@
 #include "api_hooks.h"
 #include "query/bson_compare.h"
 #include "planner/documents_custom_planner.h"
+#include "index_am/index_am_utils.h"
 
 
 typedef enum DocumentDbQueryFlag
@@ -61,6 +63,16 @@ typedef enum DocumentDbQueryFlag
 	HAS_NESTED_AGGREGATION_FUNCTION = 1 << 6,
 	HAS_QUERY_MATCH_FUNCTION = 1 << 7
 } DocumentDbQueryFlag;
+
+
+typedef enum IndexPriorityOrdering
+{
+	IndexPriorityOrdering_PrimaryKey = 0,
+	IndexPriorityOrdering_Composite = 1,
+	IndexPriorityOrdering_Regular = 2,
+	IndexPriorityOrdering_Wildcard = 3,
+	IndexPriorityOrdering_Other = 4
+} IndexPriorityOrdering;
 
 typedef struct ReplaceDocumentDbCollectionContext
 {
@@ -101,7 +113,6 @@ static bool IsRTEShardForDocumentDbCollection(RangeTblEntry *rte,
 											  uint64 *collectionId);
 static bool ProcessWorkerWriteQueryPath(PlannerInfo *root, RelOptInfo *rel, Index rti,
 										RangeTblEntry *rte);
-static inline bool IsAMergeOuterQuery(PlannerInfo *root, RelOptInfo *rel);
 static Query * ExpandAggregationFunction(Query *node, ParamListInfo boundParams,
 										 PlannedStmt **plan);
 static Query * ExpandNestedAggregationFunction(Query *node, ParamListInfo boundParams);
@@ -124,10 +135,53 @@ extern bool EnableIndexOrderbyPushdown;
 extern bool ForceDisableSeqScan;
 extern bool EnableExtendedExplainPlans;
 extern bool UseLegacyForcePushdownBehavior;
+extern bool EnableIndexPriorityOrdering;
+extern bool EnableLogRelationIndexesOrder;
+extern bool ForceBitmapScanForLookup;
 
 planner_hook_type ExtensionPreviousPlannerHook = NULL;
 set_rel_pathlist_hook_type ExtensionPreviousSetRelPathlistHook = NULL;
 explain_get_index_name_hook_type ExtensionPreviousIndexNameHook = NULL;
+get_relation_info_hook_type ExtensionPreviousGetRelationInfoHook = NULL;
+
+
+/*
+ * Checks if for the given query we need to consider bitmap heap conversion.
+ * Few places where we do not consider bitmap heap conversion:
+ * - If the query is a $merge outer query.
+ * - If the query is a $lookup query and has join RTEs.
+ */
+static inline bool
+IsBitmapHeapConversionSupported(PlannerInfo *root, RelOptInfo *rel)
+{
+	if (!ForceRUMIndexScanToBitmapHeapScan)
+	{
+		return false;
+	}
+
+	if (EnableIndexOrderbyPushdown)
+	{
+		return false;
+	}
+
+	/*
+	 * Determine if the current relation is the outer query of a $merge stage.
+	 * We do not push this relation to the bitmap index.
+	 * For the outer relation, the relid will always be 1 since $merge is the last stage of the pipeline.
+	 */
+	if (root->parse->commandType == CMD_MERGE && rel->relid == 1)
+	{
+		return false;
+	}
+
+	/* Not supported for lookup, check if no JOIN RTEs */
+	if (!ForceBitmapScanForLookup && root->hasJoinRTEs)
+	{
+		return false;
+	}
+
+	return true;
+}
 
 
 /*
@@ -759,9 +813,7 @@ ExtensionRelPathlistHookCoreLegacy(PlannerInfo *root, RelOptInfo *rel, Index rti
 		 * Streaming cursors auto convert into Bitmap Paths.
 		 * Handle force conversion of bitmap paths.
 		 */
-		if (ForceRUMIndexScanToBitmapHeapScan &&
-			!EnableIndexOrderbyPushdown &&
-			!IsAMergeOuterQuery(root, rel))
+		if (IsBitmapHeapConversionSupported(root, rel))
 		{
 			UpdatePathsToForceRumIndexScanToBitmapHeapScan(root, rel);
 		}
@@ -832,9 +884,10 @@ ExtensionRelPathlistHookCoreNew(PlannerInfo *root, RelOptInfo *rel, Index rti,
 	/* Before we *replace* function operators in restriction paths, we should apply the force pushdown
 	 * logic while we still have the FuncExprs available.
 	 */
+	Path *forceIndexPath = NULL;
 	if (indexContext.forceIndexQueryOpData.type != ForceIndexOpType_None)
 	{
-		ForceIndexForQueryOperators(root, rel, &indexContext);
+		forceIndexPath = ForceIndexForQueryOperators(root, rel, &indexContext);
 	}
 
 	/*
@@ -847,6 +900,17 @@ ExtensionRelPathlistHookCoreNew(PlannerInfo *root, RelOptInfo *rel, Index rti,
 	rel->baserestrictinfo =
 		ReplaceExtensionFunctionOperatorsInRestrictionPaths(rel->baserestrictinfo,
 															&indexContext);
+
+	/* If there is a force index path and the base restrictinfo has no runtime filters,
+	 * we need to remove the runtime filters from the index path as postgres index paths restrict info is the base restrict info minus any filters satisfied by an index pfe. */
+	if (indexContext.forceIndexQueryOpData.type != ForceIndexOpType_None &&
+		rel->baserestrictinfo == NIL &&
+		forceIndexPath != NULL &&
+		IsA(forceIndexPath, IndexPath))
+	{
+		IndexPath *indexPath = (IndexPath *) forceIndexPath;
+		indexPath->indexinfo->indrestrictinfo = NIL;
+	}
 
 	if (EnableIndexOrderbyPushdown)
 	{
@@ -867,9 +931,7 @@ ExtensionRelPathlistHookCoreNew(PlannerInfo *root, RelOptInfo *rel, Index rti,
 	 * Handle force conversion of bitmap paths.
 	 */
 	if (!updatedPaths &&
-		ForceRUMIndexScanToBitmapHeapScan &&
-		!EnableIndexOrderbyPushdown &&
-		!IsAMergeOuterQuery(root, rel))
+		IsBitmapHeapConversionSupported(root, rel))
 	{
 		UpdatePathsToForceRumIndexScanToBitmapHeapScan(root, rel);
 	}
@@ -917,6 +979,198 @@ ExtensionRelPathlistHook(PlannerInfo *root, RelOptInfo *rel, Index rti,
 	if (ExtensionPreviousSetRelPathlistHook != NULL)
 	{
 		ExtensionPreviousSetRelPathlistHook(root, rel, rti, rte);
+	}
+}
+
+
+/*
+ * GetIndexOptInfoSortOrder determines the sort order for IndexOptInfo based on
+ * the index type and properties. This is used to prioritize indexes in the
+ * relation.
+ *
+ * 0 - Primary key indexes (Btree)
+ * 1 - Composite indexes
+ * 2 - Regular BSON indexes
+ * 3 - Wildcard indexes
+ * 4 - Other index access methods
+ */
+static int
+GetIndexOptInfoSortOrder(const IndexOptInfo *info)
+{
+	Oid amOid = info->relam;
+	if (amOid == BTREE_AM_OID)
+	{
+		return IndexPriorityOrdering_PrimaryKey;
+	}
+
+	/* If the index is not a regular BSON index, we give it the lowest priority. */
+	if (info->ncolumns <= 0 || !IsBsonRegularIndexAm(amOid))
+	{
+		return IndexPriorityOrdering_Other;
+	}
+
+	Oid firstOpClassOid = info->opfamily[0];
+
+	/* If it is composite op class it's the next priority. Since composite indexes have a single column, we just get the first column for the opclass. */
+	if (IsCompositeOpFamilyOid(amOid, firstOpClassOid))
+	{
+		return IndexPriorityOrdering_Composite;
+	}
+
+	/* Wildcard indexes should go after exact path indexes. */
+	for (int i = 0; i < info->ncolumns && info->opclassoptions != NULL; i++)
+	{
+		BsonGinIndexOptionsBase *options =
+			(BsonGinIndexOptionsBase *) info->opclassoptions[i];
+
+		if (options == NULL)
+		{
+			continue;
+		}
+
+		if (options->type == IndexOptionsType_Wildcard)
+		{
+			return IndexPriorityOrdering_Wildcard;
+		}
+
+		if (options->type == IndexOptionsType_SinglePath)
+		{
+			BsonGinSinglePathOptions *singlePathOptions =
+				(BsonGinSinglePathOptions *) options;
+
+			if (singlePathOptions->isWildcard)
+			{
+				return IndexPriorityOrdering_Wildcard;
+			}
+		}
+	}
+
+	return IndexPriorityOrdering_Regular;
+}
+
+
+/*
+ * CompareIndexOptionsFunc is a comparison function for sorting IndexOptInfo
+ * based on their sort order. It is used to prioritize indexes in the relation.
+ * The sort order is determined by the index type and its properties.
+ */
+static int
+CompareIndexOptionsFunc(const ListCell *a, const ListCell *b)
+{
+	IndexOptInfo *infoA = (IndexOptInfo *) lfirst(a);
+	IndexOptInfo *infoB = (IndexOptInfo *) lfirst(b);
+
+	int sortOrderA = GetIndexOptInfoSortOrder(infoA);
+	int sortOrderB = GetIndexOptInfoSortOrder(infoB);
+
+	return sortOrderA - sortOrderB;
+}
+
+
+/*
+ * LogRelationIndexesOrder logs the order of indexes in the relation.
+ * This is useful for debugging and understanding how indexes are prioritized.
+ */
+static void
+LogRelationIndexesOrder(const RelOptInfo *rel)
+{
+	if (rel->indexlist != NIL)
+	{
+		ListCell *cell;
+		foreach(cell, rel->indexlist)
+		{
+			IndexOptInfo *info = (IndexOptInfo *) lfirst(cell);
+			char *indexName = "(unknown)";
+
+			HeapTuple idxTup = SearchSysCache1(RELOID, ObjectIdGetDatum(info->indexoid));
+			if (HeapTupleIsValid(idxTup))
+			{
+				Form_pg_class idxForm = (Form_pg_class) GETSTRUCT(idxTup);
+				indexName = NameStr(idxForm->relname);
+				ReleaseSysCache(idxTup);
+			}
+
+			char *amName = "(unknown)";
+			HeapTuple amTup = SearchSysCache1(AMOID, ObjectIdGetDatum(info->relam));
+			if (HeapTupleIsValid(amTup))
+			{
+				Form_pg_am amForm = (Form_pg_am) GETSTRUCT(amTup);
+				amName = NameStr(amForm->amname);
+				ReleaseSysCache(amTup);
+			}
+
+			char *opfamilyName = "(unknown)";
+
+			if (info->ncolumns > 0)
+			{
+				Oid opfamilyOid = info->opfamily[0];
+				HeapTuple ofTup = SearchSysCache1(OPFAMILYOID, ObjectIdGetDatum(
+													  opfamilyOid));
+				if (HeapTupleIsValid(ofTup))
+				{
+					Form_pg_opfamily ofForm = (Form_pg_opfamily) GETSTRUCT(ofTup);
+					opfamilyName = NameStr(ofForm->opfname);
+					ReleaseSysCache(ofTup);
+				}
+			}
+
+			ereport(LOG, errmsg("Name: %s, access method: %s, 1st opfamily: %s",
+								indexName, amName, opfamilyName));
+		}
+	}
+}
+
+
+/*
+ * ExtensionGetRelationInfoHookCore is the core implementation of the get_relation_info
+ * hook for the DocumentDB API extension. It modifies the relation info based on the
+ * extension's requirements.
+ *
+ * First it sorts the relation index list if enabled, based on the index priorities to be considered by the planner if their cost is the same or similar.
+ * 1. Primary key indexes are given the highest priority.
+ * 2. Composite indexes are given the next priority.
+ * 3. Regular BSON indexes are given the next priority.
+ * 4. Any other index access method is given the lowest priority.
+ *
+ */
+static void
+ExtensionGetRelationInfoHookCore(PlannerInfo *root, Oid relationObjectId,
+								 bool inhparent, RelOptInfo *rel)
+{
+	Oid namespaceId = get_rel_namespace(relationObjectId);
+	if (namespaceId != ApiDataNamespaceOid())
+	{
+		/* Not a documentdb data namespace, skip */
+		return;
+	}
+
+	if (EnableIndexPriorityOrdering && rel->indexlist != NIL)
+	{
+		list_sort(rel->indexlist, CompareIndexOptionsFunc);
+	}
+
+	if (EnableLogRelationIndexesOrder)
+	{
+		LogRelationIndexesOrder(rel);
+	}
+}
+
+
+/* Implementation for the get_relation_info hook. Calls our hook if the extension is active and then calls the previous info hook if any was defined before we registered ours. */
+void
+ExtensionGetRelationInfoHook(PlannerInfo *root,
+							 Oid relationObjectId,
+							 bool inhparent,
+							 RelOptInfo *rel)
+{
+	if (IsDocumentDBApiExtensionActive())
+	{
+		ExtensionGetRelationInfoHookCore(root, relationObjectId, inhparent, rel);
+	}
+
+	if (ExtensionPreviousGetRelationInfoHook != NULL)
+	{
+		ExtensionPreviousGetRelationInfoHook(root, relationObjectId, inhparent, rel);
 	}
 }
 
@@ -1664,18 +1918,6 @@ ProcessWorkerWriteQueryPath(PlannerInfo *root, RelOptInfo *rel, Index rti,
 	rte->perminfoindex = 0;
 #endif
 	return true;
-}
-
-
-/*
- * Determine if the current relation is the outer query of a $merge stage.
- * We do not push this relation to the bitmap index.
- * For the outer relation, the relid will always be 1 since $merge is the last stage of the pipeline.
- */
-static inline bool
-IsAMergeOuterQuery(PlannerInfo *root, RelOptInfo *rel)
-{
-	return root->parse->commandType == CMD_MERGE && rel->relid == 1;
 }
 
 

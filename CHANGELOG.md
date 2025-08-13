@@ -1,3 +1,6 @@
+### documentdb v1.107-0 (Unreleased) ###
+- Support sort by _id against the _id index using the enableIndexOrderbyPushdown flag *[Feature]*.
+
 ### DocumentDB v0.106.0-ferretdb-2.5.0 (August 12, 2025) ###
 
 This version works best with FerretDB v2.5.0.

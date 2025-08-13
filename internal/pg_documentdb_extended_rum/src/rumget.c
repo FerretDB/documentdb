@@ -234,6 +234,38 @@ moveRightIfItNeeded(RumBtreeData *btree, RumBtreeStack *stack)
 
 
 /*
+ * similar to moveRightIfNeeded except moves in the left direction.
+ */
+static bool
+moveLeftIfItNeeded(RumBtreeData *btree, RumBtreeStack *stack)
+{
+	Page page = BufferGetPage(stack->buffer);
+
+	if (stack->off == InvalidOffsetNumber)
+	{
+		/*
+		 * We scanned the whole page, so we should take left page
+		 */
+		if (RumPageLeftMost(page))
+		{
+			return false;       /* no more pages */
+		}
+
+		/* TODO(Reverse Scan): This is a bug. When rumStep moves left, if there's a
+		 * concurrent page split, we can end up on the old "left" page
+		 * which means we can skip entries in the right page.
+		 */
+		stack->buffer = rumStep(stack->buffer, btree->index, RUM_SHARE,
+								BackwardScanDirection);
+		stack->blkno = BufferGetBlockNumber(stack->buffer);
+		stack->off = FirstOffsetNumber;
+	}
+
+	return true;
+}
+
+
+/*
  * Identify the "current" item among the input entry streams for this scan key,
  * and test whether it passes the scan key qual condition.
  *
@@ -308,8 +340,7 @@ scanPostingTree(Relation index, RumScanEntry scanEntry,
 		page = BufferGetPage(buffer);
 		maxoff = RumPageGetOpaque(page)->maxoff;
 
-		if ((RumPageGetOpaque(page)->flags & RUM_DELETED) == 0 &&
-			maxoff >= FirstOffsetNumber)
+		if (RumPageIsNotDeleted(page) && maxoff >= FirstOffsetNumber)
 		{
 			RumScanItem item;
 			Pointer ptr;
@@ -1152,7 +1183,7 @@ startScanEntryOrderedCore(RumScanOpaque so, RumScanEntry minScanEntry, Snapshot 
 	RumBtreeData btreeEntry;
 	RumBtreeStack *stackEntry;
 	Page page;
-	bool needUnlock;
+	bool needUnlock, foundInLeaf;
 	ItemId itemid;
 	RumScanEntry entry = minScanEntry;
 	RumState *rumstate = &so->rumstate;
@@ -1195,7 +1226,15 @@ startScanEntryOrderedCore(RumScanOpaque so, RumScanEntry minScanEntry, Snapshot 
 					  snapshot);
 
 	/* Not found for the exact item */
-	btreeEntry.findItem(&btreeEntry, stackEntry);
+	foundInLeaf = btreeEntry.findItem(&btreeEntry, stackEntry);
+
+	if (!foundInLeaf &&
+		ScanDirectionIsBackward(so->orderScanDirection) &&
+		stackEntry->off > PageGetMaxOffsetNumber(page))
+	{
+		/* The start went off the maximum and stackEntry->off points to the max */
+		stackEntry->off = PageGetMaxOffsetNumber(page);
+	}
 
 	/* Otherwise found something valid */
 	itemid = PageGetItemId(page, stackEntry->off);
@@ -1256,6 +1295,10 @@ getMinScanEntry(RumScanOpaque so)
 									minEntry->queryKey, minEntry->queryCategory,
 									key->scanEntry[j]->queryKey,
 									key->scanEntry[j]->queryCategory);
+			if (ScanDirectionIsBackward(so->orderScanDirection))
+			{
+				cmp = -cmp;
+			}
 
 			if (cmp > 0)
 			{
@@ -1283,6 +1326,10 @@ getMinScanEntry(RumScanOpaque so)
 									globalMinEntry->queryCategory,
 									minEntry->queryKey,
 									minEntry->queryCategory);
+			if (ScanDirectionIsBackward(so->orderScanDirection))
+			{
+				cmp = -cmp;
+			}
 
 			if (cmp < 0)
 			{
@@ -1299,6 +1346,7 @@ getMinScanEntry(RumScanOpaque so)
 static void
 startOrderedScanEntries(IndexScanDesc scan, RumState *rumstate, RumScanOpaque so)
 {
+	/* Now adjust the bounds based on the minimum value of the other scan keys */
 	RumScanEntry minEntry = getMinScanEntry(so);
 	if (minEntry == NULL)
 	{
@@ -3014,7 +3062,10 @@ MoveScanForward(RumScanOpaque so, Snapshot snapshot)
 		/*
 		 * stack->off points to the interested entry, buffer is already locked
 		 */
-		if (!moveRightIfItNeeded(&btree, so->orderStack))
+		bool moveResult = ScanDirectionIsForward(so->orderScanDirection) ?
+						  moveRightIfItNeeded(&btree, so->orderStack) :
+						  moveLeftIfItNeeded(&btree, so->orderStack);
+		if (!moveResult)
 		{
 			ItemPointerSetInvalid(&entry->curItem.iptr);
 			entry->isFinished = true;
@@ -3067,6 +3118,11 @@ MoveScanForward(RumScanOpaque so, Snapshot snapshot)
 												idatum,
 												newMinEntry->queryCategory);
 
+					if (ScanDirectionIsBackward(so->orderScanDirection))
+					{
+						cmp = -cmp;
+					}
+
 					if (cmp > 0)
 					{
 						LockBuffer(so->orderStack->buffer, RUM_UNLOCK);
@@ -3094,7 +3150,7 @@ MoveScanForward(RumScanOpaque so, Snapshot snapshot)
 				}
 			}
 
-			so->orderStack->off++;
+			so->orderStack->off += so->orderScanDirection;
 			continue;
 		}
 
@@ -3102,13 +3158,17 @@ MoveScanForward(RumScanOpaque so, Snapshot snapshot)
 								   so->orderStack, &needUnlock);
 		if (entry->nlist == 0)
 		{
-			if (needUnlock)
+			if (!needUnlock)
 			{
-				LockBuffer(so->orderStack->buffer, RUM_UNLOCK);
+				/* If PrepareOrderedMatchedEntry unlocked the buffer,
+				 * we need to re-lock it before moving forward on the same buffer
+				 */
+				LockBuffer(so->orderStack->buffer, RUM_SHARE);
+				needUnlock = true;
 			}
 
 			/* Dead tuple due to vacuum, move forward */
-			so->orderStack->off++;
+			so->orderStack->off += so->orderScanDirection;
 			continue;
 		}
 
@@ -3120,7 +3180,7 @@ MoveScanForward(RumScanOpaque so, Snapshot snapshot)
 		/*
 		 * Done with this entry, go to the next for the future.
 		 */
-		so->orderStack->off++;
+		so->orderStack->off += so->orderScanDirection;
 
 		if (needUnlock)
 		{
@@ -3487,6 +3547,11 @@ rumgettuple(IndexScanDesc scan, ScanDirection direction)
 		if (RumIsNewKey(scan))
 		{
 			rumNewScanKey(scan);
+		}
+
+		if (!ScanDirectionIsNoMovement(direction))
+		{
+			so->orderScanDirection = direction;
 		}
 
 		so->firstCall = false;

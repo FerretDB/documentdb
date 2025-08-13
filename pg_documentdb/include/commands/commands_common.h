@@ -96,9 +96,9 @@ void ValidateIdField(const bson_value_t *idValue);
 void SetExplicitStatementTimeout(int timeoutMilliseconds);
 
 void CommitWriteProcedureAndReacquireCollectionLock(MongoCollection *collection,
+													Oid shardTableOid,
 													bool setSnapshot);
 
-extern bool SkipEnforceTransactionReadOnly;
 extern bool SimulateRecoveryState;
 extern bool DocumentDBPGReadOnlyForDiskFull;
 
@@ -106,11 +106,6 @@ inline static void
 ThrowIfServerOrTransactionReadOnly(void)
 {
 	if (!XactReadOnly)
-	{
-		return;
-	}
-
-	if (SkipEnforceTransactionReadOnly)
 	{
 		return;
 	}

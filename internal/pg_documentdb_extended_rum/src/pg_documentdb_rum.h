@@ -134,8 +134,10 @@ typedef struct RumMetaPageData
 #define RumPageSetFullRow(page) (RumPageGetOpaque(page)->flags |= RUM_LIST_FULLROW)
 
 #define RumPageIsDeleted(page) ((RumPageGetOpaque(page)->flags & RUM_DELETED) != 0)
+#define RumPageIsNotDeleted(page) ((RumPageGetOpaque(page)->flags & RUM_DELETED) == 0)
 #define RumPageSetDeleted(page) (RumPageGetOpaque(page)->flags |= RUM_DELETED)
 #define RumPageSetNonDeleted(page) (RumPageGetOpaque(page)->flags &= ~RUM_DELETED)
+#define RumPageForceSetDeleted(page) (RumPageGetOpaque(page)->flags = RUM_DELETED)
 
 #define RumPageRightMost(page) (RumPageGetOpaque(page)->rightlink == InvalidBlockNumber)
 #define RumPageLeftMost(page) (RumPageGetOpaque(page)->leftlink == InvalidBlockNumber)
@@ -814,6 +816,7 @@ typedef struct RumScanOpaqueData
 	bool orderByHasRecheck;
 	RumBtreeStack *orderStack;
 	RumScanEntry orderByEntry;
+	ScanDirection orderScanDirection;
 	bool recheckCurrentItem;
 	bool recheckCurrentItemOrderBy;
 
@@ -919,6 +922,8 @@ typedef enum SimilarityType
 #define RUM_DEFAULT_THROW_ERROR_ON_INVALID_DATA_PAGE false
 #define RUM_DEFAULT_DISABLE_FAST_SCAN false
 #define RUM_DEFAULT_ENABLE_ENTRY_FIND_ITEM_ON_SCAN true
+#define RUM_DEFAULT_ENABLE_PARALLEL_INDEX_BUILD false
+#define RUM_DEFAULT_PARALLEL_INDEX_WORKERS_OVERRIDE -1
 #define RUM_DEFAULT_SKIP_RETRY_ON_DELETE_PAGE true
 #define DEFAULT_FORCE_RUM_ORDERED_INDEX_SCAN false
 #define RUM_DEFAULT_PREFER_ORDERED_INDEX_SCAN true
@@ -932,6 +937,8 @@ extern bool RumEnableRefindLeafOnEntryNextItem;
 extern bool RumThrowErrorOnInvalidDataPage;
 extern bool RumDisableFastScan;
 extern bool RumEnableEntryFindItemOnScan;
+extern bool RumEnableParallelIndexBuild;
+extern int RumParallelIndexWorkersOverride;
 extern bool RumSkipRetryOnDeletePage;
 extern bool RumForceOrderedIndexScan;
 extern bool RumPreferOrderedIndexScan;
@@ -1194,11 +1201,23 @@ extern Datum FunctionCall10Coll(FmgrInfo *flinfo, Oid collation,
 						  ALLOCSET_DEFAULT_MAXSIZE)
 #endif
 
-void InitializeDocumentDBRum(void);
+/*
+ * Constant definition for progress reporting.  Phase numbers must match
+ * rumbuildphasename.
+ */
+
+/* PROGRESS_CREATEIDX_SUBPHASE_INITIALIZE is 1 (see progress.h) */
+#define PROGRESS_RUM_PHASE_INDEXBUILD_TABLESCAN 2
+#define PROGRESS_RUM_PHASE_PERFORMSORT_1 3
+#define PROGRESS_RUM_PHASE_MERGE_1 4
+#define PROGRESS_RUM_PHASE_PERFORMSORT_2 5
+#define PROGRESS_RUM_PHASE_MERGE_2 6
 
 struct ExplainState;
 extern PGDLLEXPORT void try_explain_rum_index(IndexScanDesc scan,
 											  struct ExplainState *es);
 extern PGDLLEXPORT bool can_rum_index_scan_ordered(IndexScanDesc scan);
+
+void InitializeDocumentDBRum(void);
 
 #endif   /* __RUM_H__ */

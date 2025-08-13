@@ -26,9 +26,6 @@ bool EnableSchemaValidation =
 bool EnableBypassDocumentValidation =
 	DEFAULT_ENABLE_BYPASSDOCUMENTVALIDATION;
 
-#define DEFAULT_ENABLE_NATIVE_TABLE_COLOCATION false
-bool EnableNativeTableColocation = DEFAULT_ENABLE_NATIVE_TABLE_COLOCATION;
-
 #define DEFAULT_ENABLE_USERNAME_PASSWORD_CONSTRAINTS true
 bool EnableUsernamePasswordConstraints = DEFAULT_ENABLE_USERNAME_PASSWORD_CONSTRAINTS;
 
@@ -74,14 +71,6 @@ bool EnableVectorCalculateDefaultSearchParameter =
  * SECTION: Indexing feature flags
  */
 
-/* Remove after v104 */
-#define DEFAULT_ENABLE_LARGE_UNIQUE_INDEX_KEYS true
-bool DefaultEnableLargeUniqueIndexKeys = DEFAULT_ENABLE_LARGE_UNIQUE_INDEX_KEYS;
-
-/* Remove after v106 */
-#define DEFAULT_USE_UNSAFE_INDEX_TERM_TRANSFORM true
-bool IndexTermUseUnsafeTransform = DEFAULT_USE_UNSAFE_INDEX_TERM_TRANSFORM;
-
 #define DEFAULT_ENABLE_NEW_COMPOSITE_INDEX_OPCLASS true
 bool EnableNewCompositeIndexOpclass = DEFAULT_ENABLE_NEW_COMPOSITE_INDEX_OPCLASS;
 
@@ -106,16 +95,20 @@ bool EnableNewOperatorSelectivityMode = DEFAULT_ENABLE_NEW_OPERATOR_SELECTIVITY;
 #define DEFAULT_DISABLE_DOLLAR_FUNCTION_SELECTIVITY false
 bool DisableDollarSupportFuncSelectivity = DEFAULT_DISABLE_DOLLAR_FUNCTION_SELECTIVITY;
 
+/* Remove after v109 */
+
+#define DEFAULT_LOOKUP_ENABLE_INNER_JOIN true
+bool EnableLookupInnerJoin = DEFAULT_LOOKUP_ENABLE_INNER_JOIN;
+
+#define DEFAULT_FORCE_BITMAP_SCAN_FOR_LOOKUP false
+bool ForceBitmapScanForLookup = DEFAULT_FORCE_BITMAP_SCAN_FOR_LOOKUP;
+
+#define DEFAULT_LOW_SELECTIVITY_FOR_LOOKUP true
+bool LowSelectivityForLookup = DEFAULT_LOW_SELECTIVITY_FOR_LOOKUP;
+
 /* Remove after v110 */
 #define DEFAULT_ENABLE_RUM_INDEX_SCAN true
 bool EnableRumIndexScan = DEFAULT_ENABLE_RUM_INDEX_SCAN;
-
-#define DEFAULT_ENABLE_MULTI_INDEX_RUM_JOIN false
-bool EnableMultiIndexRumJoin = DEFAULT_ENABLE_MULTI_INDEX_RUM_JOIN;
-
-#define DEFAULT_ENABLE_SORT_BY_ID_PUSHDOWN_TO_PRIMARYKEY false
-bool EnableSortbyIdPushDownToPrimaryKey =
-	DEFAULT_ENABLE_SORT_BY_ID_PUSHDOWN_TO_PRIMARYKEY;
 
 #define DEFAULT_USE_NEW_ELEMMATCH_INDEX_PUSHDOWN false
 bool UseNewElemMatchIndexPushdown = DEFAULT_USE_NEW_ELEMMATCH_INDEX_PUSHDOWN;
@@ -124,8 +117,8 @@ bool UseNewElemMatchIndexPushdown = DEFAULT_USE_NEW_ELEMMATCH_INDEX_PUSHDOWN;
 #define DEFAULT_ENABLE_INSERT_CUSTOM_PLAN true
 bool EnableInsertCustomPlan = DEFAULT_ENABLE_INSERT_CUSTOM_PLAN;
 
-#define DEFAULT_LOOKUP_ENABLE_INNER_JOIN false
-bool EnableLookupInnerJoin = DEFAULT_LOOKUP_ENABLE_INNER_JOIN;
+#define DEFAULT_ENABLE_INDEX_PRIORITY_ORDERING true
+bool EnableIndexPriorityOrdering = DEFAULT_ENABLE_INDEX_PRIORITY_ORDERING;
 
 
 /*
@@ -137,19 +130,8 @@ bool EnableNowSystemVariable = DEFAULT_ENABLE_NOW_SYSTEM_VARIABLE;
 #define DEFAULT_ENABLE_PRIMARY_KEY_CURSOR_SCAN false
 bool EnablePrimaryKeyCursorScan = DEFAULT_ENABLE_PRIMARY_KEY_CURSOR_SCAN;
 
-/* Remove after v106 */
-#define DEFAULT_USE_RAW_EXECUTOR_FOR_QUERY_PLAN true
-bool UseRawExecutorForQueryPlan = DEFAULT_USE_RAW_EXECUTOR_FOR_QUERY_PLAN;
-
 #define DEFAULT_USE_FILE_BASED_PERSISTED_CURSORS false
 bool UseFileBasedPersistedCursors = DEFAULT_USE_FILE_BASED_PERSISTED_CURSORS;
-
-/* Remove after v108 */
-#define DEFAULT_ENABLE_FILE_BASED_PERSISTED_CURSORS true
-bool EnableFileBasedPersistedCursors = DEFAULT_ENABLE_FILE_BASED_PERSISTED_CURSORS;
-
-#define DEFAULT_USE_LEGACY_ORDERBY_BEHAVIOR false
-bool UseLegacyOrderByBehavior = DEFAULT_USE_LEGACY_ORDERBY_BEHAVIOR;
 
 #define DEFAULT_USE_LEGACY_NULL_EQUALITY_BEHAVIOR false
 bool UseLegacyNullEqualityBehavior = DEFAULT_USE_LEGACY_NULL_EQUALITY_BEHAVIOR;
@@ -192,7 +174,6 @@ bool EnableLookupIdJoinOptimizationOnCollation =
 #define DEFAULT_RECREATE_RETRY_TABLE_ON_SHARDING false
 bool RecreateRetryTableOnSharding = DEFAULT_RECREATE_RETRY_TABLE_ON_SHARDING;
 
-
 #define DEFAULT_ENABLE_DATA_TABLES_WITHOUT_CREATION_TIME true
 bool EnableDataTableWithoutCreationTime =
 	DEFAULT_ENABLE_DATA_TABLES_WITHOUT_CREATION_TIME;
@@ -200,14 +181,6 @@ bool EnableDataTableWithoutCreationTime =
 /* Remove after v108 */
 #define DEFAULT_ENABLE_MULTIPLE_INDEX_BUILDS_PER_RUN true
 bool EnableMultipleIndexBuildsPerRun = DEFAULT_ENABLE_MULTIPLE_INDEX_BUILDS_PER_RUN;
-
-/* Remove after v106 */
-#define DEFAULT_SKIP_ENFORCE_TRANSACTION_READ_ONLY false
-bool SkipEnforceTransactionReadOnly = DEFAULT_SKIP_ENFORCE_TRANSACTION_READ_ONLY;
-
-/* Remove after v107 */
-#define DEFAULT_USE_NEW_SHARD_KEY_CALCULATION true
-bool UseNewShardKeyCalculation = DEFAULT_USE_NEW_SHARD_KEY_CALCULATION;
 
 #define DEFAULT_ENABLE_BUCKET_AUTO_STAGE true
 bool EnableBucketAutoStage = DEFAULT_ENABLE_BUCKET_AUTO_STAGE;
@@ -272,12 +245,6 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
-		psprintf("%s.enable_large_unique_index_keys", newGucPrefix),
-		gettext_noop("Whether or not to enable large index keys on unique indexes."),
-		NULL, &DefaultEnableLargeUniqueIndexKeys, DEFAULT_ENABLE_LARGE_UNIQUE_INDEX_KEYS,
-		PGC_USERSET, 0, NULL, NULL, NULL);
-
-	DefineCustomBoolVariable(
 		psprintf("%s.enableNewSelectivityMode", newGucPrefix),
 		gettext_noop(
 			"Determines whether to use the new selectivity logic."),
@@ -327,28 +294,10 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 		NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
-		psprintf("%s.enableMultiIndexRumJoin", newGucPrefix),
-		gettext_noop(
-			"Whether or not to add the cursors on aggregation style queries."),
-		NULL,
-		&EnableMultiIndexRumJoin,
-		DEFAULT_ENABLE_MULTI_INDEX_RUM_JOIN,
-		PGC_USERSET,
-		0,
-		NULL, NULL, NULL);
-
-	DefineCustomBoolVariable(
 		psprintf("%s.recreate_retry_table_on_shard", prefix),
 		gettext_noop(
 			"Gets whether or not to recreate a retry table to match the main table"),
 		NULL, &RecreateRetryTableOnSharding, DEFAULT_RECREATE_RETRY_TABLE_ON_SHARDING,
-		PGC_USERSET, 0, NULL, NULL, NULL);
-
-	DefineCustomBoolVariable(
-		psprintf("%s.enableNativeTableColocation", prefix),
-		gettext_noop(
-			"Determines whether to turn on colocation of tables across all tables (requires enableNativeColocation to be on)"),
-		NULL, &EnableNativeTableColocation, DEFAULT_ENABLE_NATIVE_TABLE_COLOCATION,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
@@ -372,14 +321,6 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 			"Enables support for the $$NOW time system variable."),
 		NULL, &EnableNowSystemVariable,
 		DEFAULT_ENABLE_NOW_SYSTEM_VARIABLE,
-		PGC_USERSET, 0, NULL, NULL, NULL);
-
-	DefineCustomBoolVariable(
-		psprintf("%s.enableSortbyIdPushDownToPrimaryKey", newGucPrefix),
-		gettext_noop(
-			"Whether to push down sort by id to primary key"),
-		NULL, &EnableSortbyIdPushDownToPrimaryKey,
-		DEFAULT_ENABLE_SORT_BY_ID_PUSHDOWN_TO_PRIMARYKEY,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
@@ -407,35 +348,11 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
-		psprintf("%s.useRawExecutorForQueryPlan", newGucPrefix),
-		gettext_noop(
-			"Whether or not to enable using the raw executor for query plans."),
-		NULL, &UseRawExecutorForQueryPlan,
-		DEFAULT_USE_RAW_EXECUTOR_FOR_QUERY_PLAN,
-		PGC_USERSET, 0, NULL, NULL, NULL);
-
-	DefineCustomBoolVariable(
-		psprintf("%s.indexTermUseUnsafeTransform", newGucPrefix),
-		gettext_noop(
-			"use the unsafe transform for index term elements."),
-		NULL, &IndexTermUseUnsafeTransform,
-		DEFAULT_USE_UNSAFE_INDEX_TERM_TRANSFORM,
-		PGC_USERSET, 0, NULL, NULL, NULL);
-
-	DefineCustomBoolVariable(
 		psprintf("%s.enableUsernamePasswordConstraints", newGucPrefix),
 		gettext_noop(
 			"Determines whether username and password constraints are enabled."),
 		NULL, &EnableUsernamePasswordConstraints,
 		DEFAULT_ENABLE_USERNAME_PASSWORD_CONSTRAINTS,
-		PGC_USERSET, 0, NULL, NULL, NULL);
-
-	DefineCustomBoolVariable(
-		psprintf("%s.skipEnforceTransactionReadOnly", newGucPrefix),
-		gettext_noop(
-			"Whether or not to skip enforcing transaction read only."),
-		NULL, &SkipEnforceTransactionReadOnly,
-		DEFAULT_SKIP_ENFORCE_TRANSACTION_READ_ONLY,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
@@ -464,14 +381,6 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
-		psprintf("%s.enableFileBasedPersistedCursors", newGucPrefix),
-		gettext_noop(
-			"Whether or not to enable file based persisted cursors."),
-		NULL, &EnableFileBasedPersistedCursors,
-		DEFAULT_ENABLE_FILE_BASED_PERSISTED_CURSORS,
-		PGC_USERSET, 0, NULL, NULL, NULL);
-
-	DefineCustomBoolVariable(
 		psprintf("%s.enableCompact", newGucPrefix),
 		gettext_noop(
 			"Whether or not to enable compact command."),
@@ -496,22 +405,6 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
-		psprintf("%s.useNewShardKeyCalculation", newGucPrefix),
-		gettext_noop(
-			"Whether or not to use the new shard key calculation logic."),
-		NULL, &UseNewShardKeyCalculation,
-		DEFAULT_USE_NEW_SHARD_KEY_CALCULATION,
-		PGC_USERSET, 0, NULL, NULL, NULL);
-
-	DefineCustomBoolVariable(
-		psprintf("%s.useLegacyOrderByBehavior", newGucPrefix),
-		gettext_noop(
-			"Whether or not to use legacy order by behavior."),
-		NULL, &UseLegacyOrderByBehavior,
-		DEFAULT_USE_LEGACY_ORDERBY_BEHAVIOR,
-		PGC_USERSET, 0, NULL, NULL, NULL);
-
-	DefineCustomBoolVariable(
 		psprintf("%s.useLegacyNullEqualityBehavior", newGucPrefix),
 		gettext_noop(
 			"Whether or not to use legacy null equality behavior."),
@@ -533,6 +426,22 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 			"Whether or not to enable lookup inner join."),
 		NULL, &EnableLookupInnerJoin,
 		DEFAULT_LOOKUP_ENABLE_INNER_JOIN,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.forceBitmapScanForLookup", newGucPrefix),
+		gettext_noop(
+			"Whether or not to force bitmap scan for lookup."),
+		NULL, &ForceBitmapScanForLookup,
+		DEFAULT_FORCE_BITMAP_SCAN_FOR_LOOKUP,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.lowSelectivityForLookup", newGucPrefix),
+		gettext_noop(
+			"Whether or not to use low selectivity for lookup."),
+		NULL, &LowSelectivityForLookup,
+		DEFAULT_LOW_SELECTIVITY_FOR_LOOKUP,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
@@ -599,10 +508,18 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 			"Whether to use legacy force index pushdown behavior."),
 		NULL, &UseLegacyForcePushdownBehavior, DEFAULT_USE_LEGACY_FORCE_PUSHDOWN_BEHAVIOR,
 		PGC_USERSET, 0, NULL, NULL, NULL);
+
 	DefineCustomBoolVariable(
 		psprintf("%s.enableRoleCrud", newGucPrefix),
 		gettext_noop(
 			"Enables role crud through the data plane."),
 		NULL, &EnableRoleCrud, DEFAULT_ENABLE_ROLE_CRUD,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.enableIndexPriorityOrdering", newGucPrefix),
+		gettext_noop(
+			"Whether to reorder the indexlist at the planner level based on priority of indexes."),
+		NULL, &EnableIndexPriorityOrdering, DEFAULT_ENABLE_INDEX_PRIORITY_ORDERING,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 }

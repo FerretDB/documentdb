@@ -39,8 +39,12 @@ EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bs
 SET documentdb.enableIndexOrderbyPushdown to on;
 EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby", "filter": { "a": { "$exists": true }}, "sort": { "a": 1 } }');
 
+-- do a reverse walk
+EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby", "filter": { "a": { "$exists": true }}, "sort": { "a": -1 } }');
+
 -- now check the correctness (things are ordered)
 SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby", "filter": { "a": { "$exists": true }}, "sort": { "a": 1 } }');
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby", "filter": { "a": { "$exists": true }}, "sort": { "a": -1 } }');
 
 -- validate type bracketing
 SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby", "filter": { "a": { "$gt": -100 }}, "sort": { "a": 1 } }');
@@ -51,8 +55,10 @@ SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby"
 
 -- validate runtime recheck functions
 SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby", "filter": { "a": { "$regex": "^str" }}, "sort": { "a": 1 } }');
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby", "filter": { "a": { "$regex": "^str" }}, "sort": { "a": -1 } }');
 
 SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby", "filter": { "a": { "$regex": "^abc" }}, "sort": { "a": 1 } }');
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby", "filter": { "a": { "$regex": "^abc" }}, "sort": { "a": -1 } }');
 
 -- validate ordering with truncation
 SELECT documentdb_api.insert_one('comp_db', 'query_orderby', FORMAT('{ "_id": 10, "a": "%s", "c": "%s" }', 'abcde' || repeat('z', 3000) || '2', 'cd1233')::bson);
@@ -62,6 +68,7 @@ SELECT documentdb_api.insert_one('comp_db', 'query_orderby', FORMAT('{ "_id": 12
 SELECT documentdb_api.insert_one('comp_db', 'query_orderby', FORMAT('{ "_id": 13, "a": "%s", "c": "%s" }', 'abcde', 'cd1232')::bson);
 
 SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby", "projection": { "_id": 1 }, "filter": { "a": { "$regex": "^abc" }}, "sort": { "a": 1 } }');
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby", "projection": { "_id": 1 }, "filter": { "a": { "$regex": "^abc" }}, "sort": { "a": -1 } }');
 
 -- validate sort works after an array is inserted
 SELECT documentdb_api.insert_one('comp_db', 'query_orderby', '{ "_id": 8, "a": [ 1, 2, 3 ], "c": 2 }');
@@ -121,37 +128,43 @@ ANALYZE documentdb_data.documents_68003;
 
 -- should use the index for sort
 EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 3 }}, "sort": { "a": 1 } }');
+EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 3 }}, "sort": { "a": -1 } }');
+
+-- now check correctness.
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$in": [ 3, 49, 90 ] }}, "sort": { "a": 1 } }');
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$in": [ 3, 49, 90 ] }}, "sort": { "a": -1 } }');
+
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 3 }}, "sort": { "a": 1 } }');
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 3 }}, "sort": { "a": -1 } }');
+
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$gt": 96 }}, "sort": { "a": 1 } }');
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$gt": 96 }}, "sort": { "a": -1 } }');
+
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 94, "$gt": 90 }}, "sort": { "a": 1 } }');
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 94, "$gt": 90 }}, "sort": { "a": -1 } }');
+
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 3, "$gt": 96 }}, "sort": { "a": 1 } }');
+SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 3, "$gt": 96 }}, "sort": { "a": -1 } }');
 
 -- now check the performance
-
-SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$in": [ 3, 49, 90 ] }}, "sort": { "a": 1 } }');
-
--- scans 1 loop for checking multi-key - then scans 4 loops for entries 0, 1, 2, 3.
-SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 3 }}, "sort": { "a": 1 } }');
-
--- scans 1 loop for checking multi-key - then scans 5 loops for entries 96, 97, 98, 99, 100.
-SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$gt": 96 }}, "sort": { "a": 1 } }');
-
--- only scans th relevant entries
-SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 94, "$gt": 90 }}, "sort": { "a": 1 } }');
-
--- scans only > 96 and stops.
-SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 3, "$gt": 96 }}, "sort": { "a": 1 } }');
-
-
 EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$in": [ 3, 49, 90 ] }}, "sort": { "a": 1 } }');
+EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$in": [ 3, 49, 90 ] }}, "sort": { "a": -1 } }');
 
 -- scans 1 loop for checking multi-key - then scans 4 loops for entries 0, 1, 2, 3.
 EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 3 }}, "sort": { "a": 1 } }');
+EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 3 }}, "sort": { "a": -1 } }');
 
 -- scans 1 loop for checking multi-key - then scans 5 loops for entries 96, 97, 98, 99, 100.
 EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$gt": 96 }}, "sort": { "a": 1 } }');
+EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$gt": 96 }}, "sort": { "a": -1 } }');
 
 -- only scans th relevant entries
 EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 94, "$gt": 90 }}, "sort": { "a": 1 } }');
+EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 94, "$gt": 90 }}, "sort": { "a": -1 } }');
 
 -- scans only > 96 and stops.
 EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 3, "$gt": 96 }}, "sort": { "a": 1 } }');
+EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "query_orderby_perf", "filter": { "a": { "$lt": 3, "$gt": 96 }}, "sort": { "a": -1 } }');
 
 
 -- groupby pushdown works for non-multi-key indexes
@@ -164,7 +177,6 @@ EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bs
 EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "query_orderby_perf_arr", "pipeline": [ { "$match": { "a": { "$exists": true } } }, { "$group": { "_id": "$a", "c": { "$count": 1 } } } ] }');
 EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "query_orderby_perf_arr", "pipeline": [ { "$group": { "_id": "$a", "c": { "$count": 1 } } } ] }');
 
-set documentdb.enableSortbyIdPushDownToPrimaryKey to off;
 set enable_bitmapscan to off;
 -- for non-multi-key requires, prefix equality until the min order by key only.
 -- can't push this
@@ -228,9 +240,19 @@ EXPLAIN (COSTS OFF) WITH s1 AS (SELECT document FROM bson_aggregation_pipeline('
 s2 AS (SELECT COALESCE(document -> 'b' >= (LAG(document, 1) OVER ()) -> 'b', true) AS greater_check FROM s1)
 SELECT MIN(greater_check::int4), MAX(greater_check::int4) FROM s2;
 
+EXPLAIN (COSTS OFF) SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "query_orderby_perf2", "pipeline": [ { "$match": { "b": { "$exists": true } } }, { "$sort": { "b": -1 } } ] }');
+
+EXPLAIN (COSTS OFF) WITH s1 AS (SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "query_orderby_perf2", "pipeline": [ { "$match": { "b": { "$exists": true } } }, { "$sort": { "b": -1 } } ] }')),
+s2 AS (SELECT COALESCE(document -> 'b' <= (LAG(document, 1) OVER ()) -> 'b', true) AS greater_check FROM s1)
+SELECT MIN(greater_check::int4), MAX(greater_check::int4) FROM s2;
+
 -- validate the order is correct
 WITH s1 AS (SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "query_orderby_perf2", "pipeline": [ { "$match": { "b": { "$exists": true } } }, { "$sort": { "b": 1 } } ] }')),
 s2 AS (SELECT COALESCE(document -> 'b' >= (LAG(document, 1) OVER ()) -> 'b', true) AS greater_check FROM s1)
+SELECT MIN(greater_check::int4), MAX(greater_check::int4) FROM s2;
+
+WITH s1 AS (SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "query_orderby_perf2", "pipeline": [ { "$match": { "b": { "$exists": true } } }, { "$sort": { "b": -1 } } ] }')),
+s2 AS (SELECT COALESCE(document -> 'b' <= (LAG(document, 1) OVER ()) -> 'b', true) AS greater_check FROM s1)
 SELECT MIN(greater_check::int4), MAX(greater_check::int4) FROM s2;
 
 
@@ -282,13 +304,13 @@ set local documentdb.forceDisableSeqScan to on;
 set local documentdb.enableIndexOrderbyPushdown to on;
 set local documentdb.enableNewCompositeIndexOpClass to on;
 SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "sortcoll", "pipeline": [ { "$sort": { "a.b": 1 } } ] }');
+SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "sortcoll", "pipeline": [ { "$sort": { "a.b": -1 } } ] }');
 ROLLBACK;
 
 set documentdb.forceDisableSeqScan to on;
 set documentdb.enableIndexOrderbyPushdown to on;
 set documentdb.enableNewCompositeIndexOpClass to on;
 set documentdb.enableExtendedExplainPlans to on;
-set documentdb.enableSortbyIdPushDownToPrimaryKey to off;
 
 -- can't push this down (no equality prefix)
 EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "sortcoll", "pipeline": [ { "$sort": { "_id": 1 } } ] }');
@@ -415,3 +437,18 @@ set documentdb.forceDisableSeqScan to on;
 set documentdb.enableIndexOrderbyPushdown to on;
 EXPLAIN (ANALYZE ON, COSTS OFF, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "ordering_groups", "pipeline": [ { "$group": { "_id": "$a", "c": { "$count": 1 } } } ] }');
 SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "ordering_groups", "pipeline": [ { "$group": { "_id": "$a", "c": { "$count": 1 } } } ] }');
+
+
+-- sorting on prefix with missing path is not allowed unless it's equality.
+SELECT documentdb_api_internal.create_indexes_non_concurrently('comp_db', '{ "createIndexes": "compOrderSkip", "indexes": [ { "key": { "a": 1, "b": 1, "c": 1, "d": 1}, "name": "idx1", "enableOrderedIndex": true } ] }');
+select COUNT(documentdb_api.insert_one('comp_db', 'compOrderSkip', FORMAT('{ "_id": %s, "a": %s, "b": %s, "c": %s, "d": %s }', i , i, i % 5, i % 10, i % 20 )::bson)) FROM generate_series(1, 100) AS i;
+
+-- now given that it's not multi-key, we can push down sorts to the index fully *iff* missing fields are equality.
+EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT * FROM bson_aggregation_find('comp_db', '{ "find": "compOrderSkip", "filter": { "a": { "$in": [ 1, 2 ] }, "b": { "$in": [ 2, 3 ] }, "c": 2 }, "sort": { "a": 1, "b": 1, "d": 1 } }');
+
+-- cannot push non equality in the non-sorted prefix
+EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT * FROM bson_aggregation_find('comp_db', '{ "find": "compOrderSkip", "filter": { "a": { "$in": [ 1, 2 ] }, "b": { "$in": [ 2, 3 ] }, "c": { "$in": [ 5, 6 ]} }, "sort": { "a": 1, "b": 1, "d": 1 } }');
+
+-- once it's multi-key this isn't allowed.
+SELECT documentdb_api.insert_one('comp_db', 'compOrderSkip', FORMAT('{ "_id": %s, "a": [ %s, 2, 3 ], "b": %s, "c": %s, "d": %s }', 200, 201, 202, 203, 204 )::bson);
+EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT * FROM bson_aggregation_find('comp_db', '{ "find": "compOrderSkip", "filter": { "a": { "$in": [ 1, 2 ] }, "b": { "$in": [ 2, 3 ] }, "c": 2 }, "sort": { "a": 1, "b": 1, "d": 1 } }');

@@ -356,6 +356,8 @@ rumDeletePage(RumVacuumState *gvs, BlockNumber deleteBlkno,
 {
 	BlockNumber leftBlkno,
 				rightBlkno;
+	const int32_t maxRetryCount = 10;
+	int32_t retryCount = 0;
 	Buffer dBuffer;
 	Buffer lBuffer,
 		   rBuffer;
@@ -404,11 +406,17 @@ restart:
 		ReleaseBuffer(dBuffer);
 		ReleaseBuffer(rBuffer);
 		ReleaseBuffer(pBuffer);
-		if (RumSkipRetryOnDeletePage)
+
+		/* Even when bailing, retry a few times before
+		 * moving on and trying again next time.
+		 */
+		if (RumSkipRetryOnDeletePage &&
+			retryCount >= maxRetryCount)
 		{
 			return false;
 		}
 
+		retryCount++;
 		goto restart;
 	}
 	LockBuffer(rBuffer, RUM_EXCLUSIVE);
@@ -444,11 +452,16 @@ restart:
 			return false;
 		}
 
-		if (RumSkipRetryOnDeletePage)
+		/* Even when bailing, retry a few times before
+		 * moving on and trying again next time.
+		 */
+		if (RumSkipRetryOnDeletePage &&
+			retryCount >= maxRetryCount)
 		{
 			return false;
 		}
 
+		retryCount++;
 		goto restart;
 	}
 
@@ -484,7 +497,7 @@ restart:
 	 * we shouldn't change left/right link field to save workability of running
 	 * search scan
 	 */
-	RumPageGetOpaque(dPage)->flags = RUM_DELETED;
+	RumPageForceSetDeleted(dPage);
 
 	GenericXLogFinish(state);
 
@@ -613,12 +626,14 @@ rumScanToDelete(RumVacuumState *gvs, BlockNumber blkno, bool isRoot,
  * is at least one empty page.
  */
 static int
-rumVacuumPostingTreeLeavesNew(RumVacuumState *gvs, OffsetNumber attnum, BlockNumber blkno)
+rumVacuumPostingTreeLeavesNew(RumVacuumState *gvs, OffsetNumber attnum, BlockNumber blkno,
+							  int32_t *nonVoidPageCount)
 {
 	Buffer buffer;
 	Page page;
 	bool isPageRoot = true;
 	int numVoidPages = 0;
+	int32_t numNonVoidPages = 0;
 
 	/* Find leftmost leaf page of posting tree and lock it in exclusive mode */
 	while (true)
@@ -656,6 +671,10 @@ rumVacuumPostingTreeLeavesNew(RumVacuumState *gvs, OffsetNumber attnum, BlockNum
 		{
 			numVoidPages++;
 		}
+		else
+		{
+			numNonVoidPages++;
+		}
 
 		blkno = RumPageGetOpaque(page)->rightlink;
 
@@ -672,16 +691,19 @@ rumVacuumPostingTreeLeavesNew(RumVacuumState *gvs, OffsetNumber attnum, BlockNum
 		page = BufferGetPage(buffer);
 	}
 
+	*nonVoidPageCount = numNonVoidPages;
 	return numVoidPages;
 }
 
 
-static void
+static bool
 rumVacuumPostingTreeNew(RumVacuumState *gvs, OffsetNumber attnum, BlockNumber rootBlkno)
 {
 	bool isNewScan = true;
 	int numDeletedPages = 0;
-	int numVoidPages = rumVacuumPostingTreeLeavesNew(gvs, attnum, rootBlkno);
+	int nonVoidPageCount = 0;
+	int numVoidPages = rumVacuumPostingTreeLeavesNew(gvs, attnum, rootBlkno,
+													 &nonVoidPageCount);
 	if (numVoidPages > 0)
 	{
 		/*
@@ -721,6 +743,7 @@ rumVacuumPostingTreeNew(RumVacuumState *gvs, OffsetNumber attnum, BlockNumber ro
 
 	ereport(DEBUG2, errmsg("[RUM] Vacuum posting tree void pages %d, deleted pages %d",
 						   numVoidPages, numDeletedPages));
+	return nonVoidPageCount == 0;
 }
 
 
@@ -866,6 +889,7 @@ rumbulkdelete(IndexVacuumInfo *info,
 	BlockNumber rootOfPostingTree[BLCKSZ / (sizeof(IndexTupleData) + sizeof(ItemId))];
 	OffsetNumber attnumOfPostingTree[BLCKSZ / (sizeof(IndexTupleData) + sizeof(ItemId))];
 	uint32 nRoot;
+	uint32 numEmptyPostingTrees = 0;
 
 	gvs.index = index;
 	gvs.callback = callback;
@@ -930,7 +954,6 @@ rumbulkdelete(IndexVacuumInfo *info,
 		uint32 i;
 
 		Assert(!RumPageIsData(page));
-
 		resPage = rumVacuumEntryPage(&gvs, buffer, rootOfPostingTree, attnumOfPostingTree,
 									 &nRoot);
 
@@ -957,8 +980,13 @@ rumbulkdelete(IndexVacuumInfo *info,
 		{
 			if (RumUseNewVacuumScan)
 			{
-				rumVacuumPostingTreeNew(&gvs, attnumOfPostingTree[i],
-										rootOfPostingTree[i]);
+				bool isEmptyTree = rumVacuumPostingTreeNew(&gvs, attnumOfPostingTree[i],
+														   rootOfPostingTree[i]);
+
+				if (isEmptyTree)
+				{
+					numEmptyPostingTrees++;
+				}
 			}
 			else
 			{
@@ -976,6 +1004,12 @@ rumbulkdelete(IndexVacuumInfo *info,
 		buffer = ReadBufferExtended(index, MAIN_FORKNUM, blkno,
 									RBM_NORMAL, info->strategy);
 		LockBuffer(buffer, RUM_EXCLUSIVE);
+	}
+
+	if (numEmptyPostingTrees > 0)
+	{
+		elog(LOG, "Vacuum found %u empty posting trees",
+			 numEmptyPostingTrees);
 	}
 
 	return gvs.result;

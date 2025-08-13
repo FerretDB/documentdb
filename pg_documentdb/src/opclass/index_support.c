@@ -294,6 +294,7 @@ extern bool DisableDollarSupportFuncSelectivity;
 extern bool EnableNewOperatorSelectivityMode;
 extern bool EnableIndexHintSupport;
 extern bool UseLegacyForcePushdownBehavior;
+extern bool LowSelectivityForLookup;
 
 /* --------------------------------------------------------- */
 /* Top level exports */
@@ -381,6 +382,19 @@ Datum
 bson_dollar_lookup_filter_support(PG_FUNCTION_ARGS)
 {
 	Node *supportRequest = (Node *) PG_GETARG_POINTER(0);
+
+	if (LowSelectivityForLookup &&
+		IsA(supportRequest, SupportRequestSelectivity))
+	{
+		SupportRequestSelectivity *req = (SupportRequestSelectivity *) supportRequest;
+
+		/*
+		 * Consider low selectivity of lookup filter for better index estimates.
+		 */
+		req->selectivity = LowSelectivity;
+		PG_RETURN_POINTER(req);
+	}
+
 	Expr *finalOpExpr = OpExprForAggregationStageSupportFunction(supportRequest);
 
 	if (finalOpExpr)
@@ -709,6 +723,8 @@ CheckRestrictionPathNodeForIndexOperation(Expr *currentExpr,
 					var->varno == (int) context->inputData.rteIndex)
 				{
 					primaryKeyContext->shardKeyQualExpr = currentRestrictInfo;
+					context->plannerOrderByData.shardKeyEqualityExpr =
+						currentRestrictInfo;
 				}
 			}
 		}
@@ -1049,6 +1065,11 @@ ReplaceExtensionFunctionOperatorsInRestrictionPaths(List *restrictInfo,
 															  context, trimClauses);
 		if (expr == NULL)
 		{
+			if (list_length(restrictInfo) == 1)
+			{
+				return NIL;
+			}
+
 			restrictInfo = foreach_delete_current(restrictInfo, cell);
 			continue;
 		}
@@ -1114,7 +1135,7 @@ IsBtreePrimaryKeyIndex(IndexOptInfo *indexInfo)
  * Note: This function doesn't do any validation to make sure only one such operator is provided
  * in the query, so this should be done during the query construction.
  */
-void
+Path *
 ForceIndexForQueryOperators(PlannerInfo *root, RelOptInfo *rel,
 							ReplaceExtensionFunctionContext *context)
 {
@@ -1122,7 +1143,7 @@ ForceIndexForQueryOperators(PlannerInfo *root, RelOptInfo *rel,
 		context->forceIndexQueryOpData.type >= ForceIndexOpType_Max)
 	{
 		/* If no special operator requirement */
-		return;
+		return NULL;
 	}
 
 	const ForceIndexSupportFuncs *forceIndexFuncs =
@@ -1130,7 +1151,7 @@ ForceIndexForQueryOperators(PlannerInfo *root, RelOptInfo *rel,
 	if (!forceIndexFuncs->enableForceIndexPushdown(root, context))
 	{
 		/* No index support functions !!, or force index pushdown not required then can't do anything */
-		return;
+		return NULL;
 	}
 
 	/*
@@ -1142,7 +1163,7 @@ ForceIndexForQueryOperators(PlannerInfo *root, RelOptInfo *rel,
 		if (list_length(rel->pathlist) == 1)
 		{
 			/* If there is only one index path, then return */
-			return;
+			return NULL;
 		}
 
 		Path *matchingPath = FindIndexPathForQueryOperator(rel, rel->pathlist, context,
@@ -1151,7 +1172,7 @@ ForceIndexForQueryOperators(PlannerInfo *root, RelOptInfo *rel,
 														   path);
 		rel->partial_pathlist = NIL;
 		rel->pathlist = list_make1(matchingPath);
-		return;
+		return matchingPath;
 	}
 
 	List *oldIndexList = rel->indexlist;
@@ -1197,7 +1218,13 @@ ForceIndexForQueryOperators(PlannerInfo *root, RelOptInfo *rel,
 		{
 			forceIndexFuncs->noIndexHandler();
 		}
+		else if (list_length(rel->pathlist) > 0)
+		{
+			/* If alternate path is created, then we can use the first path as the matching path */
+			matchingPath = linitial(rel->pathlist);
+		}
 	}
+
 
 	rel->indexlist = oldIndexList;
 	if (rel->pathlist == NIL)
@@ -1216,6 +1243,38 @@ ForceIndexForQueryOperators(PlannerInfo *root, RelOptInfo *rel,
 			ReplaceExtensionFunctionOperatorsInRestrictionPaths(rel->baserestrictinfo,
 																context);
 	}
+
+	return matchingPath;
+}
+
+
+inline static IndexOptInfo *
+GetPrimaryKeyIndexOptInfo(RelOptInfo *rel)
+{
+	ListCell *index;
+	foreach(index, rel->indexlist)
+	{
+		IndexOptInfo *indexInfo = lfirst(index);
+		if (IsBtreePrimaryKeyIndex(indexInfo))
+		{
+			return indexInfo;
+		}
+	}
+
+	return NULL;
+}
+
+
+inline static IndexClause *
+BuildPointReadIndexClause(RestrictInfo *restrictInfo, int indexCol)
+{
+	IndexClause *iclause = makeNode(IndexClause);
+	iclause->rinfo = restrictInfo;
+	iclause->indexquals = list_make1(restrictInfo);
+	iclause->lossy = false;
+	iclause->indexcol = indexCol;
+	iclause->indexcols = NIL;
+	return iclause;
 }
 
 
@@ -1237,10 +1296,11 @@ ConsiderIndexOrderByPushdown(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *
 	List *sortDetails = NIL;
 	bool hasOrderBy = false;
 	bool hasGroupby = false;
+	bool isOrderById = false;
 	foreach(sortCell, root->query_pathkeys)
 	{
 		PathKey *pathkey = (PathKey *) lfirst(sortCell);
-		if (pathkey->pk_eclass == NULL &&
+		if (pathkey->pk_eclass == NULL ||
 			list_length(pathkey->pk_eclass->ec_members) != 1)
 		{
 			return;
@@ -1332,7 +1392,6 @@ ConsiderIndexOrderByPushdown(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *
 			}
 		}
 
-
 		SortIndexInputDetails *sortDetailsInput =
 			palloc0(sizeof(SortIndexInputDetails));
 		sortDetailsInput->sortPath = sortElement.path;
@@ -1340,11 +1399,16 @@ ConsiderIndexOrderByPushdown(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *
 		sortDetailsInput->sortVar = (Expr *) firstVar;
 		sortDetailsInput->sortDatum = (Expr *) secondConst;
 		sortDetails = lappend(sortDetails, sortDetailsInput);
+
+		isOrderById = isOrderById ||
+					  (sortElement.pathLength == 3 && strcmp(sortElement.path, "_id") ==
+					   0);
 	}
 
 	/* Now match the sort to any index paths */
 	List *pathsToAdd = NIL;
 	ListCell *cell;
+	bool hasIndexPaths = false;
 	foreach(cell, rel->pathlist)
 	{
 		Path *path = lfirst(cell);
@@ -1365,51 +1429,143 @@ ConsiderIndexOrderByPushdown(PlannerInfo *root, RelOptInfo *rel, RangeTblEntry *
 		}
 
 		IndexPath *indexPath = (IndexPath *) path;
-		if (indexPath->indexinfo->nkeycolumns < 1 ||
-			!IsOrderBySupportedOnOpClass(indexPath->indexinfo->relam,
-										 indexPath->indexinfo->opfamily[0]))
+		hasIndexPaths = true;
+		if (indexPath->indexinfo->relam == BTREE_AM_OID &&
+			IsBtreePrimaryKeyIndex(indexPath->indexinfo) &&
+			list_length(sortDetails) == 1)
 		{
-			continue;
-		}
+			/* We have a single sort and a primary key - consider if
+			 * it is an _id pushdown.
+			 */
+			SortIndexInputDetails *sortDetailsInput = linitial(sortDetails);
+			if (strcmp(sortDetailsInput->sortPath, "_id") != 0)
+			{
+				continue;
+			}
 
-		/* Order by pushdown is valid iff:
-		 * 1. The index is not a multi-key index
-		 * 2. The index is multi-key but the order-by term goes from MinKey to MaxKey
-		 *    (We can currently only support that for exists)
-		 */
-		int32_t maxPathKeySupported = -1;
-		if (!CompositeIndexSupportsOrderByPushdown(indexPath, sortDetails,
-												   &maxPathKeySupported, hasGroupby))
+			/*
+			 * We can push down the _id sort to the primary key index
+			 * if and only if there's a shard_key equality.
+			 */
+			if (list_length(indexPath->indexclauses) < 1)
+			{
+				continue;
+			}
+
+			IndexClause *indexClause = linitial(indexPath->indexclauses);
+			if (!IsA(indexClause->rinfo->clause, OpExpr))
+			{
+				continue;
+			}
+
+			OpExpr *opExpr = (OpExpr *) indexClause->rinfo->clause;
+			Expr *firstArg = linitial(opExpr->args);
+			Expr *secondArg = lsecond(opExpr->args);
+
+			if (opExpr->opno != BigintEqualOperatorId() ||
+				!IsA(firstArg, Var) || !IsA(secondArg, Const))
+			{
+				continue;
+			}
+
+			/* The first clause is a shard key equality - can push order by */
+			IndexPath *newPath = makeNode(IndexPath);
+			memcpy(newPath, indexPath, sizeof(IndexPath));
+			newPath->path.pathkeys = list_make1(sortDetailsInput->sortPathKey);
+
+			/* If the sort is descending, we need to scan the index backwards */
+			if (sortDetailsInput->sortPathKey->pk_strategy == BTGreaterStrategyNumber)
+			{
+				newPath->indexscandir = BackwardScanDirection;
+			}
+
+			/* Don't modify the list we're enumerating */
+			pathsToAdd = lappend(pathsToAdd, newPath);
+		}
+		else if (indexPath->indexinfo->nkeycolumns > 0 &&
+				 IsOrderBySupportedOnOpClass(indexPath->indexinfo->relam,
+											 indexPath->indexinfo->opfamily[0]))
 		{
-			continue;
+			/* Order by pushdown is valid iff:
+			 * 1. The index is not a multi-key index
+			 * 2. The index is multi-key but the order-by term goes from MinKey to MaxKey
+			 *    (We can currently only support that for exists)
+			 */
+			int32_t maxPathKeySupported = -1;
+			bool isReverseOrder = false;
+			if (!CompositeIndexSupportsOrderByPushdown(indexPath, sortDetails,
+													   &maxPathKeySupported,
+													   &isReverseOrder, hasGroupby))
+			{
+				continue;
+			}
+
+			if (isReverseOrder && !IsClusterVersionAtleast(DocDB_V0, 107, 0))
+			{
+				continue;
+			}
+
+			IndexPath *newPath = makeNode(IndexPath);
+			memcpy(newPath, indexPath, sizeof(IndexPath));
+
+			List *indexOrderBys = NIL;
+			List *indexPathKeys = NIL;
+			List *indexOrderbyCols = NIL;
+			for (int i = 0; i <= maxPathKeySupported; i++)
+			{
+				SortIndexInputDetails *sortDetailsInput =
+					(SortIndexInputDetails *) list_nth(sortDetails, i);
+
+				Oid indexOperator = isReverseOrder ?
+									BsonOrderByReverseIndexOperatorId() :
+									BsonOrderByIndexOperatorId();
+				Expr *orderElement = make_opclause(
+					indexOperator, BsonTypeId(), false,
+					(Expr *) sortDetailsInput->sortVar,
+					(Expr *) sortDetailsInput->sortDatum,
+					InvalidOid, InvalidOid);
+				indexOrderBys = lappend(indexOrderBys, orderElement);
+				indexPathKeys = lappend(indexPathKeys, sortDetailsInput->sortPathKey);
+				indexOrderbyCols = lappend_int(indexOrderbyCols, 0);
+			}
+
+			newPath->indexorderbys = indexOrderBys;
+			newPath->indexorderbycols = indexOrderbyCols;
+			newPath->path.pathkeys = indexPathKeys;
+
+			/* Don't modify the list we're enumerating */
+			pathsToAdd = lappend(pathsToAdd, newPath);
 		}
+	}
 
-		IndexPath *newPath = makeNode(IndexPath);
-		memcpy(newPath, indexPath, sizeof(IndexPath));
+	/* Special case: if there were no index paths and
+	 * this is a single sort on the _id path, then we can
+	 * add a new index path for the _id sort iff it's filtered on shard key.
+	 * While we have a FullScan Expr for regular indexes, we don't for _id
+	 * so instead we do that logic here.
+	 */
+	if (isOrderById && list_length(sortDetails) == 1 &&
+		!hasIndexPaths && context->plannerOrderByData.shardKeyEqualityExpr != NULL)
+	{
+		SortIndexInputDetails *sortDetailsInput = linitial(sortDetails);
+		IndexOptInfo *primaryKeyIndex = GetPrimaryKeyIndexOptInfo(rel);
 
-		List *indexOrderBys = NIL;
-		List *indexPathKeys = NIL;
-		List *indexOrderbyCols = NIL;
-		for (int i = 0; i <= maxPathKeySupported; i++)
+		if (primaryKeyIndex != NULL)
 		{
-			SortIndexInputDetails *sortDetailsInput =
-				(SortIndexInputDetails *) list_nth(sortDetails, i);
+			ScanDirection scanDir =
+				sortDetailsInput->sortPathKey->pk_strategy == BTGreaterStrategyNumber ?
+				BackwardScanDirection : ForwardScanDirection;
 
-			Expr *orderElement = make_opclause(
-				BsonOrderByIndexOperatorId(), BsonTypeId(), false,
-				(Expr *) sortDetailsInput->sortVar, (Expr *) sortDetailsInput->sortDatum,
-				InvalidOid, InvalidOid);
-			indexOrderBys = lappend(indexOrderBys, orderElement);
-			indexPathKeys = lappend(indexPathKeys, sortDetailsInput->sortPathKey);
-			indexOrderbyCols = lappend_int(indexOrderbyCols, 0);
+			IndexClause *shard_key_clause =
+				BuildPointReadIndexClause(
+					context->plannerOrderByData.shardKeyEqualityExpr, 0);
+			List *indexClauses = list_make1(shard_key_clause);
+			IndexPath *primaryKeyPath = create_index_path(
+				root, primaryKeyIndex, indexClauses, NIL, NIL, NIL, scanDir, false, NULL,
+				1, false);
+			primaryKeyPath->path.pathkeys = list_make1(sortDetailsInput->sortPathKey);
+			pathsToAdd = lappend(pathsToAdd, primaryKeyPath);
 		}
-
-		newPath->indexorderbys = indexOrderBys;
-		newPath->indexorderbycols = indexOrderbyCols;
-		newPath->path.pathkeys = indexPathKeys;
-
-		/* Don't modify the list we're enumerating */
-		pathsToAdd = lappend(pathsToAdd, newPath);
 	}
 
 	list_free_deep(sortDetails);
@@ -2838,19 +2994,6 @@ MatchIndexPathForPrimaryKeyLookup(IndexPath *path, void *matchContext)
 }
 
 
-inline static IndexClause *
-BuildPointReadIndexClause(RestrictInfo *restrictInfo, int indexCol)
-{
-	IndexClause *iclause = makeNode(IndexClause);
-	iclause->rinfo = restrictInfo;
-	iclause->indexquals = list_make1(restrictInfo);
-	iclause->lossy = false;
-	iclause->indexcol = indexCol;
-	iclause->indexcols = NIL;
-	return iclause;
-}
-
-
 static bool
 TryUseAlternateIndexForPrimaryKeyLookup(PlannerInfo *root, RelOptInfo *rel,
 										ReplaceExtensionFunctionContext *indexContext,
@@ -2859,18 +3002,7 @@ TryUseAlternateIndexForPrimaryKeyLookup(PlannerInfo *root, RelOptInfo *rel,
 	PrimaryKeyLookupContext *context =
 		(PrimaryKeyLookupContext *) indexContext->forceIndexQueryOpData.opExtraState;
 
-	IndexOptInfo *primaryKeyInfo = NULL;
-	ListCell *index;
-	foreach(index, rel->indexlist)
-	{
-		IndexOptInfo *indexInfo = lfirst(index);
-		if (IsBtreePrimaryKeyIndex(indexInfo))
-		{
-			primaryKeyInfo = indexInfo;
-			break;
-		}
-	}
-
+	IndexOptInfo *primaryKeyInfo = GetPrimaryKeyIndexOptInfo(rel);
 	if (primaryKeyInfo == NULL)
 	{
 		return false;
@@ -3210,7 +3342,8 @@ ProcessFullScanForOrderBy(SupportRequestIndexCondition *req, List *args)
 	}
 
 	int32_t querySortDirection = BsonValueAsInt32(&sortElement.bsonValue);
-	if (querySortDirection != sortDirection)
+	bool indexSupportsReverseSort = GetIndexSupportsBackwardsScan(req->index->relam);
+	if (querySortDirection != sortDirection && !indexSupportsReverseSort)
 	{
 		return NULL;
 	}
