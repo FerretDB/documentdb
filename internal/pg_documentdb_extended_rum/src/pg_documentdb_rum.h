@@ -71,6 +71,7 @@ typedef RumPageOpaqueData *RumPageOpaque;
 #define RUM_META (1 << 3)
 #define RUM_LIST (1 << 4)
 #define RUM_LIST_FULLROW (1 << 5)       /* makes sense only on RUM_LIST page */
+#define RUM_HALF_DEAD (1 << 6)
 
 /* Page numbers of fixed-location pages */
 #define RUM_METAPAGE_BLKNO (0)
@@ -138,6 +139,10 @@ typedef struct RumMetaPageData
 #define RumPageSetDeleted(page) (RumPageGetOpaque(page)->flags |= RUM_DELETED)
 #define RumPageSetNonDeleted(page) (RumPageGetOpaque(page)->flags &= ~RUM_DELETED)
 #define RumPageForceSetDeleted(page) (RumPageGetOpaque(page)->flags = RUM_DELETED)
+
+#define RumPageIsHalfDead(page) ((RumPageGetOpaque(page)->flags & RUM_HALF_DEAD) != 0)
+#define RumPageSetHalfDead(page) (RumPageGetOpaque(page)->flags |= RUM_HALF_DEAD)
+#define RumPageSetNonHalfDead(page) (RumPageGetOpaque(page)->flags &= ~RUM_HALF_DEAD)
 
 #define RumPageRightMost(page) (RumPageGetOpaque(page)->rightlink == InvalidBlockNumber)
 #define RumPageLeftMost(page) (RumPageGetOpaque(page)->leftlink == InvalidBlockNumber)
@@ -570,10 +575,14 @@ extern void rumReadTuple(RumState *rumstate, OffsetNumber attnum,
 						 IndexTuple itup, RumItem *items, bool copyAddInfo);
 extern void rumReadTuplePointers(RumState *rumstate, OffsetNumber attnum,
 								 IndexTuple itup, ItemPointerData *ipd);
-extern void updateItemIndexes(Page page, OffsetNumber attnum, RumState *rumstate);
-extern void checkLeafDataPage(RumState *rumstate, AttrNumber attrnum, Page page);
+bool entryIsMoveRight(RumBtree btree, Page page);
+bool entryLocateLeafEntryBounds(RumBtree btree, Page page,
+								OffsetNumber low, OffsetNumber high,
+								OffsetNumber *targetOffset);
+IndexTuple rumEntryGetRightMostTuple(Page page);
 
 /* rumdatapage.c */
+extern void updateItemIndexes(Page page, OffsetNumber attnum, RumState *rumstate);
 extern int rumCompareItemPointers(const ItemPointerData *a, const ItemPointerData *b);
 extern int compareRumItem(RumState *state, const AttrNumber attno,
 						  const RumItem *a, const RumItem *b);
@@ -758,6 +767,9 @@ typedef struct RumScanEntryData
 
 	/* Compare partial addition new for documentdb */
 	bool isMatchMinimalTuple;
+
+	/* Optional used in skipscans */
+	Datum queryKeyOverride;
 }   RumScanEntryData;
 
 typedef struct
@@ -774,6 +786,27 @@ typedef enum
 	RumFullScan,
 	RumOrderedScan, /* documentdb: This is new */
 }   RumScanType;
+
+/* Struct that holds information for projecting an index tuple. */
+typedef struct RumProjectIndexTupleData
+{
+	/* The tuple descriptor to form the index tuple. */
+	TupleDesc indexTupleDesc;
+
+	/* The datum returned by the extensibility point representing the index tuple to project */
+	Datum indexTupleDatum;
+
+	/* The final index tuple built from the descriptor and the datum. */
+	IndexTuple iscan_tuple;
+} RumProjectIndexTupleData;
+
+typedef struct RumOrderByScanData
+{
+	RumBtreeStack *orderStack;
+	Page orderByEntryPageCopy;
+	RumScanEntry orderByEntry;
+	IndexTuple boundEntryTuple;
+} RumOrderByScanData;
 
 typedef struct RumScanOpaqueData
 {
@@ -814,8 +847,8 @@ typedef struct RumScanOpaqueData
 	/* In an ordered scan, the key pointing to the order by key */
 	int32_t orderByKeyIndex;
 	bool orderByHasRecheck;
-	RumBtreeStack *orderStack;
-	RumScanEntry orderByEntry;
+
+	RumOrderByScanData *orderByScanData;
 	ScanDirection orderScanDirection;
 	bool recheckCurrentItem;
 	bool recheckCurrentItemOrderBy;
@@ -825,6 +858,9 @@ typedef struct RumScanOpaqueData
 
 	/* stateContext to hold state from rumstate (documentdb: This is new ) */
 	MemoryContext rumStateCtx;
+
+	/* Index only scan metadata. */
+	RumProjectIndexTupleData *projectIndexTupleData;
 }   RumScanOpaqueData;
 
 typedef RumScanOpaqueData *RumScanOpaque;
@@ -927,6 +963,7 @@ typedef enum SimilarityType
 #define RUM_DEFAULT_SKIP_RETRY_ON_DELETE_PAGE true
 #define DEFAULT_FORCE_RUM_ORDERED_INDEX_SCAN false
 #define RUM_DEFAULT_PREFER_ORDERED_INDEX_SCAN true
+#define RUM_DEFAULT_ENABLE_SKIP_INTERMEDIATE_ENTRY true
 
 /* GUC parameters */
 extern int RumFuzzySearchLimit;
@@ -942,6 +979,7 @@ extern int RumParallelIndexWorkersOverride;
 extern bool RumSkipRetryOnDeletePage;
 extern bool RumForceOrderedIndexScan;
 extern bool RumPreferOrderedIndexScan;
+extern bool RumEnableSkipIntermediateEntry;
 
 /*
  * Functions for reading ItemPointers with additional information. Used in

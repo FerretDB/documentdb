@@ -65,10 +65,6 @@
 #include "vector/vector_utilities.h"
 #include "index_am/index_am_utils.h"
 
-
-#define MAX_INDEX_OPTIONS_LENGTH 1500
-
-
 /* Return value of TryCreateCollectionIndexes */
 typedef struct
 {
@@ -6376,9 +6372,20 @@ UpdateIndexStatsForPostgresIndex(uint64 collectionId, List *indexIdList)
 		List *columnNumbers = NIL;
 		if (indexOid != InvalidOid)
 		{
+			bool indexIsLive = false;
 			Relation indexRel = index_open(indexOid, AccessShareLock);
+			indexIsLive = indexRel->rd_index->indislive;
 			IndexInfo *indexInfo = BuildIndexInfo(indexRel);
 			RelationClose(indexRel);
+
+			/* Use this chance to validate that the index is live*/
+			if (!indexIsLive)
+			{
+				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INTERNALERROR),
+								errmsg(
+									"Index %s is not live, but index build was marked as completed",
+									indexName)));
+			}
 
 			/* Only do this for RUM style indexes. Vector and Geospatial indexes do need statistics. */
 			if (!IsBsonRegularIndexAm(indexInfo->ii_Am))

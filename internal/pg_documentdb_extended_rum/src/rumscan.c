@@ -38,7 +38,7 @@ rumbeginscan(Relation rel, int nkeys, int norderbys)
 	so->firstCall = true;
 	so->totalentries = 0;
 	so->sortedEntries = NULL;
-	so->orderStack = NULL;
+	so->orderByScanData = NULL;
 	so->scanLoops = 0;
 	so->orderByKeyIndex = -1;
 	so->orderScanDirection = ForwardScanDirection;
@@ -113,6 +113,7 @@ rumFillScanEntry(RumScanOpaque so, OffsetNumber attnum,
 
 	/* Nope, create a new entry */
 	scanEntry = (RumScanEntry) palloc(sizeof(RumScanEntryData));
+	scanEntry->queryKeyOverride = (Datum) 0;
 	scanEntry->queryKey = queryKey;
 	scanEntry->queryCategory = queryCategory;
 	scanEntry->isPartialMatch = isPartialMatch;
@@ -427,9 +428,19 @@ freeScanKeys(RumScanOpaque so)
 {
 	freeScanEntries(so->entries, so->totalentries);
 
-	if (so->orderStack)
+	if (so->orderByScanData)
 	{
-		freeRumBtreeStack(so->orderStack);
+		if (so->orderByScanData->orderStack)
+		{
+			freeRumBtreeStack(so->orderByScanData->orderStack);
+		}
+
+		if (so->orderByScanData->orderByEntryPageCopy)
+		{
+			pfree(so->orderByScanData->orderByEntryPageCopy);
+		}
+
+		pfree(so->orderByScanData);
 	}
 
 	MemoryContextReset(so->keyCtx);
@@ -463,7 +474,7 @@ initScanKey(RumScanOpaque so, ScanKey skey, bool *hasPartialMatch, bool hasOrder
 	int32 searchMode = GIN_SEARCH_MODE_DEFAULT;
 
 	/* Only apply the search mode when it's safe */
-	if ((hasOrdering || RumForceOrderedIndexScan) &&
+	if ((hasOrdering || RumForceOrderedIndexScan || so->projectIndexTupleData) &&
 		so->rumstate.canOrdering[skey->sk_attno - 1] &&
 		so->rumstate.orderingFn[skey->sk_attno - 1].fn_nargs == 4)
 	{
@@ -713,8 +724,8 @@ rumNewScanKey(IndexScanDesc scan)
 	so->entriesIncrIndex = -1;
 	so->norderbys = scan->numberOfOrderBys;
 	so->willSort = false;
-	so->orderStack = NULL;
-	so->orderByEntry = NULL;
+	so->orderByScanData = NULL;
+	so->projectIndexTupleData = NULL;
 
 	/*
 	 * Allocate all the scan key information in the key context. (If
@@ -886,6 +897,30 @@ rumNewScanKey(IndexScanDesc scan)
 		scan->xs_orderbynulls = palloc(sizeof(bool) * scan->numberOfOrderBys);
 		memset(scan->xs_orderbynulls, true, sizeof(bool) *
 			   scan->numberOfOrderBys);
+	}
+
+	if (scan->xs_want_itup)
+	{
+		char *attributeName = NULL;
+		int attributeTypeModifier = -1;
+		int numDimensions = 0;
+		int natts = RelationGetNumberOfAttributes(scan->indexRelation);
+
+		so->projectIndexTupleData = palloc0(sizeof(RumProjectIndexTupleData));
+		so->projectIndexTupleData->iscan_tuple = NULL;
+		so->projectIndexTupleData->indexTupleDatum = (Datum) 0;
+
+		so->projectIndexTupleData->indexTupleDesc = CreateTemplateTupleDesc(natts);
+		for (i = 0; i < natts; i++)
+		{
+			TupleDescInitEntry(so->projectIndexTupleData->indexTupleDesc, (AttrNumber) i +
+							   1, attributeName,
+							   scan->indexRelation->rd_opcintype[i],
+							   attributeTypeModifier,
+							   numDimensions);
+		}
+
+		scan->xs_itupdesc = so->projectIndexTupleData->indexTupleDesc;
 	}
 
 	MemoryContextSwitchTo(oldCtx);

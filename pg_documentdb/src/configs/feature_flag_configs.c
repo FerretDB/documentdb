@@ -189,6 +189,15 @@ bool EnableBucketAutoStage = DEFAULT_ENABLE_BUCKET_AUTO_STAGE;
 #define DEFAULT_ENABLE_COMPACT_COMMAND true
 bool EnableCompact = DEFAULT_ENABLE_COMPACT_COMMAND;
 
+#define DEFAULT_ENABLE_SCHEMA_ENFORCEMENT_FOR_CSFLE true
+bool EnableSchemaEnforcementForCSFLE = DEFAULT_ENABLE_SCHEMA_ENFORCEMENT_FOR_CSFLE;
+
+#define DEFAULT_ENABLE_INDEX_ONLY_SCAN false
+bool EnableIndexOnlyScan = DEFAULT_ENABLE_INDEX_ONLY_SCAN;
+
+#define DEFAULT_ENABLE_RANGE_OPTIMIZATION_COMPOSITE false
+bool EnableRangeOptimizationForComposite = DEFAULT_ENABLE_RANGE_OPTIMIZATION_COMPOSITE;
+
 /* FEATURE FLAGS END */
 
 void
@@ -521,5 +530,28 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 		gettext_noop(
 			"Whether to reorder the indexlist at the planner level based on priority of indexes."),
 		NULL, &EnableIndexPriorityOrdering, DEFAULT_ENABLE_INDEX_PRIORITY_ORDERING,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.enableSchemaEnforcementForCSFLE", newGucPrefix),
+		gettext_noop(
+			"Whether or not to enable schema enforcement for CSFLE."),
+		NULL, &EnableSchemaEnforcementForCSFLE,
+		DEFAULT_ENABLE_SCHEMA_ENFORCEMENT_FOR_CSFLE,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.enableIndexOnlyScan", newGucPrefix),
+		gettext_noop(
+			"Whether to enable index only scan for queries that can be satisfied by an index without accessing the table."),
+		NULL, &EnableIndexOnlyScan, DEFAULT_ENABLE_INDEX_ONLY_SCAN,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.enableRangeOptimizationForComposite", newGucPrefix),
+		gettext_noop(
+			"Whether to enable range optimization for composite indexes."),
+		NULL, &EnableRangeOptimizationForComposite,
+		DEFAULT_ENABLE_RANGE_OPTIMIZATION_COMPOSITE,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 }

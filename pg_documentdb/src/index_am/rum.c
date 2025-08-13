@@ -37,6 +37,8 @@ extern bool ForceUseIndexIfAvailable;
 extern bool EnableNewCompositeIndexOpclass;
 extern bool EnableIndexOrderbyPushdown;
 extern bool EnableDescendingCompositeIndex;
+extern bool EnableIndexOnlyScan;
+extern const RumIndexArrayStateFuncs RoaringStateFuncs;
 
 bool RumHasMultiKeyPaths = false;
 
@@ -48,7 +50,7 @@ extern BsonIndexAmEntry RumIndexAmEntry;
 static bool loaded_rum_routine = false;
 static IndexAmRoutine rum_index_routine = { 0 };
 
-const RumIndexArrayStateFuncs *IndexArrayStateFuncs = NULL;
+const RumIndexArrayStateFuncs *IndexArrayStateFuncs = &RoaringStateFuncs;
 
 typedef enum IndexMultiKeyStatus
 {
@@ -109,6 +111,7 @@ static bool extension_ruminsert(Relation indexRelation,
 								IndexUniqueCheck checkUnique,
 								bool indexUnchanged,
 								struct IndexInfo *indexInfo);
+
 static bool RumScanOrderedFalse(IndexScanDesc scan);
 
 static CanOrderInIndexScan rum_index_scan_ordered = RumScanOrderedFalse;
@@ -148,8 +151,9 @@ extensionrumhandler(PG_FUNCTION_ARGS)
 void
 RegisterIndexArrayStateFuncs(const RumIndexArrayStateFuncs *funcs)
 {
-	if (IndexArrayStateFuncs != NULL)
+	if (IndexArrayStateFuncs != NULL && IndexArrayStateFuncs != &RoaringStateFuncs)
 	{
+		/* This should not happen, as we should only register once */
 		ereport(ERROR, (errmsg("Index array state functions already registered")));
 	}
 
@@ -199,6 +203,7 @@ GetRumIndexHandler(PG_FUNCTION_ARGS)
 	indexRoutine->amcostestimate = extension_rumcostestimate;
 	indexRoutine->ambuild = extension_rumbuild;
 	indexRoutine->aminsert = extension_ruminsert;
+	indexRoutine->amcanreturn = NULL;
 
 	return indexRoutine;
 }
@@ -618,6 +623,34 @@ CompositeIndexSupportsOrderByPushdown(IndexPath *indexPath, List *sortDetails,
 }
 
 
+/* Check if the index supports index-only scans based on the index rel am. */
+bool
+CompositeIndexSupportsIndexOnlyScan(const IndexPath *indexPath)
+{
+	GetMultikeyStatusFunc getMultiKeyStatusFunc = NULL;
+	GetTruncationStatusFunc getTruncationStatusFunc = NULL;
+
+	bool supports = GetIndexAmSupportsIndexOnlyScan(indexPath->indexinfo->relam,
+													indexPath->indexinfo->opfamily[0],
+													&getMultiKeyStatusFunc,
+													&getTruncationStatusFunc);
+
+	if (!supports || getMultiKeyStatusFunc == NULL || getTruncationStatusFunc == NULL)
+	{
+		/* If the index does not support index only scan, return false */
+		return false;
+	}
+
+	Relation indexRelation = index_open(indexPath->indexinfo->indexoid, NoLock);
+	bool multiKeyStatus = getMultiKeyStatusFunc(indexRelation);
+	bool hasTruncatedTerms = getTruncationStatusFunc(indexRelation);
+	index_close(indexRelation, NoLock);
+
+	/* can only support index only scan if the index is not multikey and there are no truncated terms. */
+	return !multiKeyStatus && !hasTruncatedTerms;
+}
+
+
 static bool
 RumScanOrderedFalse(IndexScanDesc scan)
 {
@@ -976,6 +1009,8 @@ extension_rumrescan_core(IndexScanDesc scan, ScanKey scankey, int nscankeys,
 			outerScanState->innerScan = coreRoutine->ambeginscan(scan->indexRelation,
 																 nInnerScanKeys,
 																 nInnerorderbys);
+
+			outerScanState->innerScan->xs_want_itup = scan->xs_want_itup;
 		}
 
 		coreRoutine->amrescan(outerScanState->innerScan,
@@ -1003,6 +1038,11 @@ extension_rumrescan_core(IndexScanDesc scan, ScanKey scankey, int nscankeys,
 										"Cannot push down order by on path with arrays")));
 				}
 			}
+		}
+		else if (outerScanState->innerScan->xs_want_itup)
+		{
+			ereport(ERROR, (errmsg(
+								"Cannot use index only scan on a non-ordered index scan")));
 		}
 	}
 	else
@@ -1069,6 +1109,10 @@ GetOneTupleCore(DocumentDBRumIndexState *outerScanState,
 	/* Set the pointers to handle order by values */
 	scan->xs_orderbyvals = outerScanState->innerScan->xs_orderbyvals;
 	scan->xs_orderbynulls = outerScanState->innerScan->xs_orderbynulls;
+
+	scan->xs_itup = outerScanState->innerScan->xs_itup;
+	scan->xs_itupdesc = outerScanState->innerScan->xs_itupdesc;
+
 	return result;
 }
 
@@ -1252,6 +1296,32 @@ CheckIndexHasArrays(Relation indexRelation, IndexAmRoutine *coreRoutine)
 	bool hasArrays = coreRoutine->amgettuple(innerDesc, ForwardScanDirection);
 	coreRoutine->amendscan(innerDesc);
 	return hasArrays ? IndexMultiKeyStatus_HasArrays : IndexMultiKeyStatus_HasNoArrays;
+}
+
+
+bool
+RumGetTruncationStatus(Relation indexRelation)
+{
+	EnsureRumLibLoaded();
+
+	if (!IsCompositeOpClass(indexRelation))
+	{
+		return false;
+	}
+
+	/* Start a nested query lookup */
+	IndexScanDesc innerDesc = rum_index_routine.ambeginscan(indexRelation, 1, 0);
+
+	ScanKeyData truncatedKey = { 0 };
+	truncatedKey.sk_attno = 1;
+	truncatedKey.sk_collation = InvalidOid;
+	truncatedKey.sk_strategy = BSON_INDEX_STRATEGY_HAS_TRUNCATED_TERMS;
+	truncatedKey.sk_argument = PointerGetDatum(PgbsonInitEmpty());
+
+	rum_index_routine.amrescan(innerDesc, &truncatedKey, 1, NULL, 0);
+	bool hasTruncation = rum_index_routine.amgettuple(innerDesc, ForwardScanDirection);
+	rum_index_routine.amendscan(innerDesc);
+	return hasTruncation;
 }
 
 

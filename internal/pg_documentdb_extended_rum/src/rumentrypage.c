@@ -112,8 +112,8 @@ RumFormInteriorTuple(RumBtree btree, IndexTuple itup, Page page,
  * Entry tree is a "static", ie tuple never deletes from it,
  * so we don't use right bound, we use rightmost key instead.
  */
-static IndexTuple
-getRightMostTuple(Page page)
+IndexTuple
+rumEntryGetRightMostTuple(Page page)
 {
 	OffsetNumber maxoff = PageGetMaxOffsetNumber(page);
 
@@ -123,7 +123,7 @@ getRightMostTuple(Page page)
 }
 
 
-static bool
+bool
 entryIsMoveRight(RumBtree btree, Page page)
 {
 	IndexTuple itup;
@@ -136,7 +136,13 @@ entryIsMoveRight(RumBtree btree, Page page)
 		return false;
 	}
 
-	itup = getRightMostTuple(page);
+	if (RumPageIsHalfDead(page))
+	{
+		/* If on a half dead page, always move right */
+		return true;
+	}
+
+	itup = rumEntryGetRightMostTuple(page);
 	attnum = rumtuple_get_attrnum(btree->rumstate, itup);
 	key = rumtuple_get_key(btree->rumstate, itup, &category);
 
@@ -255,9 +261,20 @@ entryLocateLeafEntry(RumBtree btree, RumBtreeStack *stack)
 	low = FirstOffsetNumber;
 	high = PageGetMaxOffsetNumber(page);
 
+	return entryLocateLeafEntryBounds(btree, page, low, high, &stack->off);
+}
+
+
+bool
+entryLocateLeafEntryBounds(RumBtree btree, Page page,
+						   OffsetNumber low, OffsetNumber high,
+						   OffsetNumber *targetOffset)
+{
+	Assert(!RumPageIsData(page));
+
 	if (high < low)
 	{
-		stack->off = FirstOffsetNumber;
+		*targetOffset = low;
 		return false;
 	}
 
@@ -282,7 +299,7 @@ entryLocateLeafEntry(RumBtree btree, RumBtreeStack *stack)
 									  attnum, key, category);
 		if (result == 0)
 		{
-			stack->off = mid;
+			*targetOffset = mid;
 			return true;
 		}
 		else if (result > 0)
@@ -295,7 +312,7 @@ entryLocateLeafEntry(RumBtree btree, RumBtreeStack *stack)
 		}
 	}
 
-	stack->off = high;
+	*targetOffset = high;
 	return false;
 }
 
@@ -557,7 +574,7 @@ rumPageGetLinkItup(RumBtree btree, Buffer buf, Page page)
 	IndexTuple itup,
 			   nitup;
 
-	itup = getRightMostTuple(page);
+	itup = rumEntryGetRightMostTuple(page);
 	nitup = RumFormInteriorTuple(btree, itup, page, BufferGetBlockNumber(buf));
 
 	return nitup;
