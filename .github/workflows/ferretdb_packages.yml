@@ -210,8 +210,9 @@ jobs:
           go mod verify
           go run . -control-file ../../pg_documentdb/documentdb.control -pg-version ${{ matrix.pg }}
 
-      # Official Docker images are built on top of Debian 12:
+      # Official Docker images are built on top of Debian 13 Trixie; use postgres:xx-bookworm for now:
       # docker run --rm postgres:15 cat /etc/os-release
+      # docker run --rm postgres:15-bookworm cat /etc/os-release
       - name: Download deb12-${{ matrix.pg }}-${{ steps.version.outputs.package_version }}
         uses: actions/download-artifact@v4
         with:
