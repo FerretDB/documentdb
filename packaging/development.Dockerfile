@@ -2,6 +2,7 @@
 
 ARG POSTGRES_VERSION
 
+# TODO https://github.com/FerretDB/FerretDB/issues/5449
 FROM postgres:${POSTGRES_VERSION}-bookworm
 
 ARG TARGETARCH
