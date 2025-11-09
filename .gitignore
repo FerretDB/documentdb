@@ -70,7 +70,8 @@ build/
 # temp schedules
 *.tmp
 
-# deb packages
+# packages
 *.deb
+*.rpm
 
 site/
