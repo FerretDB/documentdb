@@ -9,6 +9,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'ferretdb'
     paths-ignore:
       - 'docs/**'
       - '.devcontainer/**'

@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - 'main'
+      - 'ferretdb'
       - 'release/**'
     paths-ignore:
       - 'docs/**'
