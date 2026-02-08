@@ -5,7 +5,6 @@ SET documentdb.next_collection_id TO 69500;
 SET documentdb.next_collection_index_id TO 69500;
 
 set documentdb.enableExtendedExplainPlans to on;
-SET documentdb.enableNewCompositeIndexOpClass to on;
 
 SELECT documentdb_api.drop_collection('hint_db', 'query_index_hints') IS NOT NULL;
 SELECT documentdb_api.create_collection('hint_db', 'query_index_hints');

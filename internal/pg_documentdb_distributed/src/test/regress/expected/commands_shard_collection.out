@@ -38,7 +38,7 @@ ROLLBACK;
 SELECT documentdb_api.shard_collection('db','reshard', '{"value":1}');
 ERROR:  only shard keys that use hashed are supported
 SELECT documentdb_api.shard_collection('db','reshard', '{"value":"hash"}');
-ERROR:  invalid value for shard key: hash
+ERROR:  Shard key value provided is invalid: hash
 -- create two indexes before re-sharding
 SELECT documentdb_api_internal.create_indexes_non_concurrently(
   'db',
@@ -150,14 +150,14 @@ SELECT count(*) FROM documentdb_api.collection('db','reshard') WHERE document @@
 SELECT documentdb_api.insert_one('db','reshard','{"_id":"6", "value": ["hello","world"]}');
                                                                                                      insert_one                                                                                                      
 ---------------------------------------------------------------------
- { "n" : { "$numberInt" : "0" }, "ok" : { "$numberDouble" : "1.0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "1088" }, "errmsg" : "Shard key cannot contain an array." } ] }
+ { "n" : { "$numberInt" : "0" }, "ok" : { "$numberDouble" : "1.0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "1088" }, "errmsg" : "A shard key is not permitted to include any array elements." } ] }
 (1 row)
 
 -- documents with regex shard key are not allowed
 SELECT documentdb_api.insert_one('db','reshard','{"_id":"6", "value":  {"$regularExpression":{"pattern":"foo","options":""}}}');
-                                                                                                     insert_one                                                                                                     
+                                                                                                                       insert_one                                                                                                                       
 ---------------------------------------------------------------------
- { "n" : { "$numberInt" : "0" }, "ok" : { "$numberDouble" : "1.0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "1088" }, "errmsg" : "Shard key cannot contain a regex." } ] }
+ { "n" : { "$numberInt" : "0" }, "ok" : { "$numberDouble" : "1.0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "1088" }, "errmsg" : "A shard key is not allowed to include any regular expression pattern." } ] }
 (1 row)
 
 -- documents with double shard key are allowed
@@ -432,9 +432,9 @@ SELECT documentdb_api.shard_collection('db','reshard', '{"a.b":"hashed"}', true)
 
 -- we should not allow arrays in the path even if the value is not an array
 SELECT documentdb_api.insert_one('db','reshard','{"_id":"10", "a": [{"b":22}]}');
-                                                                                                                  insert_one                                                                                                                  
+                                                                                                                            insert_one                                                                                                                            
 ---------------------------------------------------------------------
- { "n" : { "$numberInt" : "0" }, "ok" : { "$numberDouble" : "1.0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "1088" }, "errmsg" : "Shard key cannot contain array values or array descendants." } ] }
+ { "n" : { "$numberInt" : "0" }, "ok" : { "$numberDouble" : "1.0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "1088" }, "errmsg" : "Shard key is not allowed to include array values or any array-derived elements." } ] }
 (1 row)
 
 -- nested objects should be fine

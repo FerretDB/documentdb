@@ -39,6 +39,7 @@ extern PGDLLIMPORT char *ApiAdminRoleV2;
 extern PGDLLIMPORT char *ApiBgWorkerRole;
 extern PGDLLIMPORT char *ApiReadOnlyRole;
 extern PGDLLEXPORT char *ApiReadWriteRole;
+extern PGDLLEXPORT char *ApiRootInternalRole;
 extern PGDLLIMPORT char *ApiRootRole;
 extern PGDLLEXPORT char *ApiUserAdminRole;
 
@@ -309,7 +310,6 @@ Oid PostgisGeographyExpandFunctionId(void);
 /* Text search functions */
 Oid WebSearchToTsQueryFunctionId(void);
 Oid WebSearchToTsQueryWithRegConfigFunctionId(void);
-Oid RumExtractTsVectorFunctionId(void);
 Oid BsonTextSearchMetaQualFuncId(void);
 Oid TsRankFunctionId(void);
 Oid TsVectorConcatFunctionId(void);
@@ -435,6 +435,7 @@ Oid ApiDataNamespaceOid(void);
 Oid UpdateWorkerFunctionOid(void);
 Oid InsertWorkerFunctionOid(void);
 Oid DeleteWorkerFunctionOid(void);
+Oid CommandNodeWorkerFunctionOid(void);
 
 /* Compat functions*/
 Oid DocumentDBCoreBsonToBsonFunctionOId(void);

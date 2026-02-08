@@ -14,11 +14,10 @@ use tokio_postgres::Row;
 
 use crate::{
     auth::AuthState,
-    context::{ConnectionContext, Cursor, ServiceContext},
+    context::{ConnectionContext, Cursor, RequestContext, ServiceContext},
     error::Result,
     explain::Verbosity,
     postgres::Transaction,
-    requests::{Request, RequestInfo},
     responses::{PgResponse, Response},
 };
 
@@ -61,65 +60,59 @@ pub trait PgDataClient: Send + Sync {
 
     async fn execute_aggregate(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<(PgResponse, Arc<Connection>)>;
 
     async fn execute_coll_stats(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         scale: f64,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_count_query(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_create_collection(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_create_indexes(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         db: &str,
         connection_context: &ConnectionContext,
     ) -> Result<Vec<Row>>;
 
     async fn execute_wait_for_index(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         index_build_id: &PgDocument<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Vec<Row>>;
 
     async fn execute_delete(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         is_read_only_for_disk_full: bool,
         connection_context: &ConnectionContext,
     ) -> Result<Vec<Row>>;
 
     async fn execute_distinct_query(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_drop_collection(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         db: &str,
         collection: &str,
         is_read_only_for_disk_full: bool,
@@ -128,7 +121,7 @@ pub trait PgDataClient: Send + Sync {
 
     async fn execute_drop_database(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         db: &str,
         is_read_only_for_disk_full: bool,
         connection_context: &ConnectionContext,
@@ -136,8 +129,7 @@ pub trait PgDataClient: Send + Sync {
 
     async fn execute_explain(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         query_base: &str,
         verbosity: Verbosity,
         connection_context: &ConnectionContext,
@@ -145,22 +137,19 @@ pub trait PgDataClient: Send + Sync {
 
     async fn execute_find(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<(PgResponse, Arc<Connection>)>;
 
     async fn execute_find_and_modify(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_cursor_get_more(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         db: &str,
         cursor: &Cursor,
         cursor_connection: &Option<Arc<Connection>>,
@@ -169,58 +158,50 @@ pub trait PgDataClient: Send + Sync {
 
     async fn execute_insert(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Vec<Row>>;
 
     async fn execute_list_collections(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<(PgResponse, Arc<Connection>)>;
 
     async fn execute_list_databases(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_list_indexes(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<(PgResponse, Arc<Connection>)>;
 
     async fn execute_update(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Vec<Row>>;
 
     async fn execute_validate(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_drop_indexes(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<PgResponse>;
 
     #[allow(clippy::too_many_arguments)]
     async fn execute_shard_collection(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         db: &str,
         collection: &str,
         key: &RawDocument,
@@ -230,13 +211,13 @@ pub trait PgDataClient: Send + Sync {
 
     async fn execute_reindex(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_current_op(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         filter: &RawDocumentBuf,
         all: bool,
         own_ops: bool,
@@ -245,14 +226,13 @@ pub trait PgDataClient: Send + Sync {
 
     async fn execute_coll_mod(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_get_parameter(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         all: bool,
         show_details: bool,
         params: Vec<String>,
@@ -261,14 +241,15 @@ pub trait PgDataClient: Send + Sync {
 
     async fn execute_db_stats(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         scale: f64,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
+    #[allow(clippy::too_many_arguments)]
     async fn execute_rename_collection(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         source_db: &str,
         source_collection: &str,
         target_collection: &str,
@@ -278,43 +259,37 @@ pub trait PgDataClient: Send + Sync {
 
     async fn execute_create_user(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_drop_user(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_update_user(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_users_info(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_connection_status(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
     async fn execute_compact(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response>;
 
@@ -330,7 +305,6 @@ pub trait PgDataClient: Send + Sync {
         Fut: Future<Output = Result<Vec<Row>>> + Send,
     {
         if !connection.in_transaction && is_read_only_for_disk_full {
-            log::trace!("Executing delete operation in readonly state.");
             let mut transaction =
                 Transaction::start(connection, tokio_postgres::IsolationLevel::RepeatableRead)
                     .await?;
@@ -356,8 +330,7 @@ pub trait PgDataClient: Send + Sync {
 
     async fn execute_unshard_collection(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<()>;
 }

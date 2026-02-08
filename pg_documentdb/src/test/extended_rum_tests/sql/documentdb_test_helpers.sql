@@ -1,0 +1,1 @@
+\i ../regress/sql/documentdb_test_helpers.sql

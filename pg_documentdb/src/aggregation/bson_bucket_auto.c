@@ -286,7 +286,7 @@ HandleBucketAuto(const bson_value_t *existingValue, Query *query,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40240),
 						errmsg(
-							"The argument to $bucketAuto must be an object, but found type: %s",
+							"$bucketAuto requires an object argument, but a value of type %s was provided instead.",
 							BsonTypeName(
 								existingValue->value_type))));
 	}
@@ -315,7 +315,7 @@ HandleBucketAuto(const bson_value_t *existingValue, Query *query,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40241),
 								errmsg(
-									"The $bucketAuto 'buckets' field must be a numeric value, but found type: %s",
+									"The 'buckets' field in $bucketAuto must contain a numeric value, but a different type was detected: %s",
 									BsonTypeName(value->value_type))));
 			}
 
@@ -324,7 +324,7 @@ HandleBucketAuto(const bson_value_t *existingValue, Query *query,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40242),
 								errmsg(
-									"The $bucketAuto 'buckets' field must be representable as a 32-bit integer, but found: %s, value type: %s",
+									"The 'buckets' setting in $bucketAuto must fit within a 32-bit integer range, but was given: %s, type: %s",
 									BsonValueToJsonForLogging(value), BsonTypeName(
 										value->value_type))));
 			}
@@ -334,7 +334,7 @@ HandleBucketAuto(const bson_value_t *existingValue, Query *query,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40243),
 								errmsg(
-									"The $bucketAuto 'buckets' field must be greater than 0, but found: %d",
+									"The 'buckets' field in the $bucketAuto operator must have a value greater than zero, but the provided value was: %d",
 									num)));
 			}
 			numBuckets = num;
@@ -345,7 +345,7 @@ HandleBucketAuto(const bson_value_t *existingValue, Query *query,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40244),
 								errmsg(
-									"The $bucketAuto 'output' field must be an object, but found type: %s",
+									"The 'output' field in $bucketAuto must be an object, but a different type was provided: %s",
 									BsonTypeName(value->value_type))));
 			}
 			output = *value;
@@ -356,7 +356,7 @@ HandleBucketAuto(const bson_value_t *existingValue, Query *query,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40261),
 								errmsg(
-									"The $bucketAuto 'granularity' field must be a string, but found type: %s",
+									"Expected 'string' for 'granularity' field for $bucketAuto but found '%s' type",
 									BsonTypeName(value->value_type))));
 			}
 			granularity = value->value.v_utf8.str;
@@ -374,7 +374,7 @@ HandleBucketAuto(const bson_value_t *existingValue, Query *query,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40246),
 						errmsg(
-							"$bucketAuto requires 'groupBy' and 'buckets' to be specified.")));
+							"The $bucketAuto stage must include both 'groupBy' and 'buckets' parameters.")));
 	}
 
 	AggregationExpressionData parsedGroupBy = { 0 };
@@ -385,7 +385,7 @@ HandleBucketAuto(const bson_value_t *existingValue, Query *query,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40239),
 						errmsg(
-							"The $bucketAuto 'groupBy' field must be defined as a $-prefixed path or an expression object, but found: %s",
+							"The $bucketAuto 'groupBy' field must be specified using either a $-prefixed path or a valid expression object, but instead received: %s",
 							BsonValueToJsonForLogging(&groupBy))));
 	}
 
@@ -815,7 +815,7 @@ ValidateGranularityType(const char *granularity)
 		}
 	}
 	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40257),
-					errmsg("Unknown rounding granularity: %s", granularity)));
+					errmsg("Rounding granularity not recognized: %s", granularity)));
 }
 
 
@@ -829,7 +829,7 @@ ValidateValueIsNumberic(pgbson *value)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40258),
 						errmsg(
-							" $bucketAuto can specify a 'granularity' with numeric boundaries only, but found a value with type: %s",
+							"$bucketAuto only allows specifying a 'granularity' with numeric boundaries, but encountered a value of type: %s",
 							BsonTypeName(current.value_type))));
 	}
 	double currentValueDouble = BsonValueAsDouble(&current);
@@ -837,7 +837,7 @@ ValidateValueIsNumberic(pgbson *value)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40260),
 						errmsg(
-							" $bucketAuto can specify a 'granularity' with numeric boundaries only, but found a negative value: %f",
+							" $bucketAuto only allows specifying a 'granularity' with numeric boundaries, but a negative value was provided: %f",
 							currentValueDouble)));
 	}
 }
@@ -860,7 +860,7 @@ FindClosestPowersOf2(double n, bool findLarger)
 		}
 		if (findLarger)
 		{
-			return base * 2.0; /* Closest power of 2 strictly greater than n */
+			return base * 2.0; /* Smallest power of 2 that is strictly larger than n */
 		}
 		else
 		{
@@ -1082,7 +1082,7 @@ FindClosestRenardOrEseries(double n, bool findLarger, const char *seriesType)
 	double base = 1.0;
 
 	/* Scale the base up or down to find the appropriate range where n fits */
-	const double MIN_BASE = 5e-324; /* Smallest positive double */
+	const double MIN_BASE = 5e-324; /* Minimum positive double value */
 	const double MAX_BASE = 1.79769e308; /* Largest positive double */
 
 	/* let base <= n */

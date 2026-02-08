@@ -6,7 +6,7 @@
  *-------------------------------------------------------------------------
  */
 
-use std::time::Instant;
+use tokio::time::Instant;
 
 #[derive(Debug)]
 pub enum RequestIntervalKind {
@@ -50,7 +50,7 @@ impl RequestTracker {
         }
     }
 
-    pub fn start_timer(&mut self) -> Instant {
+    pub fn start_timer(&self) -> Instant {
         Instant::now()
     }
 
@@ -59,7 +59,7 @@ impl RequestTracker {
         self.request_interval_metrics_array[interval as usize] += elapsed.as_nanos() as i64;
     }
 
-    pub fn get_interval_elapsed_time(&mut self, interval: RequestIntervalKind) -> i64 {
+    pub fn get_interval_elapsed_time(&self, interval: RequestIntervalKind) -> i64 {
         self.request_interval_metrics_array[interval as usize]
     }
 }

@@ -280,7 +280,7 @@ GetBsonDecimal128AsDouble(const bson_value_t *value)
 		if (IsOperationOverflow(exceptionFlags) || IsOperationUnderflow(exceptionFlags))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CONVERSIONFAILURE),
-							errmsg("Conversion would overflow target type")));
+							errmsg("Conversion would exceed target type limit")));
 		}
 		else
 		{
@@ -343,7 +343,7 @@ GetBsonDecimal128AsLongDouble(const bson_value_t *value)
 		if (IsOperationOverflow(exceptionFlags) || IsOperationUnderflow(exceptionFlags))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CONVERSIONFAILURE),
-							errmsg("Conversion would overflow target type")));
+							errmsg("Conversion would exceed target type limit")));
 		}
 		else
 		{
@@ -1359,7 +1359,7 @@ Decimal128MathematicalOperation1Operand(const bson_value_t *value, bson_value_t 
 	if (!IsOperationSuccess(exceptionFlag))
 	{
 		/* Log and ignore all exceptions */
-		LogWith1Operand("Decimal128 math operation signaled exception", &valueBid,
+		LogWith1Operand("Decimal128 arithmetic process triggered exception", &valueBid,
 						&exceptionFlag);
 	}
 
@@ -1538,7 +1538,7 @@ ThrowConversionFailureError(const BID_UINT128 value)
 		 * also intel math lib doesn't indicate overflow / underflow in exception flag
 		 */
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CONVERSIONFAILURE),
-						errmsg("Conversion would overflow target type")));
+						errmsg("Conversion would exceed target type limit")));
 	}
 }
 

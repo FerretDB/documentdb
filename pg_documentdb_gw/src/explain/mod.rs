@@ -11,13 +11,12 @@ use std::{cmp::Ordering, collections::HashMap, str::FromStr};
 
 use async_recursion::async_recursion;
 use bson::{rawdoc, Document, RawArrayBuf, RawBson, RawDocument, RawDocumentBuf};
-use log::{log_enabled, warn};
 use model::*;
 use once_cell::sync::Lazy;
 use serde_json::Value;
 
 use crate::{
-    context::ConnectionContext,
+    context::{ConnectionContext, RequestContext},
     error::{DocumentDBError, Result},
     postgres::PgDataClient,
     protocol::OK_SUCCEEDED,
@@ -109,17 +108,23 @@ fn write_output_stage(
 /// A command with explain:true, or an explain command wrapping a sub command
 #[async_recursion]
 pub async fn process_explain(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     verbosity: Option<Verbosity>,
     connection_context: &ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
-    if let Some(result) = request.document().into_iter().next() {
+    // Extract the first command from the request document
+    let first_command = {
+        let request = request_context.payload;
+        request.document().into_iter().next()
+    };
+
+    if let Some(result) = first_command {
         let result = result?;
 
-        // db.runCommand with Explain does not provide verbosity in some JSTests - we need to default to QueryPlanner here.
+        // Default to QueryPlanner here, as Default tends to be too brief
         let verbosity = verbosity.unwrap_or_else(|| {
+            let request = request_context.payload;
             request
                 .document()
                 .get_str("verbosity")
@@ -129,14 +134,26 @@ pub async fn process_explain(
         match result.0 {
             "explain" => {
                 if let Some(explain_doc) = result.1.as_document() {
-                    // Recurse with the sub command
-                    process_explain(
-                        &Request::Raw(RequestType::Explain, explain_doc, request.extra()),
-                        request_info,
+                    let new_request = Request::Raw(
+                        RequestType::Explain,
+                        explain_doc,
+                        request_context.payload.extra(),
+                    );
+
+                    let mut new_request_context = RequestContext {
+                        activity_id: request_context.activity_id,
+                        payload: &new_request,
+                        info: request_context.info,
+                        tracker: request_context.tracker,
+                    };
+
+                    // Recursive call with the unwrapped command
+                    Box::pin(process_explain(
+                        &mut new_request_context,
                         Some(verbosity),
                         connection_context,
                         pg_data_client,
-                    )
+                    ))
                     .await
                 } else {
                     Err(DocumentDBError::bad_value(
@@ -146,8 +163,7 @@ pub async fn process_explain(
             }
             "aggregate" => {
                 run_explain(
-                    request,
-                    request_info,
+                    request_context,
                     "pipeline",
                     verbosity,
                     connection_context,
@@ -157,8 +173,7 @@ pub async fn process_explain(
             }
             "find" => {
                 run_explain(
-                    request,
-                    request_info,
+                    request_context,
                     "find",
                     verbosity,
                     connection_context,
@@ -168,8 +183,7 @@ pub async fn process_explain(
             }
             "count" => {
                 run_explain(
-                    request,
-                    request_info,
+                    request_context,
                     "count",
                     verbosity,
                     connection_context,
@@ -179,8 +193,7 @@ pub async fn process_explain(
             }
             "distinct" => {
                 run_explain(
-                    request,
-                    request_info,
+                    request_context,
                     "distinct",
                     verbosity,
                     connection_context,
@@ -223,31 +236,23 @@ impl Verbosity {
 }
 
 async fn run_explain(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     query_base: &str,
     verbosity: Verbosity,
     connection_context: &ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
+    let request = request_context.payload;
+    let request_info = request_context.info;
+
     let (explain_response, query) = pg_data_client
-        .execute_explain(
-            request,
-            request_info,
-            query_base,
-            verbosity,
-            connection_context,
-        )
+        .execute_explain(request_context, query_base, verbosity, connection_context)
         .await?;
 
     let dynamic_config = connection_context.dynamic_configuration();
 
     match explain_response {
         Some(content) => {
-            if log_enabled!(log::Level::Debug) {
-                log::debug!("Backend Explain result: {}", content)
-            }
-
             let explain_content = if dynamic_config.enable_developer_explain().await {
                 Some(convert_to_bson(content.clone()))
             } else {
@@ -287,13 +292,6 @@ async fn run_explain(
                         request.document(),
                         request_info,
                     ),
-                )
-            }
-
-            if log_enabled!(log::Level::Debug) {
-                log::debug!(
-                    "Explain result: {}",
-                    explain.to_document().unwrap_or_default()
                 )
             }
 
@@ -367,11 +365,11 @@ async fn transform_explain(
 
     let plan = try_simplify_plan(plan, is_unsharded, query_base, query_catalog);
 
-    let namespace = format!("{}.{}", db, collection);
+    let collection_path = format!("{}.{}", db, collection);
     let mut base_result = if subtype == RequestType::Aggregate {
-        aggregate_explain(plan, &namespace, verbosity, query_catalog)
+        aggregate_explain(plan, &collection_path, verbosity, query_catalog)
     } else {
-        cursor_explain(plan, &namespace, false, verbosity, query_catalog)
+        cursor_explain(plan, &collection_path, false, verbosity, query_catalog)
     };
 
     if let Some(planning_time) = planning_time {
@@ -932,7 +930,7 @@ fn get_stage_from_plan(
                     }
                 }
             }
-            warn!("Unknown stage aggregate found");
+            log::warn!("Unknown stage aggregate found");
             ("GENERIC_AGGREGATE".to_owned(), None)
         }
         "Gather" => ("Parallel Merge".to_owned(), None),
@@ -955,12 +953,12 @@ fn get_stage_from_plan(
                         ("FETCH".to_owned(), None)
                     }
                     _ => {
-                        warn!("Unknown scan: {}", cpp);
+                        log::warn!("Unknown scan: {}", cpp);
                         ("".to_owned(), None)
                     }
                 }
             } else {
-                warn!("Custom scan without provider.");
+                log::warn!("Custom scan without provider.");
                 ("".to_owned(), None)
             }
         }
@@ -984,7 +982,7 @@ fn get_stage_from_plan(
                     _ => {}
                 }
             };
-            warn!(
+            log::warn!(
                 "Unknown function found: {}",
                 plan.function_name.as_deref().unwrap_or("None")
             );
@@ -1010,7 +1008,7 @@ fn get_stage_from_plan(
             }
         }
         _ => {
-            warn!("Unkown stage found: {}", plan.node_type);
+            log::warn!("Unknown stage found: {}", plan.node_type);
             ("COLLSCAN".to_owned(), None)
         }
     }
@@ -1018,7 +1016,7 @@ fn get_stage_from_plan(
 
 fn aggregate_explain(
     mut plan: ExplainPlan,
-    namespace: &str,
+    collection_path: &str,
     verbosity: Verbosity,
     query_catalog: &QueryCatalog,
 ) -> RawDocumentBuf {
@@ -1040,7 +1038,7 @@ fn aggregate_explain(
     );
 
     if shard_count == 0 {
-        return aggregate_explain_core(plan, agg_type, namespace, verbosity, query_catalog);
+        return aggregate_explain_core(plan, agg_type, collection_path, verbosity, query_catalog);
     }
 
     let result = determine_pipeline_split(&mut plan);
@@ -1060,7 +1058,7 @@ fn aggregate_explain(
                     aggregate_explain_core(
                         shard_plan.clone(),
                         agg_type,
-                        namespace,
+                        collection_path,
                         verbosity,
                         query_catalog,
                     ),
@@ -1074,13 +1072,13 @@ fn aggregate_explain(
 
             return rawdoc! {
                 "splitPipeline": {
-                    "mergerPart": aggregate_explain_core(plan, AggregationType::StageBasedAggregation, namespace, verbosity, query_catalog)
+                    "mergerPart": aggregate_explain_core(plan, AggregationType::StageBasedAggregation, collection_path, verbosity, query_catalog)
                 },
                 "shards":  shards_explain
             };
         }
     }
-    aggregate_explain_core(plan, agg_type, namespace, verbosity, query_catalog)
+    aggregate_explain_core(plan, agg_type, collection_path, verbosity, query_catalog)
 }
 
 fn determine_pipeline_split(
@@ -1117,7 +1115,7 @@ fn determine_pipeline_split(
 fn aggregate_explain_core(
     plan: ExplainPlan,
     agg_type: AggregationType,
-    namespace: &str,
+    collection_path: &str,
     verbosity: Verbosity,
     query_catalog: &QueryCatalog,
 ) -> RawDocumentBuf {
@@ -1125,7 +1123,7 @@ fn aggregate_explain_core(
         AggregationType::SimpleAggregation => {
             rawdoc! {
                 "stages": [
-                    { "$cursor": cursor_explain(plan, namespace, false, verbosity, query_catalog) }
+                    { "$cursor": cursor_explain(plan, collection_path, false, verbosity, query_catalog) }
                 ]
             }
         }
@@ -1135,8 +1133,13 @@ fn aggregate_explain_core(
             let bufs: Vec<RawDocumentBuf> = processed_stages
                 .into_iter()
                 .map(|(documentdb_name, plan, _, f)| {
-                    let mut doc =
-                        cursor_explain(plan.clone(), namespace, true, verbosity, query_catalog);
+                    let mut doc = cursor_explain(
+                        plan.clone(),
+                        collection_path,
+                        true,
+                        verbosity,
+                        query_catalog,
+                    );
                     if let Some(f) = f {
                         f(&plan, &mut doc, query_catalog)
                     }
@@ -1209,7 +1212,7 @@ fn classify_stages(
     }
 
     if prior_stage.is_none() {
-        warn!(
+        log::warn!(
             "Found residual unparented aggregation stage {0}",
             stage_name
         );
@@ -1217,7 +1220,7 @@ fn classify_stages(
         return None;
     }
 
-    warn!("Unknown aggregation stage {}", stage_name);
+    log::warn!("Unknown aggregation stage {}", stage_name);
     Some(plan)
 }
 
@@ -1296,13 +1299,13 @@ fn get_total_examined(plan: &ExplainPlan) -> (i64, i64) {
 
 fn query_planner(
     plan: ExplainPlan,
-    namespace: &str,
+    collection_path: &str,
     is_aggregation_stage: bool,
     query_catalog: &QueryCatalog,
 ) -> RawDocumentBuf {
     let mut writer = RawDocumentBuf::new();
     if plan.distributed_plan.is_none() && !is_aggregation_stage {
-        writer.append("namespace", namespace)
+        writer.append("namespace", collection_path)
     }
     let result = walk_plan_stage(
         plan,
@@ -1704,13 +1707,13 @@ fn walk_plan_stage_core(
 
 fn cursor_explain(
     plan: ExplainPlan,
-    namespace: &str,
+    collection_path: &str,
     is_aggregation_stage: bool,
     verbosity: Verbosity,
     query_catalog: &QueryCatalog,
 ) -> RawDocumentBuf {
     let mut doc = rawdoc! {
-        "queryPlanner": query_planner(plan.clone(), namespace, is_aggregation_stage, query_catalog),
+        "queryPlanner": query_planner(plan.clone(), collection_path, is_aggregation_stage, query_catalog),
     };
     if matches!(
         verbosity,

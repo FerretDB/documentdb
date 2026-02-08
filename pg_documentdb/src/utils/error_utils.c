@@ -14,6 +14,7 @@
 #include "utils/documentdb_errors.h"
 #include "utils/version_utils.h"
 #include "utils/error_utils.h"
+#include "utils/documentdb_pg_compatibility.h"
 
 format_log_hook unredacted_log_emit_hook = NULL;
 

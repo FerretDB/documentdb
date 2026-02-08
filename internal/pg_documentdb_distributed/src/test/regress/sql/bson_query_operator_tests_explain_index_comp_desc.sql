@@ -3,9 +3,7 @@ SET citus.next_shard_id TO 1200000;
 SET documentdb.next_collection_id TO 1200;
 SET documentdb.next_collection_index_id TO 1200;
 
-SET documentdb.enableNewCompositeIndexOpClass to on;
 set documentdb.enableExtendedExplainPlans to on;
-set documentdb.enableDescendingCompositeIndex to on;
 
 SELECT documentdb_api.drop_collection('db', 'queryoperator') IS NOT NULL;
 SELECT documentdb_api.create_collection('db', 'queryoperator');
@@ -40,7 +38,6 @@ set local documentdb.useLocalExecutionShardQueries to off;
 -- avoid sequential scan (likely to be preferred on small tables)
 set local enable_seqscan TO off;
 set local documentdb.forceUseIndexIfAvailable to on;
-set local documentdb.enableNewCompositeIndexOpClass to on;
 set local documentdb.enableExtendedExplainPlans to on;
 set local documentdb.forceRumIndexScanToBitmapHeapScan to off;
 

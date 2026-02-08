@@ -40,11 +40,18 @@ static void ParseInputExpressionAndPersistValue(AggregationExpressionData *expre
  * Converts a BsonOrderAggState into a serialized form to allow the internal type to be bytea
  * Resulting bytes look like:
  * | Varlena Header | numAggValues | numSortKeys | BsonOrderAggValue * numAggValues | sortDirections | inputExpression (pgbson)
+ *
+ * The function uses the CurrentMemoryContext (ecxt_per_tuple_memory context) to allocate the new set bytea for result, because we want
+ * this to be free'd as soon as possible, without leaking memory for entire duration of aggregate.
+ * Postgres makes sure to copy it into aggregate context if needed.
+ *
+ * For more info look at these places in PG where the state pointer is tracked and cleaned up:
+ * nodeAgg.c: https://github.com/postgres/postgres/blob/9c24111c4dad850bc2625c2113bb3d2dfd592efc/src/backend/executor/nodeAgg.c#L779
+ * nodeWindowAgg.c: https://github.com/postgres/postgres/blob/9c24111c4dad850bc2625c2113bb3d2dfd592efc/src/backend/executor/nodeWindowAgg.c#L367
+ *
  */
 bytea *
-SerializeOrderState(MemoryContext aggregateContext,
-					BsonOrderAggState *state,
-					bytea *byteArray)
+SerializeOrderState(BsonOrderAggState *state)
 {
 	int valueSize = 0;
 	for (int i = 0; i < state->currentCount; i++)
@@ -103,27 +110,17 @@ SerializeOrderState(MemoryContext aggregateContext,
 						   valueSize + /* BsonOrderAggValues */
 						   state->numSortKeys * sizeof(bool) + /* sortDirections */
 						   inputExpressionValueSize; /* inputExpression (pgbson) + null flag */
-	char *bytes;
-	int existingByteSize = (byteArray == NULL) ? 0 : VARSIZE(byteArray);
 
-	if (state->numAggValues == 1 && existingByteSize >= requiredByteSize)
-	{
-		/* Reuse existing bytes */
-		bytes = (char *) byteArray;
-	}
-	else
-	{
-		/* Otherwise get more
-		 * We don't need to do anything with the old memory (free/repalloc) since Postgres will free it as
-		 * it will track that the memory block changed in the transition function.
-		 * If we intent to free or repalloc the old memory, when Postgres tries to free it would crash as the old memory would be invalid.
-		 */
-		bytes = (char *) MemoryContextAlloc(aggregateContext, requiredByteSize);
-		SET_VARSIZE(bytes, requiredByteSize);
-	}
+	/* We should always allocate a new block of memory as the old one is still being used in the state that is referred later here.
+	 * We don't need to do anything with the old memory (free/repalloc) since Postgres will free it as
+	 * it will track that the memory block changed in the transition function.
+	 * If we intent to free or repalloc the old memory, when Postgres tries to free it would crash as the old memory would be invalid.
+	 */
+	char *bytes = (char *) MemoryContextAlloc(CurrentMemoryContext, requiredByteSize);
+	SET_VARSIZE(bytes, requiredByteSize);
 
 
-	/* Copy in the currentValue */
+	/* Copy into the current value variable */
 	char *byteAllocationPointer = (char *) VARDATA(bytes);
 
 	/* Set the number of Aggregation Values */
@@ -234,7 +231,7 @@ DeserializeOrderState(bytea *byteArray,
 	state->numSortKeys = *(int *) (bytes);
 	bytes += sizeof(int);
 
-	/* Extract each of the current results */
+	/* Extract values from each current result */
 	for (int i = 0; i < state->currentCount; i++)
 	{
 		if (*bytes == 0)
@@ -332,7 +329,7 @@ BsonOrderTransition(PG_FUNCTION_ARGS, bool invertSort, bool isSingle, bool
 	if (!aggContext)
 	{
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR), errmsg(
-							"aggregate function called in non-aggregate context")));
+							"Aggregate function invoked in non-aggregate context")));
 	}
 
 	/* We store input expression in $setWindowFields context for $top(N)/$bottom(N) */
@@ -356,7 +353,7 @@ BsonOrderTransition(PG_FUNCTION_ARGS, bool invertSort, bool isSingle, bool
 	}
 	else
 	{
-		/* The 3rd argument is number of results to return */
+		/* The third parameter specifies the number of results that should be returned */
 		numResults = PG_GETARG_INT64(2);
 		Assert(numResults > 0);
 
@@ -541,11 +538,7 @@ BsonOrderTransition(PG_FUNCTION_ARGS, bool invertSort, bool isSingle, bool
 		{
 			inputAggregateState.currentCount += 1;
 		}
-		result = SerializeOrderState(aggregateContext,
-									 &inputAggregateState,
-									 PG_ARGISNULL(0) ?
-									 NULL :
-									 PG_GETARG_BYTEA_P(0));
+		result = SerializeOrderState(&inputAggregateState);
 	}
 	else
 	{
@@ -579,7 +572,7 @@ BsonOrderTransitionOnSorted(PG_FUNCTION_ARGS, bool invertSort, bool isSingle)
 	if (!aggContext)
 	{
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR), errmsg(
-							"aggregate function called in non-aggregate context")));
+							"Aggregate function invoked in non-aggregate context")));
 	}
 
 	bool storeInputExpression = false;
@@ -616,7 +609,7 @@ BsonOrderTransitionOnSorted(PG_FUNCTION_ARGS, bool invertSort, bool isSingle)
 		currentCount = 1;
 		if (!isSingle)
 		{
-			/* The 3rd argument is number of results to return */
+			/* The third parameter specifies the number of results that should be returned */
 			returnCount = PG_GETARG_INT64(2);
 			inputExpression = storeInputExpression ? PG_GETARG_MAYBE_NULL_PGBSON(3) :
 							  NULL;
@@ -796,7 +789,7 @@ BsonOrderCombine(PG_FUNCTION_ARGS, bool invertSort)
 	if (!AggCheckCallContext(fcinfo, &aggregateContext))
 	{
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR), errmsg(
-							"aggregate function called in non-aggregate context")));
+							"Aggregate function invoked in non-aggregate context")));
 	}
 
 	/* Check if either result is NULL and return Non-NULL */
@@ -816,7 +809,7 @@ BsonOrderCombine(PG_FUNCTION_ARGS, bool invertSort)
 
 	int minPos = 0; /* Minimum position that new result can be inserted at */
 	int leftPos, rightPos; /* current result position for left/right states*/
-	bool updatedLeft = false; /* Flag to indicate that we updated the leftState */
+	bool updatedLeft = false; /* Flag indicates whether the leftState was updated */
 
 	/* Allocate additional memory for merging right results. */
 	if (leftState.currentCount != leftState.numAggValues)
@@ -944,9 +937,7 @@ BsonOrderCombine(PG_FUNCTION_ARGS, bool invertSort)
 
 	if (updatedLeft)
 	{
-		result = SerializeOrderState(aggregateContext, &leftState, PG_ARGISNULL(0) ?
-									 NULL :
-									 PG_GETARG_BYTEA_P(0));
+		result = SerializeOrderState(&leftState);
 	}
 	else
 	{
@@ -973,7 +964,7 @@ BsonOrderFinal(PG_FUNCTION_ARGS, bool isSingle, bool invert)
 	if (!aggContext)
 	{
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR), errmsg(
-							"aggregate function called in non-aggregate context")));
+							"Aggregate function invoked in non-aggregate context")));
 	}
 	bool returnNull = false;
 	BsonOrderAggState state = { 0 };
@@ -1109,7 +1100,7 @@ BsonOrderFinal(PG_FUNCTION_ARGS, bool isSingle, bool invert)
 		{
 			if (state.currentResult[i] == NULL)
 			{
-				/* No more Results*/
+				/* No additional results found*/
 				break;
 			}
 
@@ -1173,7 +1164,7 @@ BsonOrderFinalOnSorted(PG_FUNCTION_ARGS, bool isSingle)
 	if (!aggContext)
 	{
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR), errmsg(
-							"aggregate function called in non-aggregate context")));
+							"Aggregate function invoked in non-aggregate context")));
 	}
 
 	bool returnNull = false;

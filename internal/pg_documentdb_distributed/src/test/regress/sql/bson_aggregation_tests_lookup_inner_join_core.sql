@@ -99,3 +99,33 @@ ROLLBACK;
 -- Cleanup
 SELECT documentdb_api.drop_collection('lookupdb', 'planes');
 SELECT documentdb_api.drop_collection('lookupdb', 'gate_availability');
+
+-- lookup with point read where inner plan depends on external param crash fix scenario
+SELECT documentdb_api.insert_one('lookupdb','Dishes',' { "_id" : 1, "dishId" : 1, "ingredients": [1, 2, 3, 4] }', NULL);
+SELECT documentdb_api.insert_one('lookupdb','Ingredients',' { "_id" : 1, "shopId" : 101, "name": "Salt" }', NULL);
+SELECT documentdb_api.insert_one('lookupdb','Ingredients',' { "_id" : 2, "shopId" : 101, "name": "Clove" }', NULL);
+SELECT documentdb_api.insert_one('lookupdb','Ingredients',' { "_id" : 3, "shopId" : 101, "name": "Olive" }', NULL);
+SELECT documentdb_api.insert_one('lookupdb','Ingredients',' { "_id" : 4, "shopId" : 101, "name": "Pepper" }', NULL);
+SELECT documentdb_api.insert_one('lookupdb','Shops',' { "_id" : 101, "name": "ABC Mart" }', NULL);
+
+-- Get collection IDs for each collection and store them in variables
+SELECT collection_id AS dishes_id FROM documentdb_api_catalog.collections WHERE database_name = 'lookupdb' AND collection_name = 'Dishes' \gset
+SELECT collection_id AS ingredients_id FROM documentdb_api_catalog.collections WHERE database_name = 'lookupdb' AND collection_name = 'Ingredients' \gset  
+SELECT collection_id AS shops_id FROM documentdb_api_catalog.collections WHERE database_name = 'lookupdb' AND collection_name = 'Shops' \gset
+
+-- Dynamically run ANALYZE commands using the collection IDs
+SELECT 'ANALYZE documentdb_data.documents_' || :'dishes_id' \gexec
+SELECT 'ANALYZE documentdb_data.documents_' || :'ingredients_id' \gexec
+SELECT 'ANALYZE documentdb_data.documents_' || :'shops_id' \gexec
+
+BEGIN;
+set local seq_page_cost to 1;
+set local documentdb.enableLookupInnerJoin to off;
+SELECT document FROM bson_aggregation_pipeline('lookupdb', '{"aggregate": "Dishes", "pipeline": [{"$match": {"dishId": 1}}, {"$unwind": "$ingredients"} , {"$lookup": {"from": "Ingredients", "localField": "ingredients", "foreignField": "_id", "as": "ingredient_info"}} , {"$unwind": "$ingredient_info"} , {"$lookup": {"from": "Shops", "localField": "ingredient_info.shopId", "foreignField": "_id", "as": "shop_info"}}, {"$unwind": "$shop_info"}]}');
+ROLLBACK;
+
+BEGIN;
+set local seq_page_cost to 1;
+set local documentdb.enableLookupInnerJoin to off;
+EXPLAIN (COSTS OFF, SUMMARY OFF, VERBOSE ON) SELECT document FROM bson_aggregation_pipeline('lookupdb', '{"aggregate": "Dishes", "pipeline": [{"$match": {"dishId": 1}}, {"$unwind": "$ingredients"} , {"$lookup": {"from": "Ingredients", "localField": "ingredients", "foreignField": "_id", "as": "ingredient_info"}} , {"$unwind": "$ingredient_info"} , {"$lookup": {"from": "Shops", "localField": "ingredient_info.shopId", "foreignField": "_id", "as": "shop_info"}}, {"$unwind": "$shop_info"}]}');
+ROLLBACK;

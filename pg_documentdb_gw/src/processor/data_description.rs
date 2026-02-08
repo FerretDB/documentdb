@@ -12,42 +12,41 @@ use bson::rawdoc;
 
 use crate::{
     configuration::DynamicConfiguration,
-    context::ConnectionContext,
+    context::{ConnectionContext, RequestContext},
     error::{DocumentDBError, ErrorCode, Result},
     postgres::PgDataClient,
     protocol::{self, OK_SUCCEEDED},
-    requests::{Request, RequestInfo},
     responses::{RawResponse, Response},
 };
 
 pub async fn process_coll_mod(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
     pg_data_client
-        .execute_coll_mod(request, request_info, connection_context)
+        .execute_coll_mod(request_context, connection_context)
         .await
 }
 
 pub async fn process_create(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
     pg_data_client
-        .execute_create_collection(request, request_info, connection_context)
+        .execute_create_collection(request_context, connection_context)
         .await
 }
 
 pub async fn process_drop_database(
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &ConnectionContext,
     dynamic_config: &Arc<dyn DynamicConfiguration>,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
+    let request_info = request_context.info;
+
     let db = request_info.db()?.to_string();
 
     // Invalidate cursors
@@ -59,7 +58,7 @@ pub async fn process_drop_database(
     let is_read_only_for_disk_full = dynamic_config.is_read_only_for_disk_full().await;
     pg_data_client
         .execute_drop_database(
-            request_info,
+            request_context,
             db.as_str(),
             is_read_only_for_disk_full,
             connection_context,
@@ -73,11 +72,13 @@ pub async fn process_drop_database(
 }
 
 pub async fn process_drop_collection(
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &ConnectionContext,
     dynamic_config: &Arc<dyn DynamicConfiguration>,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
+    let request_info = request_context.info;
+
     let coll = request_info.collection()?.to_string();
     let coll_str = coll.as_str();
     let db = request_info.db()?.to_string();
@@ -92,7 +93,7 @@ pub async fn process_drop_collection(
     let is_read_only_for_disk_full = dynamic_config.is_read_only_for_disk_full().await;
     pg_data_client
         .execute_drop_collection(
-            request_info,
+            request_context,
             db_str,
             coll_str,
             is_read_only_for_disk_full,
@@ -107,11 +108,11 @@ pub async fn process_drop_collection(
 }
 
 pub async fn process_rename_collection(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
+    let request = request_context.payload;
     let mut source: Option<String> = None;
     let mut target: Option<String> = None;
     let mut drop_target = false;
@@ -130,7 +131,7 @@ pub async fn process_rename_collection(
                 target = Some(
                     v.as_str()
                         .ok_or(DocumentDBError::bad_value(
-                            "renameCollection was not a string".to_string(),
+                            "to was not a string".to_string(),
                         ))?
                         .to_string(),
                 )
@@ -144,17 +145,17 @@ pub async fn process_rename_collection(
     })?;
 
     let source = source.ok_or(DocumentDBError::bad_value(
-        "renameCollection missing".to_string(),
+        "'renameCollection' missing".to_string(),
     ))?;
-    let target = target.ok_or(DocumentDBError::bad_value("to missing".to_string()))?;
+    let target = target.ok_or(DocumentDBError::bad_value("'to' missing".to_string()))?;
 
-    let (source_db, source_coll) = protocol::extract_namespace(&source)?;
-    let (target_db, target_coll) = protocol::extract_namespace(&target)?;
+    let (source_db, source_coll) = protocol::extract_database_and_collection_names(&source)?;
+    let (target_db, target_coll) = protocol::extract_database_and_collection_names(&target)?;
 
     if source_db != target_db {
         return Err(DocumentDBError::documentdb_error(
             ErrorCode::CommandNotSupported,
-            "RenameCollection cannot change databases".to_string(),
+            "renameCollection cannot change databases".to_string(),
         ));
     }
 
@@ -167,7 +168,7 @@ pub async fn process_rename_collection(
 
     pg_data_client
         .execute_rename_collection(
-            request_info,
+            request_context,
             source_db,
             source_coll,
             target_coll,
@@ -179,23 +180,23 @@ pub async fn process_rename_collection(
 }
 
 pub async fn process_shard_collection(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &ConnectionContext,
     reshard: bool,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
-    let namespace = request_info.collection()?.to_string();
-    let (db, collection) = protocol::extract_namespace(namespace.as_str())?;
-    let key = request
+    let collection_path = request_context.info.collection()?.to_string();
+    let (db, collection) =
+        protocol::extract_database_and_collection_names(collection_path.as_str())?;
+    let key = request_context
+        .payload
         .document()
         .get_document("key")
         .map_err(DocumentDBError::parse_failure())?;
 
     pg_data_client
         .execute_shard_collection(
-            request,
-            request_info,
+            request_context,
             db,
             collection,
             key,
@@ -208,13 +209,12 @@ pub async fn process_shard_collection(
 }
 
 pub async fn process_unshard_collection(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
     pg_data_client
-        .execute_unshard_collection(request, request_info, connection_context)
+        .execute_unshard_collection(request_context, connection_context)
         .await?;
 
     Ok(Response::ok())

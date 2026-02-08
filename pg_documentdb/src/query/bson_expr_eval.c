@@ -61,14 +61,14 @@ command_evaluate_query_expression(PG_FUNCTION_ARGS)
 	pgbsonelement valueElement;
 	PgbsonToSinglePgbsonElement(value, &valueElement);
 
-	/* get the expression value */
+	/* retrieve the value of the expression */
 	bson_value_t expressionValue = ConvertPgbsonToBsonValue(expression);
 
-	/* Compile the expression */
+	/* compile the given expression */
 	ExprEvalState *evalState = GetExpressionEvalState(&expressionValue,
 													  fcinfo->flinfo->fn_mcxt);
 
-	/* Evaluate the expression */
+	/* Evaluate the given expression */
 	Datum result = ExpressionEval(evalState, &valueElement);
 	PG_RETURN_BOOL(DatumGetBool(result));
 }
@@ -90,10 +90,10 @@ command_evaluate_expression_get_first_match(PG_FUNCTION_ARGS)
 	pgbsonelement valueElement;
 	PgbsonToSinglePgbsonElement(value, &valueElement);
 
-	/* get the expression value */
+	/* retrieve the value of the expression */
 	bson_value_t expressionValue = ConvertPgbsonToBsonValue(expression);
 
-	/* Compile the expression */
+	/* compile the given expression */
 	ExprEvalState *evalState = GetExpressionEvalState(&expressionValue,
 													  fcinfo->flinfo->fn_mcxt);
 
@@ -414,7 +414,7 @@ CreateEvalStateFromExpr(Expr *expression, Oid attributeOid)
 	char *attributeName = NULL;
 	int attributeTypeModifier = -1;
 
-	/* Attribute is not an array */
+	/* Attribute does not represent an array */
 	int numDimensions = 0;
 	TupleDescInitEntry(tupleDescriptor, attributeNumber, attributeName,
 					   attributeOid, attributeTypeModifier, numDimensions);

@@ -14,11 +14,10 @@ use tokio_postgres::{types::Type, Row};
 
 use crate::{
     auth::AuthState,
-    context::{ConnectionContext, Cursor, ServiceContext},
+    context::{ConnectionContext, Cursor, RequestContext, ServiceContext},
     error::{DocumentDBError, Result},
     explain::Verbosity,
     postgres::{connection::InnerConnection, PgDataClient},
-    requests::{Request, RequestInfo},
     responses::{PgResponse, Response},
 };
 
@@ -72,10 +71,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_aggregate(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<(PgResponse, Arc<Connection>)> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let connection = self.pull_connection(connection_context).await?;
 
         #[allow(clippy::unnecessary_to_owned)]
@@ -88,7 +87,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &request_info.db()?.to_string(),
                 &PgDocument(request.document()),
                 Timeout::command(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -97,10 +96,11 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_coll_stats(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         scale: f64,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (_, request_info, request_tracker) = request_context.get_components();
         #[allow(clippy::unnecessary_to_owned)]
         let coll_stats_rows = self
             .pull_connection(connection_context)
@@ -117,7 +117,7 @@ impl PgDataClient for DocumentDBDataClient {
                     &scale,
                 ],
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -126,10 +126,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_count_query(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         #[allow(clippy::unnecessary_to_owned)]
         let count_query_rows = self
             .pull_connection(connection_context)
@@ -142,7 +142,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &request_info.db()?.to_string(),
                 &PgDocument(request.document()),
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -151,10 +151,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_create_collection(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         #[allow(clippy::unnecessary_to_owned)]
         let create_collection_rows = self
             .pull_connection(connection_context)
@@ -167,7 +167,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &request_info.db()?.to_string(),
                 &PgDocument(request.document()),
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -176,11 +176,11 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_create_indexes(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         db: &str,
         connection_context: &ConnectionContext,
     ) -> Result<Vec<Row>> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let create_indexes_rows = self
             .pull_connection(connection_context)
             .await?
@@ -192,7 +192,7 @@ impl PgDataClient for DocumentDBDataClient {
                 db,
                 &PgDocument(request.document()),
                 Timeout::command(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -201,10 +201,11 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_wait_for_index(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         index_build_id: &PgDocument<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Vec<Row>> {
+        let (_, request_info, request_tracker) = request_context.get_components();
         let wait_for_index_rows = self
             .pull_connection(connection_context)
             .await?
@@ -216,7 +217,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &[Type::BYTEA],
                 &[&index_build_id],
                 Timeout::command(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -225,11 +226,11 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_delete(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         is_read_only_for_disk_full: bool,
         connection_context: &ConnectionContext,
     ) -> Result<Vec<Row>> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let query_catalog = connection_context.service_context.query_catalog();
 
         let delete_rows = self
@@ -248,7 +249,7 @@ impl PgDataClient for DocumentDBDataClient {
                                 &request.extra(),
                             ],
                             Timeout::transaction(request_info.max_time_ms),
-                            request_info,
+                            request_tracker,
                         )
                         .await
                 },
@@ -260,10 +261,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_distinct_query(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         #[allow(clippy::unnecessary_to_owned)]
         let distinct_query_rows = self
             .pull_connection(connection_context)
@@ -276,7 +277,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &request_info.db()?.to_string(),
                 &PgDocument(request.document()),
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -285,12 +286,13 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_drop_collection(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         db: &str,
         collection: &str,
         is_read_only_for_disk_full: bool,
         connection_context: &ConnectionContext,
     ) -> Result<()> {
+        let (_, request_info, request_tracker) = request_context.get_components();
         let query_catalog = connection_context.service_context.query_catalog();
 
         let _ = self
@@ -305,7 +307,7 @@ impl PgDataClient for DocumentDBDataClient {
                             &[Type::TEXT, Type::TEXT],
                             &[&db, &collection],
                             Timeout::transaction(request_info.max_time_ms),
-                            request_info,
+                            request_tracker,
                         )
                         .await
                 },
@@ -317,11 +319,12 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_drop_database(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         db: &str,
         is_read_only_for_disk_full: bool,
         connection_context: &ConnectionContext,
     ) -> Result<()> {
+        let (_, request_info, request_tracker) = request_context.get_components();
         let query_catalog = connection_context.service_context.query_catalog();
 
         let _ = self
@@ -336,7 +339,7 @@ impl PgDataClient for DocumentDBDataClient {
                             &[Type::TEXT],
                             &[&db],
                             Timeout::transaction(request_info.max_time_ms),
-                            request_info,
+                            request_tracker,
                         )
                         .await
                 },
@@ -348,12 +351,12 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_explain(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         query_base: &str,
         verbosity: Verbosity,
         connection_context: &ConnectionContext,
     ) -> Result<(Option<serde_json::Value>, String)> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let analyze = if !matches!(
             verbosity,
             Verbosity::QueryPlanner | Verbosity::AllShardsQueryPlan
@@ -398,7 +401,7 @@ impl PgDataClient for DocumentDBDataClient {
                     &request_info.db()?.to_string(),
                     &PgDocument(request.document()),
                     Timeout::transaction(request_info.max_time_ms),
-                    request_info,
+                    request_tracker,
                 )
                 .await?
         };
@@ -416,10 +419,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_find(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<(PgResponse, Arc<Connection>)> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let connection = self.pull_connection(connection_context).await?;
 
         #[allow(clippy::unnecessary_to_owned)]
@@ -432,7 +435,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &request_info.db()?.to_string(),
                 &PgDocument(request.document()),
                 Timeout::command(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -441,10 +444,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_find_and_modify(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         #[allow(clippy::unnecessary_to_owned)]
         let find_and_modify_rows = self
             .pull_connection(connection_context)
@@ -457,7 +460,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &request_info.db()?.to_string(),
                 &PgDocument(request.document()),
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -466,13 +469,13 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_cursor_get_more(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         db: &str,
         cursor: &Cursor,
         cursor_connection: &Option<Arc<Connection>>,
         connection_context: &ConnectionContext,
     ) -> Result<Vec<Row>> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let connection = if let Some(ref connection) = cursor_connection {
             connection
         } else {
@@ -492,7 +495,7 @@ impl PgDataClient for DocumentDBDataClient {
                     &PgDocument(&cursor.continuation),
                 ],
                 Timeout::command(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
         Ok(get_more_rows)
@@ -500,10 +503,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_insert(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Vec<Row>> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let insert_rows = self
             .pull_connection(connection_context)
             .await?
@@ -516,7 +519,7 @@ impl PgDataClient for DocumentDBDataClient {
                     &request.extra(),
                 ],
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -525,10 +528,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_list_collections(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<(PgResponse, Arc<Connection>)> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let connection = self.pull_connection(connection_context).await?;
 
         #[allow(clippy::unnecessary_to_owned)]
@@ -541,7 +544,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &request_info.db()?.to_string(),
                 &PgDocument(request.document()),
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -550,10 +553,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_list_databases(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         // TODO: Handle the case where !nameOnly - the legacy gateway simply returns 0s in the appropriate format
         let filter = request.document().get_document("filter").ok();
         let filter_string = filter.map_or("", |_| "WHERE document @@ $1");
@@ -572,7 +575,7 @@ impl PgDataClient for DocumentDBDataClient {
                         &[],
                         &[],
                         Timeout::transaction(request_info.max_time_ms),
-                        request_info,
+                        request_tracker,
                     )
                     .await?
             }
@@ -583,7 +586,7 @@ impl PgDataClient for DocumentDBDataClient {
                         &[Type::BYTEA],
                         &[&PgDocument(filter)],
                         Timeout::transaction(request_info.max_time_ms),
-                        request_info,
+                        request_tracker,
                     )
                     .await?
             }
@@ -594,10 +597,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_list_indexes(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<(PgResponse, Arc<Connection>)> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let connection = self.pull_connection(connection_context).await?;
 
         #[allow(clippy::unnecessary_to_owned)]
@@ -610,7 +613,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &request_info.db()?.to_string(),
                 &PgDocument(request.document()),
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -619,10 +622,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_update(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Vec<Row>> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let update_rows = self
             .pull_connection(connection_context)
             .await?
@@ -638,7 +641,7 @@ impl PgDataClient for DocumentDBDataClient {
                     &request.extra(),
                 ],
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -647,10 +650,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_validate(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         #[allow(clippy::unnecessary_to_owned)]
         let validate_rows = self
             .pull_connection(connection_context)
@@ -663,7 +666,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &request_info.db()?.to_string(),
                 &PgDocument(request.document()),
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -672,10 +675,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_drop_indexes(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<PgResponse> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         #[allow(clippy::unnecessary_to_owned)]
         let drop_indexes_rows = self
             .pull_connection(connection_context)
@@ -688,7 +691,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &request_info.db()?.to_string(),
                 &PgDocument(request.document()),
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -697,14 +700,14 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_shard_collection(
         &self,
-        _request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         db: &str,
         collection: &str,
         key: &RawDocument,
         reshard: bool,
         connection_context: &ConnectionContext,
     ) -> Result<()> {
+        let (_, request_info, request_tracker) = request_context.get_components();
         self.pull_connection(connection_context)
             .await?
             .query(
@@ -720,7 +723,7 @@ impl PgDataClient for DocumentDBDataClient {
                     &reshard,
                 ],
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -729,9 +732,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_reindex(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (_, request_info, request_tracker) = request_context.get_components();
         let reindex_rows = self
             .pull_connection(connection_context)
             .await?
@@ -746,7 +750,7 @@ impl PgDataClient for DocumentDBDataClient {
                     &request_info.collection()?.to_string(),
                 ],
                 Timeout::command(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
         Ok(Response::Pg(PgResponse::new(reindex_rows)))
@@ -754,12 +758,13 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_current_op(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         filter: &RawDocumentBuf,
         all: bool,
         own_ops: bool,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (_, request_info, request_tracker) = request_context.get_components();
         let current_op_rows = self
             .pull_connection(connection_context)
             .await?
@@ -771,7 +776,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &[Type::BYTEA, Type::BOOL, Type::BOOL],
                 &[&PgDocument(filter), &all, &own_ops],
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -780,10 +785,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_coll_mod(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let coll_mod_rows = self
             .pull_connection(connection_context)
             .await?
@@ -799,7 +804,7 @@ impl PgDataClient for DocumentDBDataClient {
                     &PgDocument(request.document()),
                 ],
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -808,12 +813,13 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_get_parameter(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         all: bool,
         show_details: bool,
         params: Vec<String>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (_, request_info, request_tracker) = request_context.get_components();
         let get_parameter_rows = self
             .pull_connection(connection_context)
             .await?
@@ -825,7 +831,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &[Type::BOOL, Type::BOOL, Type::TEXT_ARRAY],
                 &[&all, &show_details, &params],
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -834,10 +840,11 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_db_stats(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         scale: f64,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (_, request_info, request_tracker) = request_context.get_components();
         let db_stats_rows = self
             .pull_connection(connection_context)
             .await?
@@ -849,7 +856,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &[Type::TEXT, Type::FLOAT8, Type::BOOL],
                 &[&request_info.db()?.to_string(), &scale, &false],
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -858,13 +865,14 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_rename_collection(
         &self,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         source_db: &str,
         source_collection: &str,
         target_collection: &str,
         drop_target: bool,
         connection_context: &ConnectionContext,
     ) -> Result<Vec<Row>> {
+        let (_, request_info, request_tracker) = request_context.get_components();
         let rename_collection_rows = self
             .pull_connection(connection_context)
             .await?
@@ -881,7 +889,7 @@ impl PgDataClient for DocumentDBDataClient {
                     &drop_target,
                 ],
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -890,10 +898,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_create_user(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let create_user_rows = self
             .pull_connection(connection_context)
             .await?
@@ -905,7 +913,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &[Type::BYTEA],
                 &[&PgDocument(request.document())],
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -914,10 +922,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_drop_user(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let drop_user_rows = self
             .pull_connection(connection_context)
             .await?
@@ -929,7 +937,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &[Type::BYTEA],
                 &[&PgDocument(request.document())],
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -938,10 +946,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_update_user(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let update_user_rows = self
             .pull_connection(connection_context)
             .await?
@@ -953,7 +961,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &[Type::BYTEA],
                 &[&PgDocument(request.document())],
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -962,10 +970,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_users_info(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let users_info_rows = self
             .pull_connection(connection_context)
             .await?
@@ -977,7 +985,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &[Type::BYTEA],
                 &[&PgDocument(request.document())],
                 Timeout::transaction(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -990,10 +998,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_unshard_collection(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<()> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         self.pull_connection(connection_context)
             .await?
             .query(
@@ -1004,7 +1012,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &[Type::BYTEA],
                 &[&PgDocument(request.document())],
                 Timeout::command(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
 
@@ -1013,10 +1021,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_connection_status(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let connection_status_rows = self
             .pull_connection(connection_context)
             .await?
@@ -1028,7 +1036,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &[Type::BYTEA],
                 &[&PgDocument(request.document())],
                 Timeout::command(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
         Ok(Response::Pg(PgResponse::new(connection_status_rows)))
@@ -1036,10 +1044,10 @@ impl PgDataClient for DocumentDBDataClient {
 
     async fn execute_compact(
         &self,
-        request: &Request<'_>,
-        request_info: &mut RequestInfo<'_>,
+        request_context: &mut RequestContext<'_>,
         connection_context: &ConnectionContext,
     ) -> Result<Response> {
+        let (request, request_info, request_tracker) = request_context.get_components();
         let compact_rows = self
             .pull_connection(connection_context)
             .await?
@@ -1048,7 +1056,7 @@ impl PgDataClient for DocumentDBDataClient {
                 &[Type::BYTEA],
                 &[&PgDocument(request.document())],
                 Timeout::command(request_info.max_time_ms),
-                request_info,
+                request_tracker,
             )
             .await?;
         Ok(Response::Pg(PgResponse::new(compact_rows)))

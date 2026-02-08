@@ -499,7 +499,7 @@ EXPLAIN (ANALYZE ON, COSTS OFF, VERBOSE ON, TIMING OFF, SUMMARY OFF) SELECT docu
 (12 rows)
 
 EXPLAIN (ANALYZE ON, COSTS OFF, VERBOSE ON, TIMING OFF, SUMMARY OFF) SELECT document FROM bson_aggregation_pipeline('idx_only_scan_db', '{ "aggregate" : "idx_only_scan_coll", "pipeline" : [{ "$match" : {"country": {"$elemMatch": {"$eq": "Mexico"}}} }, { "$count": "count" }]}');
-                                                     QUERY PLAN                                                      
+                                                                                     QUERY PLAN                                                                                      
 ---------------------------------------------------------------------
  Aggregate (actual rows=1 loops=1)
    Output: bson_repath_and_build('count'::text, bsonsum('{ "" : { "$numberInt" : "1" } }'::bson))
@@ -511,7 +511,7 @@ EXPLAIN (ANALYZE ON, COSTS OFF, VERBOSE ON, TIMING OFF, SUMMARY OFF) SELECT docu
          scanType: regular
          scanKeyDetails: key 1: [(isInequality: false, estimatedEntryCount: 4)]
          ->  Index Scan using country_1 on documentdb_data.documents_69001_690002 collection (actual rows=0 loops=1)
-               Index Cond: (collection.document @= '{ "country" : "Mexico" }'::bson)
+               Index Cond: (collection.document @<> '{ "country" : { "elemMatchIndexOp" : [ { "op" : { "$numberInt" : "1" }, "value" : "Mexico", "isTopLevel" : true } ] } }'::bson)
                Filter: (collection.document @#? '{ "country" : { "$eq" : "Mexico" } }'::bson)
                Rows Removed by Filter: 4
 (13 rows)

@@ -37,9 +37,10 @@ extern char *ApiGucPrefix;
 extern int SingleTTLTaskTimeBudget;
 extern int TTLTaskMaxRunTimeInMS;
 extern bool EnableTtlJobsOnReadOnly;
-extern bool EnableNewCompositeIndexOpclass;
 extern bool ForceIndexScanForTTLTask;
 extern bool UseIndexHintsForTTLTask;
+extern bool EnableTTLDescSort;
+extern bool EnableIndexOrderbyPushdown;
 
 bool UseV2TTLIndexPurger = true;
 
@@ -53,7 +54,7 @@ bool UseV2TTLIndexPurger = true;
  */
 typedef struct TtlIndexEntry
 {
-	/* The collection id for the given entry. */
+	/* ID of the collection */
 	uint64 collectionId;
 
 	/* The TTL index id */
@@ -194,7 +195,7 @@ delete_expired_rows(PG_FUNCTION_ARGS)
 
 	StringInfo cmdGetIndexes = makeStringInfo();
 
-	/* Get TTL indexes and their collections */
+	/* Retrieve TTL indexes along with their associated collections */
 	appendStringInfo(cmdGetIndexes,
 					 "SELECT index_id, collection_id, (index_spec).index_key, "
 					 "(index_spec).index_pfe, (index_spec).index_expire_after_seconds,"
@@ -360,7 +361,10 @@ delete_expired_rows(PG_FUNCTION_ARGS)
 	bool shouldCleanupCollection = false;
 	uint64 rowsDeletedInCurrentLoop = 0;
 
-	while (!IsTaskTimeBudgetExceeded(startTime, NULL, TTLTaskMaxRunTimeInMS))
+	int timeBudget = RepeatPurgeIndexesForTTLTask ? TTLTaskMaxRunTimeInMS :
+					 SingleTTLTaskTimeBudget;
+
+	while (!IsTaskTimeBudgetExceeded(startTime, NULL, timeBudget))
 	{
 		rowsDeletedInCurrentLoop = 0;
 		if (RepeatPurgeIndexesForTTLTask)
@@ -486,7 +490,7 @@ delete_expired_rows(PG_FUNCTION_ARGS)
 																	   batchSize);
 					double elapsedTime = 0.0;
 					if (IsTaskTimeBudgetExceeded(startTime, &elapsedTime,
-												 SingleTTLTaskTimeBudget))
+												 timeBudget))
 					{
 						/* If exceeded time, mark as should stop but still commit this deletion. */
 						shouldStop = true;
@@ -495,7 +499,7 @@ delete_expired_rows(PG_FUNCTION_ARGS)
 					if (LogTTLProgressActivity)
 					{
 						ereport(LOG, errmsg("TTL job elapsed time: %fms, limit: %dms",
-											elapsedTime, SingleTTLTaskTimeBudget));
+											elapsedTime, timeBudget));
 					}
 
 					/* Commit the deletion. */
@@ -507,7 +511,10 @@ delete_expired_rows(PG_FUNCTION_ARGS)
 				}
 				PG_CATCH();
 				{
+					oldContext = MemoryContextSwitchTo(priorMemoryContext);
 					ErrorData *edata = CopyErrorDataAndFlush();
+					MemoryContextSwitchTo(oldContext);
+
 					ereport(WARNING, errmsg(
 								"TTL job failed when processing collection_id=%lu and index_id=%lu with error: %s",
 								collectionId, ttlIndexEntry->indexId, edata->message));
@@ -533,7 +540,7 @@ delete_expired_rows(PG_FUNCTION_ARGS)
 				}
 			}
 
-			if (IsTaskTimeBudgetExceeded(startTime, NULL, SingleTTLTaskTimeBudget))
+			if (IsTaskTimeBudgetExceeded(startTime, NULL, timeBudget))
 			{
 				goto end;
 			}
@@ -671,12 +678,10 @@ DeleteExpiredRowsForIndexCore(char *tableName, TtlIndexEntry *indexEntry, int64
 
 	bool disableSeqAndBitmapScan = !IsClusterVersionAtleast(DocDB_V0, 106, 0) &&
 								   ForceIndexScanForTTLTask &&
-								   EnableNewCompositeIndexOpclass &&
 								   indexEntry->indexIsOrdered;
 
 	bool useIndexHintsForTTLQuery = IsClusterVersionAtleast(DocDB_V0, 106, 0) &&
 									UseIndexHintsForTTLTask &&
-									EnableNewCompositeIndexOpclass &&
 									indexEntry->indexIsOrdered;
 	if (useIndexHintsForTTLQuery)
 	{
@@ -700,6 +705,20 @@ DeleteExpiredRowsForIndexCore(char *tableName, TtlIndexEntry *indexEntry, int64
 							 ApiCatalogSchemaName, FullBsonTypeName);
 		}
 		argCount++;
+	}
+
+	bool useDescendingSort = EnableTTLDescSort &&
+							 EnableIndexOrderbyPushdown &&
+							 indexEntry->indexIsOrdered;
+
+	/* Fetch the entries to be deleted in descending order if the index is orderd */
+	if (useDescendingSort)
+	{
+		appendStringInfo(cmdStrDeleteRows,
+						 " AND %s.bson_dollar_fullscan(document, '{ \"%s\": -1 }'::%s)"
+						 " ORDER BY %s.bson_orderby(document, '{ \"%s\": -1 }'::%s)",
+						 ApiInternalSchemaNameV2, indexKey, FullBsonTypeName,
+						 ApiCatalogSchemaName, indexKey, FullBsonTypeName);
 	}
 
 	appendStringInfo(cmdStrDeleteRows, " LIMIT %d FOR UPDATE SKIP LOCKED) ",
@@ -768,14 +787,14 @@ DeleteExpiredRowsForIndexCore(char *tableName, TtlIndexEntry *indexEntry, int64
 	{
 		ereport(LOG,
 				errmsg(
-					"Number of rows deleted: %ld, table = %s, index_id=%lu, batch_size=%d, expiry_cutoff=%ld, has_pfe=%s, statement_timeout=%d, lock_timeout=%d used_hints=%d disabled_seq_scan=%d index_is_ordered=%d",
+					"Number of rows deleted: %ld, table = %s, index_id=%lu, batch_size=%d, expiry_cutoff=%ld, has_pfe=%s, statement_timeout=%d, lock_timeout=%d used_hints=%d disabled_seq_scan=%d index_is_ordered=%d use_desc_sort=%d",
 					(int64) rowsCount, tableName, indexEntry->indexId,
 					ttlDeleteBatchSize,
 					currentTime - indexExpiryMilliseconds, (argCount == 2) ? "true" :
 					"false",
 					TTLPurgerStatementTimeout, TTLPurgerLockTimeout,
 					useIndexHintsForTTLQuery, disableSeqAndBitmapScan,
-					indexEntry->indexIsOrdered));
+					indexEntry->indexIsOrdered, useDescendingSort));
 	}
 
 	if (rowsCount > 0)

@@ -61,7 +61,7 @@ typedef struct BsonDollarAllQueryState
 	/* Whether or not the $all array has exclusively nulls */
 	bool arrayHasOnlyNulls;
 
-	/* The number of elements in the $all array */
+	/* The total count of elements present in the $all array */
 	int numElements;
 
 	/* An array of exprEvalState for expression evaluation.
@@ -130,7 +130,7 @@ typedef struct TraverseElementValidateState
 	const char *collationString;
 } TraverseElementValidateState;
 
-/* State for the comparison of $in operator */
+/* Comparison state for the $in operator */
 typedef struct TraverseInValidateState
 {
 	/* must be the first field */
@@ -270,7 +270,7 @@ typedef struct
 	/* The raw element being compared for sort */
 	pgbsonelement element;
 
-	/* The collation used for sorting */
+	/* Sorting operation uses specified collation */
 	const char *collationString;
 
 	/* Whether or not the sort input is truncated */
@@ -1276,9 +1276,12 @@ bson_dollar_range(PG_FUNCTION_ARGS)
 	rangeState.isMinConditionSet = false;
 	rangeState.isMaxConditionSet = false;
 
-	if (rangeState.params.isFullScan)
+	if (rangeState.params.isFullScan || rangeState.params.isElemMatch)
 	{
-		/* if the range is a full scan, we don't need to traverse the document */
+		/* if the range is a full scan, we don't need to traverse the document
+		 * similarly for $elemMatch this range query is only used on the index
+		 * so we bypass the runtime recheck and let the runtime filter handle it.
+		 */
 		PG_RETURN_BOOL(true);
 	}
 
@@ -1723,7 +1726,7 @@ Datum
 bson_dollar_text(PG_FUNCTION_ARGS)
 {
 	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INDEXNOTFOUND),
-					errmsg("text index required for $text query")));
+					errmsg("A text index is necessary to perform a $text query.")));
 	PG_RETURN_BOOL(false);
 }
 
@@ -2127,7 +2130,7 @@ bool
 CompareArrayForBitsAllClear(bson_iter_t *sourceArrayIter, bson_iter_t *filterArrayIter,
 							bool isSignExtended)
 {
-	/* filter or source array is empty */
+	/* The filter or source array has no elements */
 	if (!bson_iter_next(filterArrayIter) || !bson_iter_next(sourceArrayIter))
 	{
 		return true;
@@ -2191,7 +2194,7 @@ CompareArrayForBitsAnyClear(bson_iter_t *sourceArrayIter, bson_iter_t *filterArr
 		return false;
 	}
 
-	/* source array is empty */
+	/* The source array contains no elements */
 	if (!bson_iter_next(sourceArrayIter))
 	{
 		return true;
@@ -2272,7 +2275,7 @@ CompareArrayForBitsAllSet(bson_iter_t *sourceArrayIter, bson_iter_t *filterArray
 		return true;
 	}
 
-	/* source array is empty */
+	/* The source array contains no elements */
 	if (!bson_iter_next(sourceArrayIter))
 	{
 		return false;
@@ -2353,7 +2356,7 @@ CompareArrayForBitsAnySet(bson_iter_t *sourceArrayIter, bson_iter_t *filterArray
 		return false;
 	}
 
-	/* source array is empty */
+	/* The source array contains no elements */
 	if (!bson_iter_next(sourceArrayIter))
 	{
 		return false;
@@ -2555,13 +2558,13 @@ GetRemainderFromModBsonValues(const bson_value_t *dividendValue,
 		if (IsBsonValueInfinity(divisorValue))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-								"divisor cannot be infinite")));
+								"Division by an infinite value is not allowed")));
 		}
 
 		if (IsBsonValueNaN(divisorValue))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-								"divisor cannot be NaN")));
+								"A divisor value must not be NaN")));
 		}
 
 		if ((divisorValue->value_type == BSON_TYPE_DECIMAL128 && IsDecimal128Zero(
@@ -2569,7 +2572,7 @@ GetRemainderFromModBsonValues(const bson_value_t *dividendValue,
 			(BsonValueAsDouble(divisorValue) == 0.0))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-								"divisor cannot be Zero")));
+								"Division by zero is not permitted")));
 		}
 	}
 
@@ -2719,7 +2722,7 @@ BsonOrderbyCore(pgbson *document, pgbson *filter, const char *collationString,
 	if (!BsonValueIsNumber(&filterElement.bsonValue) && validateSort)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("Invalid sort direction %s",
+						errmsg("Sort direction value %s is not valid",
 							   BsonValueToJsonForLogging(
 								   &filterElement.bsonValue))));
 	}
@@ -3373,7 +3376,7 @@ PopulateRegexState(PG_FUNCTION_ARGS, TraverseRegexValidateState *state)
 						   &filterElement);
 	if (regexState == NULL)
 	{
-		/* Cache is not available */
+		/* Cache not available */
 		PopulateRegexFromQuery(&localState, &filterElement);
 		regexState = &localState;
 	}
@@ -3396,7 +3399,7 @@ PopulateRegexFromQuery(RegexData *regexState, pgbsonelement *filterElement)
 		filterElement->bsonValue.value_type != BSON_TYPE_REGEX)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"$regex has to be a string")));
+							"$regex must be provided with a string value")));
 	}
 
 
@@ -4170,14 +4173,12 @@ OrderByVisitTopLevelField(pgbsonelement *element, const
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION5429513),
 							errmsg(
-								"PlanExecutor error during aggregation :: caused by :: "
-								"Invalid range: Expected the sortBy field to be a Date, "
-								"but it was %s", BsonTypeName(
+								"Aggregation PlanExecutor encountered an - Invalid range - error: The specified sortBy field should be of type Date, but a different type (%s) was provided.",
+								BsonTypeName(
 									element->bsonValue.value_type)),
 							errdetail_log(
-								"PlanExecutor error during aggregation :: caused by :: "
-								"Invalid range: Expected the sortBy field to be a Date, "
-								"but it was %s", BsonTypeName(
+								"Aggregation PlanExecutor encountered an - Invalid range - error: The specified sortBy field should be of type Date, but a different type (%s) was provided.",
+								BsonTypeName(
 									element->bsonValue.value_type))));
 		}
 	}
@@ -4189,14 +4190,12 @@ OrderByVisitTopLevelField(pgbsonelement *element, const
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION5429414),
 							errmsg(
-								"PlanExecutor error during aggregation :: caused by :: "
-								"Invalid range: Expected the sortBy field to be a number, "
-								"but it was %s", BsonTypeName(
+								"Aggregation PlanExecutor encountered an - Invalid range - error: The specified sortBy field should be of type Date, but a different type (%s) was provided.",
+								BsonTypeName(
 									element->bsonValue.value_type)),
 							errdetail_log(
-								"PlanExecutor error during aggregation :: caused by :: "
-								"Invalid range: Expected the sortBy field to be a number, "
-								"but it was %s", BsonTypeName(
+								"Aggregation PlanExecutor encountered an - Invalid range - error: The specified sortBy field should be of type Date, but a different type (%s) was provided.",
+								BsonTypeName(
 									element->bsonValue.value_type))));
 		}
 	}

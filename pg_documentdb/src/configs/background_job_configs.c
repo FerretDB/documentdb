@@ -43,9 +43,12 @@ int SingleTTLTaskTimeBudget = DEFAULT_SINGLE_TTL_TASK_TIME_BUDGET;
 #define DEFAULT_TTL_TASK_MAX_RUNTIME_IN_MS 60000
 int TTLTaskMaxRunTimeInMS = DEFAULT_TTL_TASK_MAX_RUNTIME_IN_MS;
 
-/*TODO: Set this to true by default post 1.107 */
+/* Enable by default on 1.109 */
 #define DEFAULT_REPEAT_PURGE_INDEXES_FOR_TTL_TASK false
 bool RepeatPurgeIndexesForTTLTask = DEFAULT_REPEAT_PURGE_INDEXES_FOR_TTL_TASK;
+
+#define DEFAULT_ENABLE_TTL_DESC_SORT false
+bool EnableTTLDescSort = DEFAULT_ENABLE_TTL_DESC_SORT;
 
 #define DEFAULT_ENABLE_BG_WORKER false
 bool EnableBackgroundWorker = DEFAULT_ENABLE_BG_WORKER;
@@ -118,7 +121,7 @@ InitializeBackgroundJobConfigurations(const char *prefix, const char *newGucPref
 		NULL, NULL, NULL);
 
 	DefineCustomIntVariable(
-		psprintf("%s.TTLTaskMaxRunTimeInMS", prefix),
+		psprintf("%s.TTLTaskMaxRunTimeInMS", newGucPrefix),
 		gettext_noop(
 			"Time budget assigned in milliseconds for single invocation of ttl task."),
 		NULL,
@@ -158,6 +161,17 @@ InitializeBackgroundJobConfigurations(const char *prefix, const char *newGucPref
 		NULL,
 		&TTLPurgerLockTimeout,
 		DEFAULT_TTL_PURGER_LOCK_TIMEOUT, 1, INT_MAX,
+		PGC_USERSET,
+		0,
+		NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.enableTTLDescSort", newGucPrefix),
+		gettext_noop(
+			"Whether or not to enable TTL descending sort on field."),
+		NULL,
+		&EnableTTLDescSort,
+		DEFAULT_ENABLE_TTL_DESC_SORT,
 		PGC_USERSET,
 		0,
 		NULL, NULL, NULL);

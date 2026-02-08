@@ -1,20 +1,33 @@
-use std::sync::Arc;
-use std::{backtrace::Backtrace, env, sync::Once, thread, time::Duration};
+/*-------------------------------------------------------------------------
+ * Copyright (c) Microsoft Corporation.  All rights reserved.
+ *
+ * tests/common/mod.rs
+ *
+ *-------------------------------------------------------------------------
+ */
 
-use documentdb_gateway::configuration::{
-    DocumentDBSetupConfiguration, PgConfiguration, SetupConfiguration,
+use std::{
+    backtrace::Backtrace,
+    env,
+    sync::{Arc, Once},
+    thread,
+    time::Duration,
 };
-use documentdb_gateway::error::Result;
-use documentdb_gateway::postgres::{create_query_catalog, ConnectionPool, DocumentDBDataClient};
+
 use documentdb_gateway::{
-    run_server,
-    startup::{get_service_context, populate_ssl_certificates, AUTHENTICATION_MAX_CONNECTIONS},
-    QueryCatalog,
+    configuration::{
+        CertInputType, CertificateOptions, DocumentDBSetupConfiguration, PgConfiguration,
+        SetupConfiguration,
+    },
+    error::Result,
+    postgres::{create_query_catalog, ConnectionPool, DocumentDBDataClient, QueryCatalog},
+    run_gateway,
+    service::TlsProvider,
+    startup::{get_service_context, AUTHENTICATION_MAX_CONNECTIONS},
 };
 
-use mongodb::options::{Tls, TlsOptions};
 use mongodb::{
-    options::{AuthMechanism, ClientOptions, Credential, ServerAddress},
+    options::{AuthMechanism, ClientOptions, Credential, ServerAddress, Tls, TlsOptions},
     Client, Database,
 };
 use simple_logger::SimpleLogger;
@@ -29,10 +42,8 @@ async fn initialize_full(config: DocumentDBSetupConfiguration) {
 
     INIT.call_once(|| {
         SimpleLogger::new()
-            .with_level(log::LevelFilter::Trace)
+            .with_level(log::LevelFilter::Info)
             .with_module_level("rustls", log::LevelFilter::Info)
-            .with_module_level("ntex_rt", log::LevelFilter::Info)
-            .with_module_level("ntex_server", log::LevelFilter::Info)
             .with_module_level("tokio_postgres", log::LevelFilter::Info)
             .with_module_level("hyper", log::LevelFilter::Info)
             .init()
@@ -46,31 +57,33 @@ async fn initialize_full(config: DocumentDBSetupConfiguration) {
         .unwrap();
 }
 
-#[ntex::main]
-async fn run(config: DocumentDBSetupConfiguration) {
+#[tokio::main]
+async fn run(setup_config: DocumentDBSetupConfiguration) {
+    let tls_provider = TlsProvider::new(
+        SetupConfiguration::certificate_options(&setup_config),
+        None,
+        None,
+    )
+    .await
+    .expect("Failed to create TLS provider.");
+
     let query_catalog = create_query_catalog();
-    let postgres_system_user = config.postgres_system_user();
+    let postgres_system_user = setup_config.postgres_system_user();
     let system_pool = Arc::new(
         ConnectionPool::new_with_user(
-            &config,
+            &setup_config,
             &query_catalog,
             &postgres_system_user,
             None,
-            format!("{}-SystemRequests", config.application_name()),
+            format!("{}-SystemRequests", setup_config.application_name()),
             5,
         )
         .expect("Failed to create system pool"),
     );
 
-    let certificate_options = if let Some(co) = config.certificate_options.clone() {
-        co
-    } else {
-        populate_ssl_certificates().await.unwrap()
-    };
-
     let dynamic_configuration = PgConfiguration::new(
         &query_catalog,
-        &config,
+        &setup_config,
         &system_pool,
         vec!["documentdb.".to_string()],
     )
@@ -78,32 +91,27 @@ async fn run(config: DocumentDBSetupConfiguration) {
     .unwrap();
 
     let authentication_pool = ConnectionPool::new_with_user(
-        &config,
+        &setup_config,
         &query_catalog,
         &postgres_system_user,
         None,
-        format!("{}-PreAuthRequests", config.application_name()),
+        format!("{}-PreAuthRequests", setup_config.application_name()),
         AUTHENTICATION_MAX_CONNECTIONS,
     )
     .expect("Failed to create authentication pool");
 
     let service_context = get_service_context(
-        Box::new(config),
+        Box::new(setup_config),
         dynamic_configuration,
         query_catalog,
         system_pool,
         authentication_pool,
+        tls_provider,
     );
 
-    run_server::<DocumentDBDataClient>(
-        service_context,
-        certificate_options,
-        None,
-        CancellationToken::new(),
-        None,
-    )
-    .await
-    .unwrap()
+    run_gateway::<DocumentDBDataClient>(service_context, None, CancellationToken::new())
+        .await
+        .unwrap();
 }
 
 pub fn configuration() -> DocumentDBSetupConfiguration {
@@ -112,9 +120,12 @@ pub fn configuration() -> DocumentDBSetupConfiguration {
         blocked_role_prefixes: Vec::new(),
         gateway_listen_port: Some(10260),
         allow_transaction_snapshot: Some(false),
-        enforce_ssl_tcp: Some(true),
+        certificate_options: CertificateOptions {
+            cert_type: CertInputType::PemAutoGenerated,
+            ..Default::default()
+        },
         postgres_system_user: Some(
-            std::env::var("PostgresSystemUser").unwrap_or("cosmosdev".to_string()),
+            std::env::var("PostgresSystemUser").unwrap_or(whoami::username()),
         ),
         ..Default::default()
     }

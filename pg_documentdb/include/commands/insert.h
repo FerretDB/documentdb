@@ -20,5 +20,6 @@ bool InsertDocument(uint64 collectionId, const char *shardTableName, int64 shard
 
 bool InsertOrReplaceDocument(uint64 collectionId, const char *shardTableName, int64
 							 shardKeyValue,
-							 pgbson *objectId, pgbson *document);
+							 pgbson *objectId, pgbson *document,
+							 const bson_value_t *updateSpecValue);
 #endif

@@ -47,6 +47,12 @@
 
 #include "aggregation/bson_aggregation_pipeline_private.h"
 
+/* We use this flag to determine if an specialized VAR in $lookup whether let or document VAR needs varlevelsup adjustment
+ * The last 2 bytes are reserved to store the nested pipeline level, since the
+ * maximum nested pipeline level is 20, we can use 2 bytes to store it.
+ */
+#define NESTED_PIPELINE_VAR_FLAG 0x0F000000
+
 const int MaximumLookupPipelineDepth = 20;
 extern bool EnableLookupIdJoinOptimizationOnCollation;
 extern bool EnableNowSystemVariable;
@@ -190,7 +196,7 @@ typedef struct LevelsUpQueryTreeWalkerState
  */
 typedef struct
 {
-	/* the input startWith expression */
+	/* the input expression must start with the specified input */
 	bson_value_t inputExpression;
 
 	/* The target collection */
@@ -317,7 +323,7 @@ GetPipelineStage(bson_iter_t *pipelineIter, const char *parentStage, const
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40323),
 						errmsg(
-							"A pipeline stage specification object must contain exactly one field.")));
+							"Pipeline stage must have a single field.")));
 	}
 
 	return stageElement;
@@ -564,7 +570,7 @@ HandleDocumentsStage(const bson_value_t *existingValue, Query *query,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"$documents is only valid as the first stage in a pipeline")));
+							"$documents can only be used as the first stage in a pipeline.")));
 	}
 
 	/* Documents is an expression */
@@ -599,7 +605,7 @@ HandleDocumentsStage(const bson_value_t *existingValue, Query *query,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION5858203),
 						errmsg(
-							"error during aggregation :: caused by :: an array is expected")));
+							"An array was expected.")));
 	}
 
 	/* Create a distinct unwind - to expand arrays and such */
@@ -800,7 +806,7 @@ CreateInverseMatchFromCollectionQuery(InverseMatchArgs *inverseMatchArgs,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_NAMESPACENOTFOUND),
 						errmsg(
-							"'from' collection: '%s.%s' doesn't exist.",
+							"The 'from' collection '%s.%s' could not be found.",
 							text_to_cstring(context->databaseNameDatum),
 							inverseMatchArgs->fromCollection.string)));
 	}
@@ -925,14 +931,16 @@ ParseInverseMatchSpec(const bson_value_t *spec, InverseMatchArgs *args)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("unrecognized argument to $inverseMatch: '%s'", key)));
+							errmsg(
+								"Unrecognized parameter supplied to $inverseMatch: '%s'",
+								key)));
 		}
 	}
 
 	if (args->path.length == 0 || args->path.string == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE), errmsg(
-							"Missing 'path' parameter to $inverseMatch")));
+							"Path parameter is missing for the operator $inverseMatch")));
 	}
 
 	bool useFromCollection = false;
@@ -962,7 +970,7 @@ ParseInverseMatchSpec(const bson_value_t *spec, InverseMatchArgs *args)
 
 	if (args->defaultResult.value_type == BSON_TYPE_EOD)
 	{
-		/* if not provided, default to false. */
+		/* If missing, it will automatically default to false. */
 		args->defaultResult.value_type = BSON_TYPE_BOOL;
 		args->defaultResult.value.v_bool = false;
 	}
@@ -1009,10 +1017,11 @@ ParseUnionWith(const bson_value_t *existingValue, StringView *collectionFrom,
 			else
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
-								errmsg("BSON field '$unionWith.%s' is an unknown field.",
-									   key),
+								errmsg(
+									"The BSON field '$unionWith.%s' is not recognized as a valid field.",
+									key),
 								errdetail_log(
-									"BSON field '$unionWith.%s' is an unknown field.",
+									"The BSON field '$unionWith.%s' is not recognized as a valid field.",
 									key)));
 			}
 		}
@@ -1021,17 +1030,17 @@ ParseUnionWith(const bson_value_t *existingValue, StringView *collectionFrom,
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 							errmsg(
-								"$unionWith stage without explicit collection must have a pipeline with $documents as first stage")));
+								"A $unionWith stage without specifying a target collection must begin its pipeline with a $documents stage.")));
 		}
 	}
 	else
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 						errmsg(
-							"the $unionWith stage specification must be an object or string, but found %s",
+							"The $unionWith stage requires its specification to be either an object or a string, but instead encountered %s",
 							BsonTypeName(existingValue->value_type)),
 						errdetail_log(
-							"the $unionWith stage specification must be an object or string, but found %s",
+							"The $unionWith stage requires its specification to be either an object or a string, but instead encountered %s",
 							BsonTypeName(existingValue->value_type))));
 	}
 }
@@ -1050,7 +1059,7 @@ HandleUnionWith(const bson_value_t *existingValue, Query *query,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_MAXSUBPIPELINEDEPTHEXCEEDED),
 						errmsg(
-							"Maximum number of nested sub-pipelines exceeded. Limit is %d",
+							"The allowed limit for nested sub-pipelines has been surpassed, exceeding the maximum of %d.",
 							MaximumLookupPipelineDepth)));
 	}
 
@@ -1170,7 +1179,9 @@ ValidateFacet(const bson_value_t *facetValue)
 	if (facetValue->value_type != BSON_TYPE_DOCUMENT)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION15947),
-						errmsg("a facet's fields must be specified in an object")));
+						errmsg(
+							"Expected 'document' type for $facet but found '%s' type",
+							BsonTypeName(facetValue->value_type))));
 	}
 
 	bson_iter_t facetIter;
@@ -1205,10 +1216,10 @@ ValidateFacet(const bson_value_t *facetValue)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40600),
 								errmsg(
-									"%s is not allowed to be used within a $facet stage",
+									"%s cannot be utilized within an operators facet processing stage",
 									nestedPipelineStage),
 								errdetail_log(
-									"%s is not allowed to be used within a $facet stage",
+									"%s cannot be utilized within an operators facet processing stage",
 									nestedPipelineStage)));
 			}
 		}
@@ -1217,7 +1228,8 @@ ValidateFacet(const bson_value_t *facetValue)
 	if (numStages == 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40169),
-						errmsg("the $facet specification must be a non-empty object")));
+						errmsg(
+							"No stages are specified for $facet")));
 	}
 
 	return numStages;
@@ -1747,7 +1759,7 @@ ParseLookupStage(const bson_value_t *existingValue, LookupArgs *args)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40319),
 						errmsg(
-							"the $lookup stage specification must be an object, but found %s",
+							"The $lookup stage must be defined as an object, but instead a %s value was provided.",
 							BsonTypeName(existingValue->value_type))));
 	}
 
@@ -1794,7 +1806,7 @@ ParseLookupStage(const bson_value_t *existingValue, LookupArgs *args)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40321),
 								errmsg(
-									"lookup argument 'from' must be a string, is type %s",
+									"The 'from' parameter in lookup must be provided as a string, but a value of type %s was given instead.",
 									BsonTypeName(value->value_type))));
 			}
 
@@ -1854,7 +1866,7 @@ ParseLookupStage(const bson_value_t *existingValue, LookupArgs *args)
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51047),
 									errmsg(
-										"%s is not allowed to be used within a $lookup stage",
+										"%s usage is prohibited inside a $lookup stage",
 										nestedPipelineStage)));
 				}
 			}
@@ -1862,7 +1874,8 @@ ParseLookupStage(const bson_value_t *existingValue, LookupArgs *args)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("unknown argument to $lookup: %s", key)));
+							errmsg("Unrecognized parameter provided to $lookup: %s",
+								   key)));
 		}
 	}
 
@@ -1884,14 +1897,14 @@ ParseLookupStage(const bson_value_t *existingValue, LookupArgs *args)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 						errmsg(
-							"$lookup requires either 'pipeline' or both 'localField' and 'foreignField' to be specified")));
+							"$lookup needs to be provided with either a 'pipeline' definition or both 'localField' and 'foreignField' parameters explicitly")));
 	}
 
 	if ((args->foreignField.length == 0) ^ (args->localField.length == 0))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 						errmsg(
-							"$lookup requires both or neither of 'localField' and 'foreignField' to be specified")));
+							"$lookup needs either both 'localField' and 'foreignField' specified or neither of them provided")));
 	}
 
 	if (args->foreignField.length != 0)
@@ -2692,8 +2705,15 @@ ProcessLookupCoreWithLet(Query *query, AggregationPipelineBuildContext *context,
 		TargetEntry *firstEntry = linitial(cteLookupQuery->targetList);
 		TargetEntry *secondEntry = lsecond(cteLookupQuery->targetList);
 		Var *secondVar = (Var *) copyObject(secondEntry->expr);
-		secondVar->varlevelsup = INT_MAX;
-		secondVar->location = context->nestedPipelineLevel;
+
+		/* varlevelsup is set to 0 and once the complete pipeline building is done, levelsup is adjusted again.
+		 * If it is set to anything as a positive value here then we will end up with wrong expectation of levelsup while
+		 * creating $group Aggregate queries within pipeline.
+		 * Refer: check_agglevels_and_constraints in parse_aggs.c
+		 * https://github.com/postgres/postgres/blob/2e66cae935c2e0f7ce9bab6b65ddeb7806f4de7c/src/backend/parser/parse_agg.c#L347C2-L349C27
+		 */
+		secondVar->varlevelsup = 0;
+		secondVar->location = NESTED_PIPELINE_VAR_FLAG | context->nestedPipelineLevel;
 
 		Expr *letExpr = NULL;
 		Var *letVar = NULL;
@@ -2702,8 +2722,8 @@ ProcessLookupCoreWithLet(Query *query, AggregationPipelineBuildContext *context,
 			letExpr = copyObject(lthird_node(TargetEntry,
 											 cteLookupQuery->targetList)->expr);
 			letVar = (Var *) letExpr;
-			letVar->varlevelsup = INT_MAX;
-			letVar->location = context->nestedPipelineLevel;
+			letVar->varlevelsup = 0;
+			letVar->location = NESTED_PIPELINE_VAR_FLAG | context->nestedPipelineLevel;
 		}
 		else
 		{
@@ -2937,7 +2957,7 @@ ValidateUnionWithPipeline(const bson_value_t *pipeline, bool hasCollection)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"$unionWith stage without explicit collection must have a pipeline with $documents as first stage")));
+							"A $unionWith stage without specifying a target collection must begin its pipeline with a $documents stage.")));
 	}
 
 	bool isFirstStage = true;
@@ -2951,7 +2971,7 @@ ValidateUnionWithPipeline(const bson_value_t *pipeline, bool hasCollection)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"$unionWith stage without explicit collection must have a pipeline with $documents as first stage")));
+									"A $unionWith stage without specifying a target collection must begin its pipeline with a $documents stage.")));
 			}
 		}
 
@@ -2960,19 +2980,19 @@ ValidateUnionWithPipeline(const bson_value_t *pipeline, bool hasCollection)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION31441),
 							errmsg(
-								"$out is not allowed within a $unionWith's sub-pipeline")));
+								"$out is prohibited inside a sub-pipeline of $unionWith")));
 		}
 		else if (strcmp(stageElement.path, "$merge") == 0)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION31441),
 							errmsg(
-								"$merge is not allowed within a $unionWith's sub-pipeline")));
+								"Using the $merge is prohibited inside a sub-pipeline of $unionWith.")));
 		}
 		else if (strcmp(stageElement.path, "$changeStream") == 0)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION31441),
 							errmsg(
-								"$changeStream is not allowed within a $unionWith's sub-pipeline")));
+								"The use of $changeStream is prohibited inside the sub-pipeline of $unionWith.")));
 		}
 	}
 }
@@ -2989,10 +3009,10 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 						errmsg(
-							"the $graphLookup stage specification must be an object, but found %s",
+							"The $graphLookup stage specification is expected to be provided as an object, however, the system encountered %s instead.",
 							BsonTypeName(existingValue->value_type)),
 						errdetail_log(
-							"the $graphLookup stage specification must be an object, but found %s",
+							"The $graphLookup stage specification is expected to be provided as an object, however, the system encountered %s instead.",
 							BsonTypeName(existingValue->value_type))));
 	}
 
@@ -3027,9 +3047,9 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION16410),
 								errmsg(
-									"as: FieldPath field names may not start with '$'"),
+									"'as' field name cannot begin with '$'"),
 								errdetail_log(
-									"as: FieldPath field names may not start with '$'")));
+									"'as' field name cannot begin with '$'")));
 			}
 		}
 		else if (strcmp(key, "startWith") == 0)
@@ -3058,9 +3078,9 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION16410),
 								errmsg(
-									"connectFromField: FieldPath field names may not start with '$'"),
+									"FieldPath field names cannot begin with symbol such as '$'"),
 								errdetail_log(
-									"connectFromField: FieldPath field names may not start with '$'")));
+									"FieldPath field names cannot begin with symbol such as '$'")));
 			}
 		}
 		else if (strcmp(key, "connectToField") == 0)
@@ -3084,9 +3104,9 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION16410),
 								errmsg(
-									"connectToField: FieldPath field names may not start with '$'"),
+									"connectToField: FieldPath field names cannot begin with the symbol '$'"),
 								errdetail_log(
-									"connectToField: FieldPath field names may not start with '$'")));
+									"connectToField: FieldPath field names cannot begin with the symbol '$'")));
 			}
 		}
 		else if (strcmp(key, "from") == 0)
@@ -3095,10 +3115,10 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 								errmsg(
-									"graphlookup argument 'from' must be a string, is type %s",
+									"graphlookup 'from' parameter must be provided as a string, but a value of type %s was given instead.",
 									BsonTypeName(value->value_type)),
 								errdetail_log(
-									"graphlookup argument 'from' must be a string, is type %s",
+									"graphlookup 'from' parameter must be provided as a string, but a value of type %s was given instead.",
 									BsonTypeName(value->value_type))));
 			}
 
@@ -3114,10 +3134,10 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40100),
 								errmsg(
-									"graphlookup argument 'maxDepth' must be a number, is type %s",
+									"The 'maxDepth' argument in graphlookup must be specified as a numeric value, but a value of type %s was provided instead.",
 									BsonTypeName(value->value_type)),
 								errdetail_log(
-									"graphlookup argument 'maxDepth' must be a number, is type %s",
+									"The 'maxDepth' argument in graphlookup must be specified as a numeric value, but a value of type %s was provided instead.",
 									BsonTypeName(value->value_type))));
 			}
 
@@ -3125,9 +3145,9 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40102),
 								errmsg(
-									"graphlookup.maxDepth must be a non-negative integer."),
+									"The value of graphlookup.maxDepth must always be a non‑negative integer number."),
 								errdetail_log(
-									"graphlookup.maxDepth must be a non-negative integer.")));
+									"The value of graphlookup.maxDepth must always be a non‑negative integer number.")));
 			}
 
 			args->maxDepth = BsonValueAsInt32(value);
@@ -3136,9 +3156,9 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40101),
 								errmsg(
-									"graphlookup.maxDepth must be a non-negative integer."),
+									"The value of graphlookup.maxDepth must always be a non‑negative integer number."),
 								errdetail_log(
-									"graphlookup.maxDepth must be a non-negative integer.")));
+									"The value of graphlookup.maxDepth must always be a non‑negative integer number.")));
 			}
 		}
 		else if (strcmp(key, "depthField") == 0)
@@ -3147,10 +3167,10 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40103),
 								errmsg(
-									"graphlookup argument 'depthField' must be a string, is type %s",
+									"The 'depthField' argument in graphlookup must be provided as a string, but a value of type %s was given instead.",
 									BsonTypeName(value->value_type)),
 								errdetail_log(
-									"graphlookup argument 'depthField' must be a string, is type %s",
+									"The 'depthField' argument in graphlookup must be provided as a string, but a value of type %s was given instead.",
 									BsonTypeName(value->value_type))));
 			}
 
@@ -3162,9 +3182,9 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION16410),
 								errmsg(
-									"depthField: FieldPath field names may not start with '$'"),
+									"depthField:FieldPath field names cannot begin with the symbol '$'"),
 								errdetail_log(
-									"depthField: FieldPath field names may not start with '$'")));
+									"depthField:FieldPath field names cannot begin with the symbol '$'")));
 			}
 		}
 		else if (strcmp(key, "restrictSearchWithMatch") == 0)
@@ -3173,7 +3193,7 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40185),
 								errmsg(
-									"graphlookup argument 'restrictSearchWithMatch' must be a document, is type %s",
+									"The 'restrictSearchWithMatch' argument in graphlookup must be provided as a document, but a value of type %s was received instead.",
 									BsonTypeName(value->value_type))));
 			}
 
@@ -3182,39 +3202,44 @@ ParseGraphLookupStage(const bson_value_t *existingValue, GraphLookupArgs *args)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40104),
-							errmsg("unknown argument to $graphlookup: %s", key),
-							errdetail_log("unknown argument to $graphlookup: %s", key)));
+							errmsg(
+								"Unrecognized parameter supplied to stage $graphlookup: %s",
+								key),
+							errdetail_log(
+								"Unrecognized parameter supplied to stage $graphlookup: %s",
+								key)));
 		}
 	}
 
 	if (args->asField.length == 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40105),
-						errmsg("must specify 'as' field for a $graphLookup")));
+						errmsg("$graphLookup requires 'as' field to be specified")));
 	}
 
 	if (!fromSpecified)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("must specify 'from' field for a $graphLookup")));
+						errmsg("$graphLookup requires 'from' field to be specified")));
 	}
 	if (args->fromCollection.length == 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE),
-						errmsg("must specify 'from' field for a $graphLookup")));
+						errmsg("$graphLookup requires 'from' field to be specified")));
 	}
 
 	if (args->inputExpression.value_type == BSON_TYPE_EOD)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40105),
-						errmsg("must specify 'startWith' for a $graphLookup")));
+						errmsg(
+							"You must provide a 'startWith' parameter when performing a $graphLookup operation")));
 	}
 
 	if (args->connectFromField.length == 0 || args->connectToField.length == 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40105),
 						errmsg(
-							"must specify both 'connectFrom' and 'connectTo' for a $graphLookup")));
+							"Both 'connectFrom' and 'connectTo' operators must be provided for a $graphLookup operation.")));
 	}
 
 	StringInfo connectExpr = makeStringInfo();
@@ -3253,16 +3278,19 @@ BuildInputExpressionForQuery(Expr *origExpr, const StringView *connectToField, c
 	List *inputExprArgs;
 	Oid functionOid;
 
-	bool applyCollationAndVariableSpec = IsCollationApplicable(
-		context->collationString) && IsClusterVersionAtleast(DocDB_V0, 103, 0);
+	Const *collationConst = IsCollationApplicable(context->collationString) ?
+							MakeTextConst(context->collationString,
+										  strlen(context->collationString)) : NULL;
 
-	if (applyCollationAndVariableSpec)
+
+	if (collationConst)
 	{
-		Const *collationConst = MakeTextConst(context->collationString,
-											  strlen(context->collationString));
 		functionOid = BsonExpressionGetWithLetAndCollationFunctionOid();
-		inputExprArgs = list_make5(origExpr, MakeBsonConst(inputExpr),
-								   falseConst, context->variableSpec,
+		inputExprArgs = list_make5(origExpr,
+								   MakeBsonConst(inputExpr),
+								   falseConst,
+								   context->variableSpec ? context->variableSpec :
+								   (Expr *) makeNullConst(BsonTypeId(), -1, InvalidOid),
 								   collationConst);
 	}
 	else if (context->variableSpec != NULL)
@@ -3547,9 +3575,9 @@ GenerateBaseCaseQuery(AggregationPipelineBuildContext *parentContext,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
 						errmsg(
-							"$graphLookup with 'from' on a sharded collection is not supported"),
+							"$graphLookup using 'from' on a sharded collection is currently unsupported"),
 						errdetail_log(
-							"$graphLookup with 'from' on a sharded collection is not supported")));
+							"$graphLookup using 'from' on a sharded collection is currently unsupported")));
 	}
 
 	if (args->restrictSearch.value_type != BSON_TYPE_EOD)
@@ -3560,9 +3588,7 @@ GenerateBaseCaseQuery(AggregationPipelineBuildContext *parentContext,
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION5626500),
 							errmsg(
-								"$geoNear, $near, and $nearSphere are not allowed in this context, "
-								"as these operators require sorting geospatial data. If you do not need sort, "
-								"consider using $geoWithin instead.")));
+								"$near, $nearSphere and $geoNear cannot be used here. Use $geoWithin instead.")));
 		}
 	}
 
@@ -3650,9 +3676,7 @@ GenerateRecursiveCaseQuery(AggregationPipelineBuildContext *parentContext,
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION5626500),
 							errmsg(
-								"$geoNear, $near, and $nearSphere are not allowed in this context, "
-								"as these operators require sorting geospatial data. If you do not need sort, "
-								"consider using $geoWithin instead.")));
+								"$near, $nearSphere and $geoNear cannot be used here. Use $geoWithin instead.")));
 		}
 	}
 
@@ -3965,7 +3989,7 @@ BuildRecursiveGraphLookupQuery(QuerySource parentSource, GraphLookupArgs *args,
 												   true);
 	finalDepthEntry->ressortgroupref = 2;
 
-	/* If there is a depth-field, add it into the original doc */
+	/* If a depthField is specified, merge the depth value into the document. */
 	if (args->depthField.length > 0)
 	{
 		bool overrideArray = true;
@@ -4025,7 +4049,7 @@ HandleLookupCore(const bson_value_t *existingValue, Query *query,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_MAXSUBPIPELINEDEPTHEXCEEDED),
 						errmsg(
-							"Maximum number of nested sub-pipelines exceeded. Limit is %d",
+							"The allowed limit for nested sub-pipelines has been surpassed, exceeding the maximum of %d.",
 							MaximumLookupPipelineDepth)));
 	}
 
@@ -4059,15 +4083,16 @@ ReplaceVariablesWithLevelsUpMutator(Node *node, LevelsUpQueryTreeWalkerState *st
 	else if (IsA(node, Var))
 	{
 		Var *originalVar = (Var *) node;
-		if (originalVar->varlevelsup >= INT_MAX)
-		{
-			originalVar->varlevelsup = INT_MAX;
-		}
 
-		if (equal(node, state->originalVariable))
+		/*
+		 * If the location of the VAR >= NESTED_PIPELINE_VAR_FLAG, then this means this VAR needs varlevelsup adjustment
+		 */
+		if (originalVar->location >= NESTED_PIPELINE_VAR_FLAG &&
+			equal(node, state->originalVariable))
 		{
 			Var *copyVar = copyObject(originalVar);
 			copyVar->varlevelsup = state->numLevels;
+			copyVar->location = -1;
 			return (Node *) copyVar;
 		}
 	}
@@ -4153,7 +4178,7 @@ ValidateLetHasNoVariables(AggregationExpressionData *parsedExpression)
 	{
 		const char *nameWithoutPrefix = parsedExpression->value.value.v_utf8.str + 2;
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION17276),
-						errmsg("Use of undefined variable: %s",
+						errmsg("Attempting to use an undefined variable: %s",
 							   nameWithoutPrefix)));
 	}
 }

@@ -26,6 +26,10 @@
 #include <access/relscan.h>
 #include <optimizer/tlist.h>
 
+#if PG_VERSION_NUM >= 180000
+#include <commands/explain_format.h>
+#endif
+
 #include "io/bson_core.h"
 #include "planner/documentdb_planner.h"
 #include "customscan/custom_scan_registrations.h"
@@ -280,7 +284,7 @@ AddExplainCustomPathCore(List *pathList)
 		customPath->flags = CUSTOMPATH_SUPPORT_PROJECTION;
 #endif
 
-		/* store the continuation data */
+		/* Save the continuation data into storage */
 		queryState->extensible.type = T_ExtensibleNode;
 		queryState->extensible.extnodename = InputContinuationNodeName;
 
@@ -319,7 +323,7 @@ ExplainQueryScanPlanCustomPath(PlannerInfo *root,
 	cscan->custom_private = best_path->custom_private;
 	cscan->custom_plans = custom_plans;
 
-	/* There should only be 1 plan here */
+	/* Only one plan is allowed here */
 	Assert(list_length(custom_plans) == 1);
 
 	/* The main plan comes in first */
@@ -392,7 +396,7 @@ static void
 ExplainQueryScanBeginCustomScan(CustomScanState *node, EState *estate,
 								int eflags)
 {
-	/* Initialize the actual state of the plan */
+	/* Initialize the current state of the plan */
 	ExplainQueryScanState *queryScanState = (ExplainQueryScanState *) node;
 
 	queryScanState->innerScanState = (ScanState *) ExecInitNode(

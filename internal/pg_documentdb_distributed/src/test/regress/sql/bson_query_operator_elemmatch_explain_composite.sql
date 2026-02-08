@@ -3,8 +3,6 @@ SET citus.next_shard_id TO 1064000;
 SET documentdb.next_collection_id TO 10640;
 SET documentdb.next_collection_index_id TO 10640;
 
-SET documentdb.enableNewCompositeIndexOpClass to on;
-
 set enable_seqscan TO on;
 set documentdb.forceUseIndexIfAvailable to on;
 set documentdb.forceDisableSeqScan to off;
@@ -21,8 +19,15 @@ SELECT documentdb_api.insert_one('comp_elmdb', 'cmp_elemmatch_ops', '{ "_id": 1,
 SELECT documentdb_api.insert_one('comp_elmdb', 'cmp_elemmatch_ops', '{ "_id": 2, "price": [ 110, 140, 160 ] }');
 
 -- pushes to the price index
+set documentdb.enableExtendedExplainPlans to on;
 EXPLAIN (COSTS OFF, ANALYZE ON, TIMING OFF, SUMMARY OFF) SELECT document FROM bson_aggregation_find('comp_elmdb',
     '{ "find": "cmp_elemmatch_ops", "filter": { "price": { "$elemMatch": { "$gt": 120, "$lt": 150 } } } }');
+
+-- without the GUC becomes a disjoint index filter
+set documentdb.useNewElemMatchIndexOperatorOnPushdown to off;
+EXPLAIN (COSTS OFF, ANALYZE ON, TIMING OFF, SUMMARY OFF) SELECT document FROM bson_aggregation_find('comp_elmdb',
+    '{ "find": "cmp_elemmatch_ops", "filter": { "price": { "$elemMatch": { "$gt": 120, "$lt": 150 } } } }');
+reset documentdb.useNewElemMatchIndexOperatorOnPushdown;
 
 EXPLAIN (COSTS OFF, ANALYZE ON, TIMING OFF, SUMMARY OFF) SELECT document FROM bson_aggregation_find('comp_elmdb',
     '{ "find": "cmp_elemmatch_ops", "filter": { "price": { "$elemMatch": { "$in": [ 120, 140 ], "$gt": 121 } } } }');
@@ -46,3 +51,19 @@ EXPLAIN (COSTS OFF, ANALYZE ON, TIMING OFF, SUMMARY OFF) SELECT document FROM bs
 
 EXPLAIN (COSTS OFF, ANALYZE ON, TIMING OFF, SUMMARY OFF) SELECT document FROM bson_aggregation_find('comp_elmdb',
     '{ "find": "cmp_elemmatch_ops", "filter": { "brands": { "$elemMatch": { "name": "alpha" } } } }');
+
+-- test elemMatch behavior when confronted with multiple arrays
+SELECT documentdb_api.insert_one('comp_elmdb', 'cmp_elemmatch_ops', '{ "_id": 6, "brands": [ { "name": [ "gurci", "dolte" ], "rating": 5 } ]}');
+
+-- this technically matches the doc 6 above and the elemMatches don't get joined.
+EXPLAIN (COSTS OFF, ANALYZE ON, TIMING OFF, SUMMARY OFF) SELECT document FROM bson_aggregation_find('comp_elmdb',
+    '{ "find": "cmp_elemmatch_ops", "filter": { "brands": { "$elemMatch": { "name": { "$gt": "gabba", "$lt": "ergo" } } } } }');
+
+-- this can now join the elemMatch filters
+EXPLAIN (COSTS OFF, ANALYZE ON, TIMING OFF, SUMMARY OFF) SELECT document FROM bson_aggregation_find('comp_elmdb',
+    '{ "find": "cmp_elemmatch_ops", "filter": { "brands.name": { "$elemMatch": { "$gt": "gabba", "$lt": "ergo" } } } }');
+
+
+-- disjoint filter handling for elemMatch and non elemMatch: this matches a document since these are matching different elements of the array.
+EXPLAIN (COSTS OFF, ANALYZE ON, TIMING OFF, SUMMARY OFF) SELECT document FROM bson_aggregation_find('comp_elmdb',
+    '{ "find": "cmp_elemmatch_ops", "filter": { "price": { "$eq": 110, "$elemMatch": { "$gt": 155, "$lt": 165 } } } }');

@@ -11,11 +11,11 @@ use std::sync::Arc;
 use bson::{rawdoc, RawArrayBuf};
 
 use crate::{
-    context::{ConnectionContext, Cursor, CursorStoreEntry},
+    context::{ConnectionContext, Cursor, CursorStoreEntry, RequestContext},
     error::{DocumentDBError, ErrorCode, Result},
     postgres::{Connection, PgDataClient, PgDocument},
     protocol::OK_SUCCEEDED,
-    requests::{Request, RequestInfo},
+    requests::RequestInfo,
     responses::{PgResponse, RawResponse, Response},
 };
 
@@ -42,9 +42,11 @@ pub async fn save_cursor(
 }
 
 pub async fn process_kill_cursors(
-    request: &Request<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &ConnectionContext,
 ) -> Result<Response> {
+    let request = request_context.payload;
+
     let _ = request
         .document()
         .get_str("killCursors")
@@ -54,12 +56,12 @@ pub async fn process_kill_cursors(
         .document()
         .get("cursors")?
         .ok_or(DocumentDBError::bad_value(
-            "killCursors should have a cursors field".to_string(),
+            "cursors was missing in killCursors request".to_string(),
         ))?
         .as_array()
         .ok_or(DocumentDBError::documentdb_error(
             ErrorCode::TypeMismatch,
-            "KillCursors cursors should be an array".to_string(),
+            "killCursors cursors should be an array".to_string(),
         ))?;
 
     let mut cursor_ids = Vec::new();
@@ -92,11 +94,12 @@ pub async fn process_kill_cursors(
 }
 
 pub async fn process_get_more(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
+    let request = request_context.payload;
+
     let mut id = None;
     request.extract_fields(|k, v| {
         if k == "getMore" {
@@ -121,13 +124,12 @@ pub async fn process_get_more(
         .await
         .ok_or(DocumentDBError::documentdb_error(
             ErrorCode::CursorNotFound,
-            "Provided cursor not found.".to_string(),
+            "Provided cursor was not found.".to_string(),
         ))?;
 
     let results = pg_data_client
         .execute_cursor_get_more(
-            request,
-            request_info,
+            request_context,
             &db,
             &cursor,
             &cursor_connection,

@@ -1,3 +1,20 @@
+### documentdb v0.108-0 (Unreleased) ###
+* Top-level `let` variables and `$$NOW` supported by default.
+* Fix collation support on find and aggregation when variableSpec is not available *[Bugfix]*.
+* Support `dropRole` command *[Feature]*
+* Support `rolesInfo` command *[Feature]*
+* Fix concurrent upsert behavior, update the documents in case of conflicts during insert *[Bugfix]* (#295).
+* Support collation with `$sortArray` aggregation operator *[Feature]*
+* Add support for keyword `required` in `$jsonSchema`
+* Fix a segmentation fault when using ordered aggregate such as `$last` with `$setWindowFields` aggregation stage. *[Bugfix]*
+* Fix crash when building lookup pipeline queries from nested pipelines and $group aggregates *[Bugfix]*
+* Add basic support for compiling with pg18 *[Feature]*
+* Drop unused environment variable `ENFORCE_SSL` in dockerfile *[Bugfix]* (#313)
+* Remove the explicit dependency on the RUM extension (it's now implicit on the .so file). Flip to documentdb_extended_rum for PG18+ *[Feature]*
+* Use the appropriate GUC for the user_crud_commands.sql *[Bugfix]* (#319)
+* Provide Rust dev environment in devcontainer *[Feature]*
+* Add extension that adds a gateway host that's run as a postgres background worker *[Feature]*
+
 ### DocumentDB v0.107.0-ferretdb-2.7.0 (November 9, 2025) ###
 
 This version works best with FerretDB v2.7.0.
@@ -9,9 +26,11 @@ Docker images are available
 [on the release page](https://github.com/FerretDB/documentdb/releases/tag/v0.107.0-ferretdb-2.7.0).
 See installation instructions [in our documentation](https://docs.ferretdb.io/installation/documentdb/).
 
-### documentdb v1.107-0 (August 20, 2025) ###
-- Support sort by _id against the _id index using the enableIndexOrderbyPushdown flag *[Feature]*.
-- Improvements to explain for various scan types *[Feature]*.
+### documentdb v0.107-0 (Unreleased) ###
+* Support sort by _id against the _id index using the enableIndexOrderbyPushdown flag *[Feature]*.
+* Improvements to explain for various scan types *[Feature]*.
+* Support schema enforcement with CSFLE integration *[Preview]*
+* Validate $jsonSchema syntax during rule creation or modification(schema validation) *[Preview]*
 
 ### DocumentDB v0.106.0-ferretdb-2.5.0 (August 12, 2025) ###
 
@@ -23,8 +42,8 @@ Docker images are available
 [on the release page](https://github.com/FerretDB/documentdb/releases/tag/v0.106.0-ferretdb-2.5.0).
 See installation instructions [in our documentation](https://docs.ferretdb.io/installation/documentdb/).
 
-### documentdb v1.106-0 (August 07, 2025) ###
-* Add internal extension that provides extensions to the `rum` index *[Feature]*
+### documentdb v0.106-0 (August 29, 2025) ###
+* Add internal extension that provides extensions to the `rum` index. *[Feature]*
 * Enable let support for update queries *[Feature]*. Requires `EnableVariablesSupportForWriteCommands` to be `on`.
 * Enable let support for findAndModify queries *[Feature]*. Requires `EnableVariablesSupportForWriteCommands` to be `on`.
 * Add internal extension that provides extensions to the `rum` index *[Feature]*

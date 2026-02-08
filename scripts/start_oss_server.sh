@@ -14,7 +14,9 @@ help="false"
 stop="false"
 distributed="false"
 allowExternalAccess="false"
-while getopts "d:p:hcsxe" opt; do
+gatewayWorker="false"
+useDocumentdbExtendedRum="false"
+while getopts "d:p:hcsxegr" opt; do
   case $opt in
     d) postgresDirectory="$OPTARG"
     ;;
@@ -31,6 +33,10 @@ while getopts "d:p:hcsxe" opt; do
     ;;
     p) coordinatorPort="$OPTARG"
     ;;
+    g) gatewayWorker="true"
+    ;;
+    r) useDocumentdbExtendedRum="true"
+    ;;
   esac
 
   # Assume empty string if it's unset since we cannot reference to
@@ -42,9 +48,15 @@ while getopts "d:p:hcsxe" opt; do
   esac
 done
 
-red=`tput setaf 1`
-green=`tput setaf 2`
-reset=`tput sgr0`
+if [ "${TERM:-}" == "" ] || [ "${TERM:-}" == "dumb" ]; then
+  red=""
+  green=""
+  reset=""
+else
+  red=`tput setaf 1`
+  green=`tput setaf 2`
+  reset=`tput sgr0`
+fi
 
 if [ "$help" == "true" ]; then
     echo "${green}sets up and launches a postgres server with extension installed on port $coordinatorPort."
@@ -54,7 +66,9 @@ if [ "$help" == "true" ]; then
     echo "${green}[-s] - optional argument. Stops all servers and exits"
     echo "${green}[-x] - start oss server with documentdb_distributed extension"
     echo "${green}[-e] - optional argument. Allows PostgreSQL access from any IP address"
-    echo "${green}[-p <port>] - optional argument. specifies the port for the coordinator"
+    echo "${green}[-p <port>] - optional argument. specifies the port for the backend"
+    echo "${green}[-g] - optional argument. starts the gateway worker host along with the backend"
+    echo "${green}[-r] - optional argument. use the pg_documentdb_extended_rum extension instead of rum"
     echo "${green}if postgresDir not specified assumed to be /data"
     exit 1;
 fi
@@ -80,6 +94,14 @@ preloadLibraries="pg_documentdb_core, pg_documentdb"
 
 if [ "$distributed" == "true" ]; then
   preloadLibraries="citus, $preloadLibraries, pg_documentdb_distributed"
+fi
+
+if [ "$gatewayWorker" == "true" ]; then
+  preloadLibraries="$preloadLibraries, pg_documentdb_gw_host"
+fi
+
+if [ "$useDocumentdbExtendedRum" == "true" ]; then
+  preloadLibraries="$preloadLibraries, pg_documentdb_extended_rum"
 fi
 
 source="${BASH_SOURCE[0]}"
@@ -141,14 +163,26 @@ if [ "$initSetup" == "true" ]; then
 fi
 
 # Update PostgreSQL configuration to allow access from any IP
+postgresConfigFile="$postgresDirectory/postgresql.conf"
 if [ "$allowExternalAccess" == "true" ]; then
-  postgresConfigFile="$postgresDirectory/postgresql.conf"
   hbaConfigFile="$postgresDirectory/pg_hba.conf"
 
   echo "${green}Configuring PostgreSQL to allow access from any IP address${reset}"
   echo "listen_addresses = '*'" >> $postgresConfigFile
   echo "host all all 0.0.0.0/0 scram-sha-256" >> $hbaConfigFile
   echo "host all all ::0/0 scram-sha-256" >> $hbaConfigFile
+fi
+
+if [ "$gatewayWorker" == "true" ]; then
+  setupConfigurationFile="$scriptDir/../pg_documentdb_gw/SetupConfiguration.json"
+  echo "documentdb_gateway.database = 'postgres'" >> $postgresConfigFile
+  echo "documentdb_gateway.setup_configuration_file = '$setupConfigurationFile'" >> $postgresConfigFile
+fi
+
+if [ "$useDocumentdbExtendedRum" == "true" ]; then
+  echo "${green}Configuring PostgreSQL to use pg_documentdb_extended_rum extension instead of rum${reset}"
+  echo "documentdb.rum_library_load_option = 'require_documentdb_extended_rum'" >> $postgresConfigFile
+  echo "documentdb.alternate_index_handler_name = 'extended_rum'" >> $postgresConfigFile
 fi
 
 userName=$(whoami)
@@ -159,6 +193,10 @@ StartServer $postgresDirectory $coordinatorPort
 
 if [ "$initSetup" == "true" ]; then
   SetupPostgresServerExtensions "$userName" $coordinatorPort $extensionName
+fi
+
+if [ "$useDocumentdbExtendedRum" == "true" ]; then
+  psql -p $coordinatorPort -d postgres -c "CREATE EXTENSION documentdb_extended_rum"
 fi
 
 if [ "$distributed" == "true" ]; then

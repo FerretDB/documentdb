@@ -15,6 +15,7 @@
 #include <utils/varlena.h>
 #include <access/xact.h>
 #include <storage/proc.h>
+#include <utils/backend_status.h>
 
 #include <metadata/metadata_cache.h>
 #include <utils/documentdb_errors.h>
@@ -30,6 +31,7 @@
 
 extern bool EnableNowSystemVariable;
 extern bool UseFileBasedPersistedCursors;
+extern bool EnableDelayedHoldPortal;
 
 /* --------------------------------------------------------- */
 /* Data types */
@@ -37,6 +39,8 @@ extern bool UseFileBasedPersistedCursors;
 
 
 static const int64_t CursorAcceptableBitsMask = 0x1FFFFFFFFFFFFF;
+
+static uint32_t current_cursor_count = 0;
 
 /*
  * Enum for the type of cursor for this query.
@@ -743,11 +747,27 @@ HandleFirstPageRequest(pgbson *querySpec, int64_t cursorId,
 		{
 			ReportFeatureUsage(FEATURE_CURSOR_TYPE_PERSISTENT);
 
-			/* In order to create the persistent cursor we initialize a cursorId anyway */
-			cursorId = GenerateCursorId(cursorId);
+			current_cursor_count++;
+			int64_t cursorIdForBackendCursor;
+
+			if (cursorId != 0)
+			{
+				cursorIdForBackendCursor = cursorId;
+			}
+			else if (!EnableDelayedHoldPortal)
+			{
+				cursorId = GenerateCursorId(cursorId);
+				cursorIdForBackendCursor = cursorId;
+			}
+			else
+			{
+				cursorIdForBackendCursor = (((int64_t) MyProcPid) << 32) |
+										   current_cursor_count;
+			}
 
 			StringInfo cursorStringInfo = makeStringInfo();
-			const char *cursorName = FormatCursorName(cursorStringInfo, cursorId);
+			const char *cursorName = FormatCursorName(cursorStringInfo,
+													  cursorIdForBackendCursor);
 
 			bool isTopLevel = true;
 			bool isHoldCursor = !IsInTransactionBlock(isTopLevel);
@@ -768,14 +788,22 @@ HandleFirstPageRequest(pgbson *querySpec, int64_t cursorId,
 																			   arrayWriter,
 																			   closeCursor);
 				queryFullyDrained = cursorFileState == NULL;
-				continuationDoc = queryFullyDrained ? NULL :
-								  BuildPersistedFileContinuationDocument(cursorName,
-																		 cursorId,
-																		 queryKind,
-																		 &queryData->
-																		 timeSystemVariables,
-																		 numIterations,
-																		 cursorFileState);
+
+				if (!queryFullyDrained)
+				{
+					cursorId = GenerateCursorId(cursorId);
+					continuationDoc = BuildPersistedFileContinuationDocument(cursorName,
+																			 cursorId,
+																			 queryKind,
+																			 &queryData->
+																			 timeSystemVariables,
+																			 numIterations,
+																			 cursorFileState);
+				}
+				else
+				{
+					continuationDoc = NULL;
+				}
 			}
 			else
 			{
@@ -786,12 +814,20 @@ HandleFirstPageRequest(pgbson *querySpec, int64_t cursorId,
 																 &arrayWriter,
 																 isHoldCursor,
 																 closeCursor);
-				continuationDoc = queryFullyDrained ? NULL :
-								  BuildPersistedContinuationDocument(cursorName, cursorId,
-																	 queryKind,
-																	 &queryData->
-																	 timeSystemVariables,
-																	 numIterations);
+				if (!queryFullyDrained)
+				{
+					cursorId = GenerateCursorId(cursorId);
+					continuationDoc = BuildPersistedContinuationDocument(cursorName,
+																		 cursorId,
+																		 queryKind,
+																		 &queryData->
+																		 timeSystemVariables,
+																		 numIterations);
+				}
+				else
+				{
+					continuationDoc = NULL;
+				}
 			}
 			break;
 		}
@@ -878,7 +914,7 @@ BuildStreamingContinuationDocument(HTAB *cursorMap, pgbson *querySpec, int64_t c
 	/* In the response add the number of iterations (used in tests) */
 	PgbsonWriterAppendInt32(&writer, "numIters", 8, numIterations);
 
-	/* Add the time system variables */
+	/* Add time system variables accordingly */
 	if (EnableNowSystemVariable)
 	{
 		if (timeSystemVariables != NULL && timeSystemVariables->nowValue.value_type !=
@@ -919,7 +955,7 @@ BuildPersistedFileContinuationDocument(const char *cursorName, int64_t
 	/* In the response add the number of iterations (used in tests) */
 	PgbsonWriterAppendInt32(&writer, "numIters", 8, numIterations);
 
-	/* Add the time system variables */
+	/* Add time system variables accordingly */
 	if (EnableNowSystemVariable)
 	{
 		if (timeSystemVariables != NULL && timeSystemVariables->nowValue.value_type !=
@@ -954,7 +990,7 @@ BuildPersistedContinuationDocument(const char *cursorName, int64_t cursorId, Que
 	/* In the response add the number of iterations (used in tests) */
 	PgbsonWriterAppendInt32(&writer, "numIters", 8, numIterations);
 
-	/* Add the time system variables */
+	/* Add time system variables accordingly */
 	if (EnableNowSystemVariable)
 	{
 		if (timeSystemVariables != NULL && timeSystemVariables->nowValue.value_type !=
@@ -1125,7 +1161,7 @@ GenerateCursorId(int64_t inputValue)
 	/* This is the same logic UUID generation uses - we should be good here */
 	if (!pg_strong_random(cursorBuffer, 8))
 	{
-		ereport(ERROR, (errmsg("Unable to generate a unique cursor id")));
+		ereport(ERROR, (errmsg("Failed to create a unique identifier for the cursor")));
 	}
 
 	int64_t cursorId = *(int64_t *) cursorBuffer;

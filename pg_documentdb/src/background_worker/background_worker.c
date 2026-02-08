@@ -117,7 +117,7 @@ typedef struct
 	/* Last time when job started execution. */
 	TimestampTz lastStartTime;
 
-	/* PG connection instance. */
+	/* PG connection object instance. */
 	PGconn *connection;
 
 	/* SQL command query generated from job command and argument. */
@@ -279,16 +279,19 @@ DocumentDBBackgroundWorkerMain(Datum main_arg)
 		}
 
 		waitResult = WaitLatch(&BackgroundWorkerShmem->latch,
-							   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH |
-							   WL_POSTMASTER_DEATH,
+							   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							   latchTimeOut * ONE_SEC_IN_MS,
 							   WAIT_EVENT_PG_SLEEP);
 		ResetLatch(&BackgroundWorkerShmem->latch);
 
-		/* An interrupt may have occurred while we were waiting. */
+		/* An interrupt might have taken place during the waiting process. */
 		CHECK_FOR_INTERRUPTS();
 
+#if PG_VERSION_NUM >= 180000
+		ProcessMainLoopInterrupts();
+#else
 		HandleMainLoopInterrupts();
+#endif
 
 		if (waitResult & WL_LATCH_SET)
 		{
@@ -312,7 +315,7 @@ DocumentDBBackgroundWorkerMain(Datum main_arg)
 	}
 
 	/* when sigterm comes, try cancel all currently open connections */
-	ereport(LOG, (errmsg("%s is shutting down.",
+	ereport(LOG, (errmsg("%s is currently shutting down.",
 						 ExtensionBackgroundWorkerLeaderName)));
 }
 
@@ -498,16 +501,19 @@ WaitForBackgroundWorkerDependencies(void)
 	{
 		waitResult = 0;
 		waitResult = WaitLatch(&BackgroundWorkerShmem->latch,
-							   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH |
-							   WL_POSTMASTER_DEATH,
+							   WL_LATCH_SET | WL_TIMEOUT | WL_EXIT_ON_PM_DEATH,
 							   waitTimeoutInSec * ONE_SEC_IN_MS,
 							   WAIT_EVENT_PG_SLEEP);
 		ResetLatch(&BackgroundWorkerShmem->latch);
 
-		/* An interrupt may have occurred while we were waiting. */
+		/* An interrupt might have taken place during the waiting process. */
 		CHECK_FOR_INTERRUPTS();
 
+#if PG_VERSION_NUM >= 180000
+		ProcessMainLoopInterrupts();
+#else
 		HandleMainLoopInterrupts();
+#endif
 
 		if (waitResult & WL_TIMEOUT)
 		{
@@ -614,7 +620,6 @@ ExecuteJob(BackgroundWorkerJobExecution *jobExec, char *userName, char *database
 	}
 	PG_END_TRY();
 
-	/* Free string info data */
 	pfree(localhostConnStr->data);
 }
 

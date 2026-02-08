@@ -22,8 +22,9 @@ CREATE OR REPLACE FUNCTION __API_SCHEMA_INTERNAL_V2__.update_bson_document(
     document __CORE_SCHEMA__.bson,
     updateSpec __CORE_SCHEMA__.bson,
     querySpec __CORE_SCHEMA__.bson,
-    arrayFilters __CORE_SCHEMA__.bson DEFAULT NULL,
-    variableSpec __CORE_SCHEMA__.bson DEFAULT NULL,
+    arrayFilters __CORE_SCHEMA__.bson,
+    variableSpec __CORE_SCHEMA__.bson,
+    collationString text,
     OUT newDocument __CORE_SCHEMA__.bson)
  RETURNS __CORE_SCHEMA__.bson
  LANGUAGE c

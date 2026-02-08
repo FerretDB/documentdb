@@ -5,7 +5,6 @@ SET documentdb.next_collection_id TO 68500;
 SET documentdb.next_collection_index_id TO 68500;
 
 set documentdb.enableExtendedExplainPlans to on;
-SET documentdb.enableNewCompositeIndexOpClass to on;
 set documentdb.enableIndexOrderbyPushdown to on;
 
 -- if documentdb_extended_rum exists, set alternate index handler

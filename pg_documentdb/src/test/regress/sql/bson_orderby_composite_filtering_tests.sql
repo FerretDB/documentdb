@@ -41,7 +41,6 @@ SELECT * FROM documentdb_api_catalog.bson_aggregation_find('sortdb', '{ "find": 
 SELECT * FROM documentdb_api_catalog.bson_aggregation_find('sortdb', '{ "find": "sortcoll", "filter": { "a.b": { "$ne": null } }, "sort": { "a.b": 1, "_id": 1 } }');
 
 -- test with composite index
-SET documentdb.enableNewCompositeIndexOpClass to on;
 set documentdb.enableExtendedExplainPlans to on;
 
 SELECT documentdb_api_internal.create_indexes_non_concurrently('sortdb', '{ "createIndexes": "sortcoll2", "indexes": [ { "key": { "a.b": 1 }, "enableCompositeTerm": true, "name": "a.b_1" }] }', true);

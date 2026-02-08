@@ -128,6 +128,9 @@ typedef struct ValidationsObject
 {
 	/* List of child field nodes */
 	SchemaFieldNode *properties;
+
+	/* Array of required field names */
+	bson_value_t *required;
 } ValidationsObject;
 
 typedef struct ValidationsCommon

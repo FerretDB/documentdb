@@ -5,7 +5,6 @@ SET documentdb.next_collection_id TO 68000;
 SET documentdb.next_collection_index_id TO 68000;
 
 set documentdb.enableExtendedExplainPlans to on;
-SET documentdb.enableNewCompositeIndexOpClass to on;
 
 -- if documentdb_extended_rum exists, set alternate index handler
 SELECT pg_catalog.set_config('documentdb.alternate_index_handler_name', 'extended_rum', false), extname FROM pg_extension WHERE extname = 'documentdb_extended_rum';
@@ -293,7 +292,6 @@ SELECT documentdb_api_internal.create_indexes_non_concurrently('comp_db', '{ "cr
 BEGIN;
 set local documentdb.forceDisableSeqScan to on;
 set local documentdb.enableIndexOrderbyPushdown to on;
-set local documentdb.enableNewCompositeIndexOpClass to on;
 set local documentdb.enableExtendedExplainPlans to on;
 EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "sortcoll", "pipeline": [ { "$sort": { "a.b": 1 } } ] }');
 ROLLBACK;
@@ -302,14 +300,12 @@ ROLLBACK;
 BEGIN;
 set local documentdb.forceDisableSeqScan to on;
 set local documentdb.enableIndexOrderbyPushdown to on;
-set local documentdb.enableNewCompositeIndexOpClass to on;
 SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "sortcoll", "pipeline": [ { "$sort": { "a.b": 1 } } ] }');
 SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "sortcoll", "pipeline": [ { "$sort": { "a.b": -1 } } ] }');
 ROLLBACK;
 
 set documentdb.forceDisableSeqScan to on;
 set documentdb.enableIndexOrderbyPushdown to on;
-set documentdb.enableNewCompositeIndexOpClass to on;
 set documentdb.enableExtendedExplainPlans to on;
 
 -- can't push this down (no equality prefix)
@@ -392,7 +388,6 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT document FROM bs
 SELECT document FROM bson_aggregation_pipeline('comp_db', '{ "aggregate": "large_keys", "pipeline": [ { "$match": { "a": { "$regex": ".+b$" } } }, { "$sort": { "a": 1 } }, { "$project": { "_id": 1 } } ] }');
 
 reset documentdb.forceDisableSeqScan;
-set documentdb.enableDescendingCompositeIndex to on;
 SELECT documentdb_api_internal.create_indexes_non_concurrently('comp_db', '{ "createIndexes": "sortcoll3", "indexes": [ { "key": { "a.b.c": -1, "_id": -1 }, "enableCompositeTerm": true, "name": "a.b.c_-1" }] }', true);
 SELECT documentdb_api_internal.create_indexes_non_concurrently('comp_db', '{ "createIndexes": "sortcoll", "indexes": [ { "key": { "a.b": -1, "_id": -1 }, "enableCompositeTerm": true, "name": "a.b_-1" }] }', true);
 
@@ -409,7 +404,6 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT * FROM bson_aggr
 
 -- mixed asc/desc indexes
 reset documentdb.forceDisableSeqScan;
-set documentdb.enableDescendingCompositeIndex to on;
 CALL documentdb_api.drop_indexes('comp_db', '{ "dropIndexes": "sortcoll3", "index": "a.b.c_-1" }');
 CALL documentdb_api.drop_indexes('comp_db', '{ "dropIndexes": "sortcoll", "index": "a.b_-1" }');
 
@@ -491,3 +485,34 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT * FROM bson_aggr
 SELECT documentdb_api_internal.create_indexes_non_concurrently('comp_db', '{ "createIndexes": "unique_sort", "indexes": [ { "key": { "a": 1, "b": 1 }, "enableOrderedIndex": true, "name": "a_b_1", "unique": true }] }', true);
 select COUNT(documentdb_api.insert_one('comp_db', 'unique_sort', FORMAT('{ "_id": %s, "a": %s, "b": %s, "c": %s, "d": %s }', i, i, i, i, i )::bson)) FROM generate_series(1, 100) AS i;
 EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT document FROM bson_aggregation_find('comp_db', '{ "find": "unique_sort", "sort": { "a": -1, "b": -1 }}');
+
+
+-- test index selectivity for orderby vs filters.
+CALL documentdb_api.drop_indexes('comp_db', '{ "dropIndexes": "index_orderby_selection", "index": "a_b_c_d_1" }');
+CALL documentdb_api.drop_indexes('comp_db', '{ "dropIndexes": "index_orderby_selection", "index": "a_b_d_1" }');
+TRUNCATE documentdb_data.documents_68011;
+ANALYZE documentdb_data.documents_68011;
+
+-- now create 2 types of indexes: One that only matches the order by and one that matches the order and filters
+SELECT documentdb_api_internal.create_indexes_non_concurrently('comp_db', '{ "createIndexes": "index_orderby_selection", "indexes": [ { "key": { "orderKey": 1, "otherPath": 1 }, "enableOrderedIndex": true, "name": "sortIndex_1" }] }', true);
+SELECT documentdb_api_internal.create_indexes_non_concurrently('comp_db', '{ "createIndexes": "index_orderby_selection", "indexes": [ { "key": { "filter1": 1, "filter2": 1, "orderKey": 1, "filter3": 1 }, "enableOrderedIndex": true, "name": "filterSortIndex_1" }] }', true);
+
+SELECT COUNT(*) FROM ( SELECT documentdb_api.insert_one('comp_db', 'index_orderby_selection',
+    FORMAT('{ "_id": %s, "filter1": "filter1-%s", "filter2": "filter2-%s", "filter3": %s, "orderKey": %s, "otherPath": "somePath-%s" }', i, i % 10, i, i % 100, i, i)::bson) FROM generate_series(1, 10000) i) j;
+
+set documentdb.enableIndexOrderbyPushdown to on;
+reset enable_sort;
+
+-- this has all the paths matching.
+EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF)
+    SELECT * FROM bson_aggregation_find('comp_db', '{ "find": "index_orderby_selection", "filter": { "filter1": "filter1-5", "filter2": "filter2-55", "filter3": { "$gt": 50 } }, "sort": { "orderKey": 1 }, "limit": 10 }');
+
+-- this one can't push the order by but should prefer the filter.
+EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF)
+    SELECT * FROM bson_aggregation_find('comp_db', '{ "find": "index_orderby_selection", "filter": { "filter1": "filter1-5", "filter2": { "$gte": "filter2-55" }, "filter3": { "$gt": 50 } }, "sort": { "orderKey": 1 }, "limit": 10 }');
+
+SELECT documentdb_api.coll_mod('comp_db', 'index_orderby_selection', '{ "collMod": "index_orderby_selection", "index": { "name": "filterSortIndex_1", "hidden": true }}');
+
+-- now it picks the sort index
+EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF)
+    SELECT * FROM bson_aggregation_find('comp_db', '{ "find": "index_orderby_selection", "filter": { "filter1": "filter1-5", "filter2": { "$gte": "filter2-55" }, "filter3": { "$gt": 50 } }, "sort": { "orderKey": 1 }, "limit": 10 }');

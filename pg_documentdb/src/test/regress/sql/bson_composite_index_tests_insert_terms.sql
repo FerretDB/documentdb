@@ -22,7 +22,6 @@ SELECT * FROM documentdb_test_helpers.gin_bson_get_composite_path_generated_term
 SELECT * FROM documentdb_test_helpers.gin_bson_get_composite_path_generated_terms('{ "a": "aaaaaaaaaaaaaaaaaaaaaaaaaaaa", "b": 1 }', '[ "a", "b" ]', 50, true);
 
 -- create a table and insert some data.
-set documentdb.enableNewCompositeIndexOpClass to on;
 
 -- does not work
 SELECT documentdb_api_internal.create_indexes_non_concurrently(
@@ -130,7 +129,6 @@ SELECT documentdb_api_internal.create_indexes_non_concurrently(
     'comp_db', '{ "createIndexes": "comp_collection", "indexes": [ { "name": "a_-1", "key": { "a": -1} } ] }', TRUE);
 
 set documentdb.defaultUseCompositeOpClass to on;
-set documentdb.enableDescendingCompositeIndex to on;
 
 -- name collision still fails
 SELECT documentdb_api_internal.create_indexes_non_concurrently(
@@ -197,5 +195,3 @@ reset documentdb.forceDisableSeqScan;
 
 set documentdb.logRelationIndexesOrder to off;
 set documentdb.defaultUseCompositeOpClass to off;
-set documentdb.enableNewCompositeIndexOpClass to off;
-set documentdb.enableDescendingCompositeIndex to off;

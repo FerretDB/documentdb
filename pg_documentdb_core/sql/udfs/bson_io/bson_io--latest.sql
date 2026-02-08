@@ -11,6 +11,13 @@ CREATE OR REPLACE FUNCTION __CORE_SCHEMA__.bson_get_value_text(__CORE_SCHEMA__.b
  IMMUTABLE PARALLEL SAFE STRICT
 AS 'MODULE_PATHNAME', $function$bson_get_value_text$function$;
 
+
+CREATE OR REPLACE FUNCTION __CORE_SCHEMA__.bson_get_value_text(__CORE_SCHEMA__.bson, text, bool)
+ RETURNS text
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS 'MODULE_PATHNAME', $function$bson_get_value_text$function$;
+
 CREATE OR REPLACE FUNCTION __CORE_SCHEMA__.bson_from_bytea(bytea)
  RETURNS __CORE_SCHEMA__.bson
  LANGUAGE c
@@ -65,10 +72,16 @@ CREATE OR REPLACE FUNCTION __CORE_SCHEMA__.bson_repath_and_build(VARIADIC "any")
  IMMUTABLE PARALLEL SAFE STRICT
 AS 'MODULE_PATHNAME', $function$bson_repath_and_build$function$;
 
+CREATE OR REPLACE FUNCTION __CORE_SCHEMA__.bson_build_document(VARIADIC "any")
+ RETURNS __CORE_SCHEMA__.bson
+ LANGUAGE c
+ IMMUTABLE PARALLEL SAFE STRICT
+AS 'MODULE_PATHNAME', $function$bson_repath_and_build$function$;
+
 DROP CAST IF EXISTS (bytea AS __CORE_SCHEMA__.bson);
 CREATE CAST (bytea AS __CORE_SCHEMA__.bson)
  WITH FUNCTION __CORE_SCHEMA__.bson_from_bytea(bytea) AS IMPLICIT;
 
 DROP CAST IF EXISTS (__CORE_SCHEMA__.bson AS bytea);
 CREATE CAST (__CORE_SCHEMA__.bson AS bytea)
- WITH FUNCTION __CORE_SCHEMA__.bson_to_bytea(__CORE_SCHEMA__.bson);
+WITH FUNCTION __CORE_SCHEMA__.bson_to_bytea(__CORE_SCHEMA__.bson);

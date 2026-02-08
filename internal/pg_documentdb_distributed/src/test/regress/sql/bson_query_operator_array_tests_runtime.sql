@@ -5,8 +5,6 @@ SET documentdb.next_collection_id TO 6610;
 SET documentdb.next_collection_index_id TO 6610;
 
 
-SET documentdb.enableNewCompositeIndexOpClass to on;
-
 set enable_seqscan TO on;
 set documentdb.forceUseIndexIfAvailable to on;
 set documentdb.forceDisableSeqScan to off;

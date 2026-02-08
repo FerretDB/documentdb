@@ -14,6 +14,7 @@
 #include <nodes/makefuncs.h>
 #include <catalog/namespace.h>
 #include <access/xact.h>
+#include <utils/lsyscache.h>
 
 #include "metadata/collection.h"
 #include "metadata/index.h"
@@ -27,6 +28,81 @@
 #include "commands/diagnostic_commands_common.h"
 #include "utils/error_utils.h"
 #include "utils/documentdb_errors.h"
+
+
+PG_FUNCTION_INFO_V1(command_node_worker);
+
+
+Datum
+command_node_worker(PG_FUNCTION_ARGS)
+{
+	Oid localFunctionOid = PG_GETARG_OID(0);
+	pgbson *localFunctionArg = PG_GETARG_PGBSON(1);
+	Oid currentTableOid = PG_GETARG_OID(2);
+	ArrayType *chosenTablesArray = PG_GETARG_ARRAYTYPE_P(3);
+	bool tablesQualified = PG_GETARG_BOOL(4);
+
+	if (currentTableOid == InvalidOid)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INTERNALERROR),
+						errmsg("Invalid current table passed to command_node_worker")));
+	}
+
+	/* Get the name of the current Table */
+	char *tableNameString = get_rel_name(currentTableOid);
+
+	if (tablesQualified)
+	{
+		Oid relNameSpace = get_rel_namespace(currentTableOid);
+		char *tableNamespace = get_namespace_name(relNameSpace);
+
+		tableNameString = psprintf("%s.%s", tableNamespace, tableNameString);
+	}
+
+	/* Need to build the result */
+	const int slice_ndim = 0;
+	ArrayMetaState *mState = NULL;
+	ArrayIterator tableIterator = array_create_iterator(chosenTablesArray,
+														slice_ndim, mState);
+
+	Datum tableDatum;
+	bool isNull;
+	bool foundDesignatedTable = false;
+	while (array_iterate(tableIterator, &tableDatum, &isNull))
+	{
+		if (isNull)
+		{
+			continue;
+		}
+
+		char *selectedTableName = TextDatumGetCString(tableDatum);
+		if (strcmp(tableNameString, selectedTableName) == 0)
+		{
+			foundDesignatedTable = true;
+			break;
+		}
+	}
+
+	array_free_iterator(tableIterator);
+
+	if (!foundDesignatedTable)
+	{
+		/* This is not the designated shard, return empty */
+		ereport(DEBUG1, (errmsg(
+							 "Skipping command_node_worker on table %s since not in chosen shards",
+							 tableNameString)));
+		PG_RETURN_NULL();
+	}
+
+	ereport(DEBUG1, (errmsg(
+						 "Executing command_node_worker on table %s",
+						 tableNameString)));
+
+	/* On a designated table */
+	Datum result = OidFunctionCall1(localFunctionOid,
+									PointerGetDatum(localFunctionArg));
+	PG_RETURN_DATUM(result);
+}
 
 
 /*
@@ -170,7 +246,7 @@ RunQueryOnAllServerNodes(const char *commandName, Datum *values, Oid *types,
 
 					StringView errorView = CreateStringViewFromString(workerError);
 					StringView connectivityView = CreateStringViewFromString(
-						"failed to connect to");
+						"Unable to establish connection with");
 					StringView recoveryErrorView = CreateStringViewFromString(
 						"terminating connection due to conflict with recovery");
 					StringView recoveryCancelErrorView = CreateStringViewFromString(
@@ -203,10 +279,10 @@ RunQueryOnAllServerNodes(const char *commandName, Datum *values, Oid *types,
 					{
 						ereport(ERROR, (errcode(ERRCODE_T_R_SERIALIZATION_FAILURE),
 										errmsg(
-											"%s on worker failed with recovery errors",
+											"Worker %s operation failed due to recovery-related errors",
 											commandName),
 										errdetail_log(
-											"%s on worker failed with an recovery error: %s",
+											"Worker %s operation failed due to recovery-related errors: %s",
 											commandName, workerError)));
 					}
 					else if (StringViewStartsWithStringView(&errorView, &outOfMemoryView))
@@ -270,7 +346,7 @@ RunWorkerDiagnosticLogic(pgbson *(*workerFunc)(void *state), void *state)
 		MemoryContextSwitchTo(savedMemoryContext);
 		ErrorData *errorData = CopyErrorDataAndFlush();
 
-		/* Abort the inner transaction */
+		/* Abort inner transaction */
 		RollbackAndReleaseCurrentSubTransaction();
 
 		/* Rollback changes MemoryContext */

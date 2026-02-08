@@ -140,7 +140,7 @@ ThrowIdPathModifiedErrorForOperatorUpdate()
 {
 	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_IMMUTABLEFIELD),
 					errmsg(
-						"Performing an update on the path '_id' would modify the immutable field '_id'")));
+						"Updating the path '_id' is not allowed because it would change the immutable field '_id'")));
 }
 
 
@@ -153,8 +153,9 @@ pg_attribute_noreturn()
 ThrowPathConflictError(const char * requestedPath, const char * existingPath)
 {
 	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CONFLICTINGUPDATEOPERATORS),
-					errmsg("Updating the path '%s' would create a conflict at '%s'",
-						   requestedPath, existingPath)));
+					errmsg(
+						"Modifying the path '%s' will result in a conflict occurring at '%s'",
+						requestedPath, existingPath)));
 }
 
 #endif

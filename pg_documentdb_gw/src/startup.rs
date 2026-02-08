@@ -10,12 +10,12 @@ use std::{sync::Arc, time::Duration};
 
 use log::warn;
 
-use crate::configuration::CertificateOptions;
 use crate::{
     configuration::{DynamicConfiguration, SetupConfiguration},
     context::ServiceContext,
     error::Result,
     postgres::ConnectionPool,
+    service::TlsProvider,
     QueryCatalog,
 };
 
@@ -28,6 +28,7 @@ pub fn get_service_context(
     query_catalog: QueryCatalog,
     system_requests_pool: Arc<ConnectionPool>,
     authentication_pool: ConnectionPool,
+    tls_provider: TlsProvider,
 ) -> ServiceContext {
     let service_context = ServiceContext::new(
         setup_configuration.clone(),
@@ -35,6 +36,7 @@ pub fn get_service_context(
         query_catalog.clone(),
         Arc::clone(&system_requests_pool),
         authentication_pool,
+        tls_provider,
     );
 
     let service_context_clone = service_context.clone();
@@ -108,25 +110,4 @@ where
             }
         }
     }
-}
-
-#[cfg(debug_assertions)]
-pub async fn populate_ssl_certificates() -> Result<CertificateOptions> {
-    use rcgen::{generate_simple_self_signed, CertifiedKey};
-
-    let subject_alt_names = vec!["localhost".to_string()];
-    let CertifiedKey { cert, key_pair } = generate_simple_self_signed(subject_alt_names).unwrap();
-    tokio::fs::write("./cert.pem", cert.pem()).await?;
-    tokio::fs::write("./key.pem", key_pair.serialize_pem()).await?;
-    Ok(CertificateOptions {
-        cert_type: "pem_file".to_string(),
-        file_path: "./cert.pem".to_string(),
-        key_file_path: "./key.pem".to_string(),
-        ca_path: None,
-    })
-}
-
-#[cfg(not(debug_assertions))]
-pub async fn populate_ssl_certificates() -> Result<CertificateOptions> {
-    panic!("Release builds must provide SSL certificate options.")
 }

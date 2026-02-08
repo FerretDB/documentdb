@@ -15,32 +15,30 @@ use crate::postgres::PgDataClient;
 use crate::responses::constant::pg_returned_invalid_response_message;
 use crate::{
     configuration::DynamicConfiguration,
-    context::ConnectionContext,
+    context::{ConnectionContext, RequestContext},
     error::{DocumentDBError, ErrorCode, Result},
     postgres::PgDocument,
-    requests::{Request, RequestInfo},
     responses::{PgResponse, RawResponse, Response},
 };
 
 use super::cursor::save_cursor;
 
 pub async fn process_create_indexes(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &ConnectionContext,
     dynamic_config: &Arc<dyn DynamicConfiguration>,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
-    let db = &request_info.db()?.to_string();
+    let db = request_context.info.db()?.to_string();
     if db == "config" || db == "admin" {
         return Err(DocumentDBError::documentdb_error(
             ErrorCode::IllegalOperation,
-            "Indexes cannot be created in config and admin databases.".to_string(),
+            "Creating indexes in the \"config\" or \"admin\" databases is not allowed".to_string(),
         ));
     }
 
     let create_indexes_rows = pg_data_client
-        .execute_create_indexes(request, request_info, db, connection_context)
+        .execute_create_indexes(request_context, &db, connection_context)
         .await?;
 
     let row = create_indexes_rows
@@ -50,7 +48,7 @@ pub async fn process_create_indexes(
     let response = PgResponse::new(create_indexes_rows);
     if success {
         wait_for_index(
-            request_info,
+            request_context,
             response,
             connection_context,
             dynamic_config,
@@ -63,7 +61,7 @@ pub async fn process_create_indexes(
 }
 
 pub async fn wait_for_index(
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     create_result: PgResponse,
     connection_context: &ConnectionContext,
     dynamic_config: &Arc<dyn DynamicConfiguration>,
@@ -82,7 +80,7 @@ pub async fn wait_for_index(
     loop {
         interval.tick().await;
         let wait_for_index_rows = pg_data_client
-            .execute_wait_for_index(request_info, &index_build_id, connection_context)
+            .execute_wait_for_index(request_context, &index_build_id, connection_context)
             .await?;
 
         let row = wait_for_index_rows
@@ -100,7 +98,7 @@ pub async fn wait_for_index(
             return Ok(Response::Pg(create_result));
         }
 
-        if let Some(max_time_ms) = request_info.max_time_ms {
+        if let Some(max_time_ms) = request_context.info.max_time_ms {
             let max_time_ms = max_time_ms.try_into().map_err(|_| {
                 DocumentDBError::internal_error("Failed to convert max_time_ms to u128".to_string())
             })?;
@@ -154,23 +152,22 @@ fn parse_create_index_error(response: &PgResponse) -> Result<Response> {
 }
 
 pub async fn process_reindex(
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
     pg_data_client
-        .execute_reindex(request_info, connection_context)
+        .execute_reindex(request_context, connection_context)
         .await
 }
 
 pub async fn process_drop_indexes(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
     let response = pg_data_client
-        .execute_drop_indexes(request, request_info, connection_context)
+        .execute_drop_indexes(request_context, connection_context)
         .await?;
 
     // TODO: It should not be needed to convert the document, but the backend returns ok:true instead of ok:1
@@ -202,15 +199,14 @@ pub async fn process_drop_indexes(
 }
 
 pub async fn process_list_indexes(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response> {
     let (response, conn) = pg_data_client
-        .execute_list_indexes(request, request_info, connection_context)
+        .execute_list_indexes(request_context, connection_context)
         .await?;
 
-    save_cursor(connection_context, conn, &response, request_info).await?;
+    save_cursor(connection_context, conn, &response, request_context.info).await?;
     Ok(Response::Pg(response))
 }

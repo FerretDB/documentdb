@@ -71,23 +71,25 @@ bool EnableVectorCalculateDefaultSearchParameter =
  * SECTION: Indexing feature flags
  */
 
-#define DEFAULT_ENABLE_NEW_COMPOSITE_INDEX_OPCLASS true
-bool EnableNewCompositeIndexOpclass = DEFAULT_ENABLE_NEW_COMPOSITE_INDEX_OPCLASS;
-
 #define DEFAULT_USE_NEW_COMPOSITE_INDEX_OPCLASS false
 bool DefaultUseCompositeOpClass = DEFAULT_USE_NEW_COMPOSITE_INDEX_OPCLASS;
 
 #define DEFAULT_ENABLE_INDEX_ORDERBY_PUSHDOWN false
 bool EnableIndexOrderbyPushdown = DEFAULT_ENABLE_INDEX_ORDERBY_PUSHDOWN;
 
+/* Remove after v109 */
 #define DEFAULT_ENABLE_INDEX_ORDERBY_PUSHDOWN_LEGACY false
 bool EnableIndexOrderbyPushdownLegacy = DEFAULT_ENABLE_INDEX_ORDERBY_PUSHDOWN_LEGACY;
 
-#define DEFAULT_ENABLE_DESCENDING_COMPOSITE_INDEX true
-bool EnableDescendingCompositeIndex = DEFAULT_ENABLE_DESCENDING_COMPOSITE_INDEX;
+#define DEFAULT_ENABLE_INDEX_ORDERBY_REVERSE true
+bool EnableIndexOrderByReverse = DEFAULT_ENABLE_INDEX_ORDERBY_REVERSE;
 
-#define DEFAULT_ENABLE_COMPOSITE_UNIQUE_INDEX true
-bool EnableCompositeUniqueIndex = DEFAULT_ENABLE_COMPOSITE_UNIQUE_INDEX;
+#define DEFAULT_ENABLE_INDEX_ONLY_SCAN false
+bool EnableIndexOnlyScan = DEFAULT_ENABLE_INDEX_ONLY_SCAN;
+
+/* Remove after v109 */
+#define DEFAULT_ENABLE_RANGE_OPTIMIZATION_COMPOSITE false
+bool EnableRangeOptimizationForComposite = DEFAULT_ENABLE_RANGE_OPTIMIZATION_COMPOSITE;
 
 /*
  * SECTION: Planner feature flags
@@ -99,7 +101,6 @@ bool EnableNewOperatorSelectivityMode = DEFAULT_ENABLE_NEW_OPERATOR_SELECTIVITY;
 bool DisableDollarSupportFuncSelectivity = DEFAULT_DISABLE_DOLLAR_FUNCTION_SELECTIVITY;
 
 /* Remove after v109 */
-
 #define DEFAULT_LOOKUP_ENABLE_INNER_JOIN true
 bool EnableLookupInnerJoin = DEFAULT_LOOKUP_ENABLE_INNER_JOIN;
 
@@ -109,12 +110,19 @@ bool ForceBitmapScanForLookup = DEFAULT_FORCE_BITMAP_SCAN_FOR_LOOKUP;
 #define DEFAULT_LOW_SELECTIVITY_FOR_LOOKUP true
 bool LowSelectivityForLookup = DEFAULT_LOW_SELECTIVITY_FOR_LOOKUP;
 
+#define DEFAULT_SET_SELECTIVITY_FOR_FULL_SCAN true
+bool SetSelectivityForFullScan = DEFAULT_SET_SELECTIVITY_FOR_FULL_SCAN;
+
 /* Remove after v110 */
 #define DEFAULT_ENABLE_RUM_INDEX_SCAN true
 bool EnableRumIndexScan = DEFAULT_ENABLE_RUM_INDEX_SCAN;
 
 #define DEFAULT_USE_NEW_ELEMMATCH_INDEX_PUSHDOWN false
 bool UseNewElemMatchIndexPushdown = DEFAULT_USE_NEW_ELEMMATCH_INDEX_PUSHDOWN;
+
+#define DEFAULT_USE_NEW_ELEMMATCH_INDEX_OPERATOR_ON_PUSHDOWN true
+bool UseNewElemMatchIndexOperatorOnPushdown =
+	DEFAULT_USE_NEW_ELEMMATCH_INDEX_OPERATOR_ON_PUSHDOWN;
 
 /* Can be removed after v110 (keep for a few releases for stability) */
 #define DEFAULT_ENABLE_INSERT_CUSTOM_PLAN true
@@ -127,7 +135,7 @@ bool EnableIndexPriorityOrdering = DEFAULT_ENABLE_INDEX_PRIORITY_ORDERING;
 /*
  * SECTION: Aggregation & Query feature flags
  */
-#define DEFAULT_ENABLE_NOW_SYSTEM_VARIABLE false
+#define DEFAULT_ENABLE_NOW_SYSTEM_VARIABLE true
 bool EnableNowSystemVariable = DEFAULT_ENABLE_NOW_SYSTEM_VARIABLE;
 
 #define DEFAULT_ENABLE_PRIMARY_KEY_CURSOR_SCAN false
@@ -136,6 +144,7 @@ bool EnablePrimaryKeyCursorScan = DEFAULT_ENABLE_PRIMARY_KEY_CURSOR_SCAN;
 #define DEFAULT_USE_FILE_BASED_PERSISTED_CURSORS false
 bool UseFileBasedPersistedCursors = DEFAULT_USE_FILE_BASED_PERSISTED_CURSORS;
 
+/* Remove after v108 */
 #define DEFAULT_USE_LEGACY_NULL_EQUALITY_BEHAVIOR false
 bool UseLegacyNullEqualityBehavior = DEFAULT_USE_LEGACY_NULL_EQUALITY_BEHAVIOR;
 
@@ -147,15 +156,19 @@ bool EnableIndexHintSupport = DEFAULT_ENABLE_INDEX_HINT_SUPPORT;
 #define DEFAULT_USE_LEGACY_FORCE_PUSHDOWN_BEHAVIOR false
 bool UseLegacyForcePushdownBehavior = DEFAULT_USE_LEGACY_FORCE_PUSHDOWN_BEHAVIOR;
 
+/* Remove after v109 */
+#define DEFAULT_ENABLE_DELAYED_HOLD_PORTAL true
+bool EnableDelayedHoldPortal = DEFAULT_ENABLE_DELAYED_HOLD_PORTAL;
+
 
 /*
  * SECTION: Let support feature flags
  */
-#define DEFAULT_ENABLE_LET_AND_COLLATION_FOR_QUERY_MATCH false
+#define DEFAULT_ENABLE_LET_AND_COLLATION_FOR_QUERY_MATCH true
 bool EnableLetAndCollationForQueryMatch =
 	DEFAULT_ENABLE_LET_AND_COLLATION_FOR_QUERY_MATCH;
 
-#define DEFAULT_ENABLE_VARIABLES_SUPPORT_FOR_WRITE_COMMANDS false
+#define DEFAULT_ENABLE_VARIABLES_SUPPORT_FOR_WRITE_COMMANDS true
 bool EnableVariablesSupportForWriteCommands =
 	DEFAULT_ENABLE_VARIABLES_SUPPORT_FOR_WRITE_COMMANDS;
 
@@ -169,6 +182,18 @@ bool SkipFailOnCollation = DEFAULT_SKIP_FAIL_ON_COLLATION;
 #define DEFAULT_ENABLE_LOOKUP_ID_JOIN_OPTIMIZATION_ON_COLLATION false
 bool EnableLookupIdJoinOptimizationOnCollation =
 	DEFAULT_ENABLE_LOOKUP_ID_JOIN_OPTIMIZATION_ON_COLLATION;
+
+
+/*
+ * SECTION: DML Write Path feature flags
+ */
+
+/* Remove after v109 */
+#define DEFAULT_USE_LEGACY_SHARD_KEY_FILTER_ON_UPDATE false
+bool UseLegacyShardKeyFilterOnUpdate = DEFAULT_USE_LEGACY_SHARD_KEY_FILTER_ON_UPDATE;
+
+#define DEFAULT_RUM_FAIL_ON_LOST_PATH false
+bool RumFailOnLostPath = DEFAULT_RUM_FAIL_ON_LOST_PATH;
 
 
 /*
@@ -194,12 +219,6 @@ bool EnableCompact = DEFAULT_ENABLE_COMPACT_COMMAND;
 
 #define DEFAULT_ENABLE_SCHEMA_ENFORCEMENT_FOR_CSFLE true
 bool EnableSchemaEnforcementForCSFLE = DEFAULT_ENABLE_SCHEMA_ENFORCEMENT_FOR_CSFLE;
-
-#define DEFAULT_ENABLE_INDEX_ONLY_SCAN false
-bool EnableIndexOnlyScan = DEFAULT_ENABLE_INDEX_ONLY_SCAN;
-
-#define DEFAULT_ENABLE_RANGE_OPTIMIZATION_COMPOSITE false
-bool EnableRangeOptimizationForComposite = DEFAULT_ENABLE_RANGE_OPTIMIZATION_COMPOSITE;
 
 #define DEFAULT_USE_PG_STATS_LIVE_TUPLES_FOR_COUNT true
 bool UsePgStatsLiveTuplesForCount = DEFAULT_USE_PG_STATS_LIVE_TUPLES_FOR_COUNT;
@@ -436,6 +455,14 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
+		psprintf("%s.useNewElemMatchIndexOperatorOnPushdown", newGucPrefix),
+		gettext_noop(
+			"Whether or not to use the new elemMatch index operator on pushdown."),
+		NULL, &UseNewElemMatchIndexOperatorOnPushdown,
+		DEFAULT_USE_NEW_ELEMMATCH_INDEX_OPERATOR_ON_PUSHDOWN,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
 		psprintf("%s.enableLookupInnerJoin", newGucPrefix),
 		gettext_noop(
 			"Whether or not to enable lookup inner join."),
@@ -460,6 +487,13 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
+		psprintf("%s.setSelectivityForFullScan", newGucPrefix),
+		gettext_noop("Whether or not to set the selectivity for full scans"),
+		NULL, &SetSelectivityForFullScan,
+		DEFAULT_SET_SELECTIVITY_FOR_FULL_SCAN,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
 		psprintf("%s.enableBucketAutoStage", newGucPrefix),
 		gettext_noop(
 			"Whether to enable the $bucketAuto stage."),
@@ -473,13 +507,6 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 			"Whether to use custom insert plan for insert commands."),
 		NULL, &EnableInsertCustomPlan,
 		DEFAULT_ENABLE_INSERT_CUSTOM_PLAN,
-		PGC_USERSET, 0, NULL, NULL, NULL);
-
-	DefineCustomBoolVariable(
-		psprintf("%s.enableNewCompositeIndexOpClass", newGucPrefix),
-		gettext_noop(
-			"Whether to enable the new experimental composite index opclass"),
-		NULL, &EnableNewCompositeIndexOpclass, DEFAULT_ENABLE_NEW_COMPOSITE_INDEX_OPCLASS,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
@@ -505,17 +532,10 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
-		psprintf("%s.enableDescendingCompositeIndex", newGucPrefix),
-		gettext_noop(
-			"Whether to enable descending composite index support"),
-		NULL, &EnableDescendingCompositeIndex, DEFAULT_ENABLE_DESCENDING_COMPOSITE_INDEX,
-		PGC_USERSET, 0, NULL, NULL, NULL);
-
-	DefineCustomBoolVariable(
-		psprintf("%s.enableCompositeUniqueIndex", newGucPrefix),
-		gettext_noop(
-			"Whether to enable composite unique index support"),
-		NULL, &EnableCompositeUniqueIndex, DEFAULT_ENABLE_COMPOSITE_UNIQUE_INDEX,
+		psprintf("%s.enableIndexOrderbyReverse", newGucPrefix),
+		gettext_noop("Whether or not to enable order by reverse index pushdown"),
+		NULL, &EnableIndexOrderByReverse,
+		DEFAULT_ENABLE_INDEX_ORDERBY_REVERSE,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 
 	DefineCustomBoolVariable(
@@ -575,5 +595,28 @@ InitializeFeatureFlagConfigurations(const char *prefix, const char *newGucPrefix
 			"Whether to use pg_stat_all_tables live tuples for count in collStats."),
 		NULL, &UsePgStatsLiveTuplesForCount,
 		DEFAULT_USE_PG_STATS_LIVE_TUPLES_FOR_COUNT,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.useLegacyShardKeyFilterOnUpdate", newGucPrefix),
+		gettext_noop(
+			"Whether or not to use the older style shard key filter on update calls."),
+		NULL, &UseLegacyShardKeyFilterOnUpdate,
+		DEFAULT_USE_LEGACY_SHARD_KEY_FILTER_ON_UPDATE,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.rumFailOnLostPath", newGucPrefix),
+		gettext_noop(
+			"Whether or not to fail the query when a lost path is detected in RUM"),
+		NULL, &RumFailOnLostPath,
+		DEFAULT_RUM_FAIL_ON_LOST_PATH,
+		PGC_USERSET, 0, NULL, NULL, NULL);
+
+	DefineCustomBoolVariable(
+		psprintf("%s.enableDelayedHoldPortal", newGucPrefix),
+		gettext_noop(
+			"Whether to delay holding the portal until we know there is more data to be fetched."),
+		NULL, &EnableDelayedHoldPortal, DEFAULT_ENABLE_DELAYED_HOLD_PORTAL,
 		PGC_USERSET, 0, NULL, NULL, NULL);
 }

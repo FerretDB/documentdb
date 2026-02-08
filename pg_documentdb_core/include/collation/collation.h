@@ -49,4 +49,11 @@ IsBsonTypeCollationAware(bson_type_t type)
 }
 
 
+static inline bool
+IsSimpleCollation(const char *collationString)
+{
+	return strncmp(collationString, "simple", 6) == 0;
+}
+
+
 #endif

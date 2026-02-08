@@ -110,6 +110,7 @@ extern int NumBsonDocumentsUpdated;
 /* This guc is temporary and is used to handle whether the parameter “bypassDocumentValidation” could be set in the request command.*/
 extern bool EnableBypassDocumentValidation;
 extern bool EnableSchemaValidation;
+extern bool UseLegacyShardKeyFilterOnUpdate;
 
 /*
  * UpdateSpec describes a single update operation.
@@ -325,7 +326,7 @@ static void UpdateOneInternalWithRetryRecord(MongoCollection *collection, int64
 											 UpdateOneParams *updateOneParams,
 											 UpdateOneResult *result,
 											 ExprEvalState *stateForSchemaValidation);
-static bool SelectUpdateCandidate(uint64 collectionId, const char *shardTableName, int64
+static bool SelectUpdateCandidate(MongoCollection *collection, int64
 								  shardKeyHash, UpdateOneParams *updateOneParams,
 								  UpdateCandidate *updateCandidate,
 								  bool getOriginalDocument, bool *hasOnlyObjectIdFilter);
@@ -390,6 +391,7 @@ static void ProcessBatchUpdateNonTransactionalUnsharded(MongoCollection *collect
 														BatchUpdateResult *batchResult);
 static inline void PgbsonWriterAppendInt(pgbson_writer *writer, const char *path,
 										 uint32_t pathLength, int64 value);
+static inline void ReportUpdateFeatureUsage(int batchSize);
 
 PG_FUNCTION_INFO_V1(command_update_bulk);
 PG_FUNCTION_INFO_V1(command_update);
@@ -405,7 +407,7 @@ command_update_bulk(PG_FUNCTION_ARGS)
 {
 	if (PG_ARGISNULL(0))
 	{
-		ereport(ERROR, (errmsg("database name cannot be NULL")));
+		ereport(ERROR, (errmsg("database name must not be NULL")));
 	}
 
 	if (PG_ARGISNULL(1))
@@ -462,7 +464,7 @@ command_update(PG_FUNCTION_ARGS)
 {
 	if (PG_ARGISNULL(0))
 	{
-		ereport(ERROR, (errmsg("database name cannot be NULL")));
+		ereport(ERROR, (errmsg("database name must not be NULL")));
 	}
 
 	if (PG_ARGISNULL(1))
@@ -649,12 +651,13 @@ PerformUpdateCore(Datum databaseNameDatum, pgbson *updateSpec,
  */
 static inline void
 DoInsertForUpdate(MongoCollection *collection, uint64_t shardKeyHash, pgbson *objectId,
-				  pgbson *newDocument, bool hasOnlyObjectIdFilter)
+				  pgbson *newDocument, bool hasOnlyObjectIdFilter,
+				  const bson_value_t *updateSpecValue)
 {
 	if (hasOnlyObjectIdFilter)
 	{
 		InsertOrReplaceDocument(collection->collectionId, collection->shardTableName,
-								shardKeyHash, objectId, newDocument);
+								shardKeyHash, objectId, newDocument, updateSpecValue);
 	}
 	else
 	{
@@ -696,22 +699,22 @@ BuildUpdates(BatchUpdateSpec *spec)
 	else
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40414),
-						errmsg("BSON field 'update.updates' is missing but is "
-							   "a required field")));
+						errmsg("Required field 'update.updates' is missing")));
 	}
 
 	int updateCount = list_length(updates);
 	if (updateCount == 0 || updateCount > MaxWriteBatchSize)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDLENGTH),
-						errmsg("Write batch sizes must be between 1 and %d. "
+						errmsg("Batch sizes should always fall between 1 and %d. "
 							   "Got %d operations.", MaxWriteBatchSize, updateCount),
-						errdetail_log("Write batch sizes must be between 1 and %d. "
+						errdetail_log("Batch sizes should always fall between 1 and %d. "
 									  "Got %d operations.", MaxWriteBatchSize,
 									  updateCount)));
 	}
 
 	spec->updates = updates;
+	ReportUpdateFeatureUsage(list_length(updates));
 }
 
 
@@ -753,7 +756,7 @@ BuildBatchUpdateSpec(bson_iter_t *updateCommandIter, pgbsonsequence *updateDocs)
 			if (updateDocs != NULL)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-								errmsg("Unexpected additional updates")));
+								errmsg("Unexpected further updates required")));
 			}
 
 			updateValue = *bson_iter_value(updateCommandIter);
@@ -816,16 +819,16 @@ BuildBatchUpdateSpec(bson_iter_t *updateCommandIter, pgbsonsequence *updateDocs)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
-							errmsg("BSON field 'update.%s' is an unknown field",
-								   field)));
+							errmsg(
+								"The BSON field 'update.%s' is not recognized as a valid field",
+								field)));
 		}
 	}
 
 	if (collectionName == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40414),
-						errmsg("BSON field 'update.update' is missing but "
-							   "a required field")));
+						errmsg("Required field 'update.update' is missing")));
 	}
 
 	BatchUpdateSpec *batchSpec = palloc0(sizeof(BatchUpdateSpec));
@@ -878,7 +881,7 @@ BuildUpdateSpecList(bson_iter_t *updateArrayIter, bool *hasUpsert,
 			*hasUpsert = true;
 		}
 	}
-
+	ReportUpdateFeatureUsage(list_length(updates));
 	return updates;
 }
 
@@ -1003,23 +1006,22 @@ BuildUpdateSpec(bson_iter_t *updateIter, const bson_value_t *variableSpec)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
-							errmsg("BSON field 'update.updates.%s' is an unknown field",
-								   field)));
+							errmsg(
+								"The field 'update.updates.%s' specified is not recognized as a valid field",
+								field)));
 		}
 	}
 
 	if (query == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40414),
-						errmsg("BSON field 'update.updates.q' is missing but "
-							   "a required field")));
+						errmsg("The required field 'update.updates.q' is missing")));
 	}
 
 	if (update == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40414),
-						errmsg("BSON field 'update.updates.u' is missing but "
-							   "a required field")));
+						errmsg("The required field 'update.updates.u' is missing")));
 	}
 
 	UpdateSpec *updateSpec = palloc0(sizeof(UpdateSpec));
@@ -1516,11 +1518,11 @@ ProcessUpdate(MongoCollection *collection, UpdateSpec *updateSpec,
 	bool isUpsert = updateSpec->updateOneParams.isUpsert;
 	bool isMulti = updateSpec->isMulti;
 
-	/* cannot use sort with multi: true */
+	/* sort cannot be performed when multi is set to true  */
 	if (isMulti && updateSpec->updateOneParams.sort != NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("Cannot specify sort with multi=true")));
+						errmsg("sort option can not be set when multi=true")));
 	}
 
 	/* determine whether query filters by a single shard key value */
@@ -1541,8 +1543,8 @@ ProcessUpdate(MongoCollection *collection, UpdateSpec *updateSpec,
 		if (DetermineUpdateType(update) == UpdateType_ReplaceDocument)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("multi update is not supported for "
-								   "replacement-style update")));
+							errmsg(
+								"multi=true and replace-style updates cannot be used together.")));
 		}
 
 
@@ -1667,12 +1669,17 @@ UpdateAllMatchingDocuments(MongoCollection *collection,
 {
 	const char *tableName = collection->tableName;
 	bool isLocalShardQuery = false;
+	bool setShardKeyValueFilter = false;
 	if (collection->shardTableName[0] != '\0')
 	{
 		/* If we can push down to the local shard, then prefer that. */
 		tableName = collection->shardTableName;
 		isLocalShardQuery = true;
 		NumBsonDocumentsUpdated = 0;
+	}
+	else if (!DefaultInlineWriteOperations)
+	{
+		setShardKeyValueFilter = true;
 	}
 
 	StringInfoData updateQuery;
@@ -1681,8 +1688,6 @@ UpdateAllMatchingDocuments(MongoCollection *collection,
 	memset(&result, 0, sizeof(UpdateAllMatchingDocsResult));
 
 	SPI_connect();
-
-	pgbson *queryDoc = PgbsonInitFromDocumentBsonValue(currentUpdate->query);
 
 	/* Here we need to create a document wrapper to preserve the type */
 	pgbson *updateDoc = BsonValueToDocumentPgbson(currentUpdate->update);
@@ -1695,10 +1700,10 @@ UpdateAllMatchingDocuments(MongoCollection *collection,
 	/* TODO: if the _id is collation-sensitive, we will avoid filtering by _id */
 	/* in the WHERE clause directly. */
 	bool isIdFilterCollationAwareIgnore = false;
-	pgbson *objectIdFilter = GetObjectIdFilterFromQueryDocument(queryDoc,
-																&queryHasNonIdFilters,
-																&
-																isIdFilterCollationAwareIgnore);
+	pgbson *objectIdFilter = GetObjectIdFilterFromQueryDocumentValue(currentUpdate->query,
+																	 &queryHasNonIdFilters,
+																	 &
+																	 isIdFilterCollationAwareIgnore);
 
 	*hasOnlyObjectIdFilter = objectIdFilter != NULL && !queryHasNonIdFilters;
 
@@ -1742,6 +1747,7 @@ UpdateAllMatchingDocuments(MongoCollection *collection,
 	int objectIdArgIndex = -1;
 	int validationLevelArgIndex = -1;
 
+	uint64 preparedQueryKey = 0;
 	if (EnableSchemaValidation && schemaValidationExprEvalState != NULL)
 	{
 		/*
@@ -1887,6 +1893,7 @@ UpdateAllMatchingDocuments(MongoCollection *collection,
 
 		if (applyVariablSpec)
 		{
+			preparedQueryKey = QUERY_UPDATE_MANY_WITH_QUERY_FILTER_FUNCTION;
 			appendStringInfo(&updateQuery,
 							 " FROM %s.bson_update_document(document, $1::%s, "
 							 "$2::%s, $3::%s, %s, $4::%s.bson)) "
@@ -1901,6 +1908,7 @@ UpdateAllMatchingDocuments(MongoCollection *collection,
 		}
 		else
 		{
+			preparedQueryKey = QUERY_UPDATE_MANY_WITH_QUERY_FILTER_OPERATOR;
 			appendStringInfo(&updateQuery,
 							 " FROM %s.bson_update_document(document, $1::%s, "
 							 "$2::%s, $3::%s, %s)) "
@@ -1914,24 +1922,39 @@ UpdateAllMatchingDocuments(MongoCollection *collection,
 			argCount += 3;
 		}
 
-		if (hasShardKeyValueFilter)
+		if (objectIdFilter != NULL && hasShardKeyValueFilter)
 		{
+			/* We align this query key to be 2 more than the base plan: Note that the combo will be 3 more
+			 * which needs to be defined in the header file.
+			 */
+			preparedQueryKey += QUERY_UPDATE_MANY_OBJECTID_QUERY_OFFSET;
+
 			appendStringInfo(&updateQuery, "AND shard_key_value = $%d ",
 							 nextSqlArgIndex);
 
 			shardKeyArgIndex = nextSqlArgIndex - 1;
 			nextSqlArgIndex++;
 			argCount++;
-		}
 
-		if (objectIdFilter != NULL)
-		{
 			appendStringInfo(&updateQuery, "AND object_id OPERATOR(%s.=) $%d::%s",
 							 CoreSchemaName,
 							 nextSqlArgIndex,
 							 FullBsonTypeName);
 
 			objectIdArgIndex = nextSqlArgIndex - 1;
+			nextSqlArgIndex++;
+			argCount++;
+		}
+		else if (hasShardKeyValueFilter &&
+				 (UseLegacyShardKeyFilterOnUpdate || collection->shardKey != NULL ||
+				  setShardKeyValueFilter))
+		{
+			/* We align this query key to be 1 more than the base plan */
+			preparedQueryKey += QUERY_UPDATE_MANY_SHARD_KEY_QUERY_OFFSET;
+			appendStringInfo(&updateQuery, "AND shard_key_value = $%d ",
+							 nextSqlArgIndex);
+
+			shardKeyArgIndex = nextSqlArgIndex - 1;
 			nextSqlArgIndex++;
 			argCount++;
 		}
@@ -1951,6 +1974,7 @@ UpdateAllMatchingDocuments(MongoCollection *collection,
 	argValues[0] = PointerGetDatum(CastPgbsonToBytea(updateDoc));
 	argNulls[0] = ' ';
 
+	pgbson *queryDoc = PgbsonInitFromDocumentBsonValue(currentUpdate->query);
 	argTypes[1] = bsonTypeId;
 	argValues[1] = PointerGetDatum(queryDoc);
 	argNulls[1] = ' ';
@@ -2011,8 +2035,22 @@ UpdateAllMatchingDocuments(MongoCollection *collection,
 	bool readOnly = false;
 	long maxTupleCount = 0;
 
-	SPI_execute_with_args(updateQuery.data, argCount, argTypes, argValues, argNulls,
-						  readOnly, maxTupleCount);
+	if (preparedQueryKey != 0)
+	{
+		SPIPlanPtr plan = isLocalShardQuery ?
+						  GetSPIQueryPlanWithLocalShard(collection->collectionId,
+														tableName, preparedQueryKey,
+														updateQuery.data, argTypes,
+														argCount)
+						  : GetSPIQueryPlan(collection->collectionId, preparedQueryKey,
+											updateQuery.data, argTypes, argCount);
+		SPI_execute_plan(plan, argValues, argNulls, readOnly, maxTupleCount);
+	}
+	else
+	{
+		SPI_execute_with_args(updateQuery.data, argCount, argTypes, argValues, argNulls,
+							  readOnly, maxTupleCount);
+	}
 
 	if (SPI_processed > 0)
 	{
@@ -2084,7 +2122,7 @@ UpdateOne(MongoCollection *collection, UpdateOneParams *updateOneParams,
 		bool hasOnlyObjectIdFilter = objectIdFilter != NULL && !queryHasNonIdFilters;
 
 		DoInsertForUpdate(collection, newShardKeyHash, objectId, result->reinsertDocument,
-						  hasOnlyObjectIdFilter);
+						  hasOnlyObjectIdFilter, updateOneParams->update);
 	}
 }
 
@@ -2418,9 +2456,9 @@ ProcessUnshardedUpdateBatchWorker(MongoCollection *collection, List *updates,
 	if (updateCount == 0 || updateCount > MaxWriteBatchSize)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDLENGTH),
-						errmsg("Write batch sizes must be between 1 and %d. "
+						errmsg("Batch sizes should always fall between 1 and %d. "
 							   "Got %d operations.", MaxWriteBatchSize, updateCount),
-						errdetail_log("Write batch sizes must be between 1 and %d. "
+						errdetail_log("Batch sizes should always fall between 1 and %d. "
 									  "Got %d operations.", MaxWriteBatchSize,
 									  updateCount)));
 	}
@@ -2451,8 +2489,7 @@ SerializeUnshardedUpdateParams(const bson_value_t *updateSpec, bool isOrdered,
 	if (updateSpec != NULL && updateSpec->value_type != BSON_TYPE_ARRAY)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40414),
-						errmsg("BSON field 'update.updates' is missing but is "
-							   "a required field")));
+						errmsg("Required field 'update.updates' is missing")));
 	}
 
 	pgbson_writer writer;
@@ -3070,8 +3107,7 @@ UpdateOneInternal(MongoCollection *collection, UpdateOneParams *updateOneParams,
 						  NeedExistingDocForValidation(stateForSchemaValidation,
 													   collection);
 	bool hasOnlyObjectIdFilter = false;
-	bool foundDocument = SelectUpdateCandidate(collection->collectionId,
-											   collection->shardTableName,
+	bool foundDocument = SelectUpdateCandidate(collection,
 											   shardKeyHash,
 											   updateOneParams,
 											   &updateCandidate,
@@ -3107,7 +3143,7 @@ UpdateOneInternal(MongoCollection *collection, UpdateOneParams *updateOneParams,
 			{
 				/* shard key unchanged, upsert now */
 				DoInsertForUpdate(collection, newShardKeyHash, objectId, newDoc,
-								  hasOnlyObjectIdFilter);
+								  hasOnlyObjectIdFilter, updateOneParams->update);
 				result->reinsertDocument = NULL;
 			}
 			else
@@ -3237,7 +3273,7 @@ UpdateOneInternal(MongoCollection *collection, UpdateOneParams *updateOneParams,
  * and returns whether a document was found.
  */
 static bool
-SelectUpdateCandidate(uint64 collectionId, const char *shardTableName, int64 shardKeyHash,
+SelectUpdateCandidate(MongoCollection *collection, int64 shardKeyHash,
 					  UpdateOneParams *updateOneParams, UpdateCandidate *updateCandidate,
 					  bool getOriginalDocument, bool *hasOnlyObjectIdFilter)
 {
@@ -3248,7 +3284,6 @@ SelectUpdateCandidate(uint64 collectionId, const char *shardTableName, int64 sha
 							   BsonValueDocumentDecomposeFields(updateOneParams->sort) :
 							   NIL;
 	int argCount = list_length(sortFieldDocuments);
-
 
 	bool queryHasNonIdFilters = false;
 	bool isIdFilterCollationAwareIgnore = false;
@@ -3266,19 +3301,18 @@ SelectUpdateCandidate(uint64 collectionId, const char *shardTableName, int64 sha
 
 	appendStringInfo(&updateQuery, "SELECT ctid, object_id, document FROM");
 
-	if (shardTableName != NULL && shardTableName[0] != '\0')
+	if (collection->shardTableName[0] != '\0')
 	{
-		appendStringInfo(&updateQuery, " %s.%s", ApiDataSchemaName, shardTableName);
+		appendStringInfo(&updateQuery, " %s.%s", ApiDataSchemaName,
+						 collection->shardTableName);
 	}
 	else
 	{
 		appendStringInfo(&updateQuery, " %s.documents_" UINT64_FORMAT, ApiDataSchemaName,
-						 collectionId);
+						 collection->collectionId);
 	}
 
-	appendStringInfo(&updateQuery, " WHERE shard_key_value = $1");
-	nextSqlArgIndex++;
-	argCount++;
+	appendStringInfo(&updateQuery, " WHERE ");
 
 	const bson_value_t *variableSpec = updateOneParams->variableSpec;
 	pgbson *variableSpecBson = NULL;
@@ -3290,25 +3324,28 @@ SelectUpdateCandidate(uint64 collectionId, const char *shardTableName, int64 sha
 	}
 
 	bool applyVariableSpec = variableSpecBson != NULL;
+	bool hasFilter = false;
 	if (queryHasNonIdFilters)
 	{
 		if (applyVariableSpec)
 		{
 			planId = QUERY_UPDATE_SELECT_UPDATE_CANDIDATE_NON_OBJECT_ID_LET_AND_COLLATION;
 			appendStringInfo(&updateQuery,
-							 " AND %s.bson_query_match(document, $2::%s.bson, $3::%s.bson, $4::text)",
+							 " %s.bson_query_match(document, $1::%s.bson, $2::%s.bson, $3::text)",
 							 DocumentDBApiInternalSchemaName, CoreSchemaName,
 							 CoreSchemaName);
 
+			hasFilter = true;
 			argCount += 3;
 			nextSqlArgIndex += 3;
 		}
 		else
 		{
 			planId = QUERY_UPDATE_SELECT_UPDATE_CANDIDATE_NON_OBJECT_ID;
-			appendStringInfo(&updateQuery, " AND document OPERATOR(%s.@@) $2::%s",
+			appendStringInfo(&updateQuery, " document OPERATOR(%s.@@) $1::%s",
 							 ApiCatalogSchemaName, FullBsonTypeName);
 
+			hasFilter = true;
 			nextSqlArgIndex++;
 			argCount++;
 		}
@@ -3321,6 +3358,9 @@ SelectUpdateCandidate(uint64 collectionId, const char *shardTableName, int64 sha
 	}
 
 	int objectIdArgIndex = -1;
+	int shardKeyArgIndex = -1;
+	bool setShardKeyValueFilter = collection->shardTableName[0] == '\0' &&
+								  !DefaultInlineWriteOperations;
 	if (objectIdFilter != NULL)
 	{
 		planId = applyVariableSpec ?
@@ -3329,11 +3369,32 @@ SelectUpdateCandidate(uint64 collectionId, const char *shardTableName, int64 sha
 				 QUERY_UPDATE_SELECT_UPDATE_CANDIDATE_BOTH_FILTER :
 				 QUERY_UPDATE_SELECT_UPDATE_CANDIDATE_ONLY_OBJECT_ID;
 
-		appendStringInfo(&updateQuery,
-						 " AND object_id OPERATOR(%s.=) $%d::%s", CoreSchemaName,
-						 nextSqlArgIndex, FullBsonTypeName);
-
+		/* We need to add the shard_key_value filter here */
+		int shardKeySqlArg = nextSqlArgIndex;
+		shardKeyArgIndex = nextSqlArgIndex - 1;
+		nextSqlArgIndex++;
+		argCount++;
+		int objectidSqlArg = nextSqlArgIndex;
 		objectIdArgIndex = nextSqlArgIndex - 1;
+		nextSqlArgIndex++;
+		argCount++;
+
+		appendStringInfo(&updateQuery,
+						 "%s shard_key_value = $%d"
+						 " AND object_id OPERATOR(%s.=) $%d::%s",
+						 hasFilter ? " AND " : "", shardKeySqlArg,
+						 CoreSchemaName,
+						 objectidSqlArg, FullBsonTypeName);
+	}
+	else if (!queryHasNonIdFilters || UseLegacyShardKeyFilterOnUpdate ||
+			 collection->shardKey != NULL || setShardKeyValueFilter)
+	{
+		/* query match handles adding shard_key_value filter in general so we add shard_key_value here only
+		 * if needed
+		 */
+		appendStringInfo(&updateQuery, "%s shard_key_value = $%d",
+						 hasFilter ? " AND " : "", nextSqlArgIndex);
+		shardKeyArgIndex = nextSqlArgIndex - 1;
 		nextSqlArgIndex++;
 		argCount++;
 	}
@@ -3342,29 +3403,24 @@ SelectUpdateCandidate(uint64 collectionId, const char *shardTableName, int64 sha
 	Datum *argValues = palloc(sizeof(Datum) * argCount);
 	char *argNulls = palloc(sizeof(char) * argCount);
 
-	/* set shard key value */
-	argTypes[0] = INT8OID;
-	argValues[0] = Int64GetDatum(shardKeyHash);
-	argNulls[0] = ' ';
-
 	Oid bsonTypeId = BsonTypeId();
 	pgbson *query = PgbsonInitFromDocumentBsonValue(updateOneParams->query);
 
 	/* set query value*/
-	argTypes[1] = bsonTypeId;
-	argValues[1] = PointerGetDatum(query);
-	argNulls[1] = ' ';
+	argTypes[0] = bsonTypeId;
+	argValues[0] = PointerGetDatum(query);
+	argNulls[0] = ' ';
 
 	/* set variableSpec and collationString, if applicable */
 	if (applyVariableSpec)
 	{
-		argTypes[2] = bsonTypeId;
-		argValues[2] = PointerGetDatum(variableSpecBson);
-		argNulls[2] = ' ';
+		argTypes[1] = bsonTypeId;
+		argValues[1] = PointerGetDatum(variableSpecBson);
+		argNulls[1] = ' ';
 
-		argTypes[3] = TEXTOID;
-		argValues[3] = CStringGetTextDatum("");
-		argNulls[3] = 'n';
+		argTypes[2] = TEXTOID;
+		argValues[2] = CStringGetTextDatum("");
+		argNulls[2] = 'n';
 	}
 
 	/* set id filter value */
@@ -3373,6 +3429,14 @@ SelectUpdateCandidate(uint64 collectionId, const char *shardTableName, int64 sha
 		argTypes[objectIdArgIndex] = BYTEAOID;
 		argValues[objectIdArgIndex] = PointerGetDatum(CastPgbsonToBytea(objectIdFilter));
 		argNulls[objectIdArgIndex] = ' ';
+	}
+
+	if (shardKeyArgIndex != -1)
+	{
+		/* set shard key value */
+		argTypes[shardKeyArgIndex] = INT8OID;
+		argValues[shardKeyArgIndex] = Int64GetDatum(shardKeyHash);
+		argNulls[shardKeyArgIndex] = ' ';
 	}
 
 	/* set sort value */
@@ -3414,8 +3478,8 @@ SelectUpdateCandidate(uint64 collectionId, const char *shardTableName, int64 sha
 	}
 	else
 	{
-		SPIPlanPtr plan = GetSPIQueryPlanWithLocalShard(collectionId,
-														shardTableName,
+		SPIPlanPtr plan = GetSPIQueryPlanWithLocalShard(collection->collectionId,
+														collection->shardTableName,
 														planId, updateQuery.data,
 														argTypes,
 														argCount);
@@ -3722,7 +3786,7 @@ UpsertDocument(MongoCollection *collection, const bson_value_t *update,
 	}
 
 	DoInsertForUpdate(collection, newShardKeyHash, objectId, newDoc,
-					  hasOnlyObjectIdFilter);
+					  hasOnlyObjectIdFilter, update);
 	return objectId;
 }
 
@@ -3879,5 +3943,31 @@ PgbsonWriterAppendInt(pgbson_writer *writer, const char *path,
 	else
 	{
 		PgbsonWriterAppendInt64(writer, path, pathLength, value);
+	}
+}
+
+
+static inline void
+ReportUpdateFeatureUsage(int batchSize)
+{
+	if (batchSize == 1)
+	{
+		ReportFeatureUsage(FEATURE_COMMAND_UPDATE_ONE);
+	}
+	else if (batchSize <= 100)
+	{
+		ReportFeatureUsage(FEATURE_COMMAND_UPDATE_100);
+	}
+	else if (batchSize <= 500)
+	{
+		ReportFeatureUsage(FEATURE_COMMAND_UPDATE_500);
+	}
+	else if (batchSize <= 1000)
+	{
+		ReportFeatureUsage(FEATURE_COMMAND_UPDATE_1000);
+	}
+	else
+	{
+		ReportFeatureUsage(FEATURE_COMMAND_UPDATE_EXTENDED);
 	}
 }

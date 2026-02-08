@@ -59,11 +59,16 @@ clean-sql:
 check:
 	$(MAKE) -C src/test all
 
-check-minimal:
-	$(MAKE) -C src/test/regress check-bson-minimal
+check-extended-rum:
+	$(MAKE) -C src/test/extended_rum_tests all
 
-check-documentdb-minimal:
-	$(MAKE) -C src/test/regress check-bson-minimal
+check-minimal:
+	$(MAKE) -C src/test/regress check-minimal
+
+check-documentdb-minimal: check-minimal
+
+check-docdb-rum-minimal:
+	$(MAKE) -C src/test/extended_rum_tests check-minimal
 
 citus-indent:
 	citus_indent

@@ -16,11 +16,13 @@
 #include <planner/mongo_query_operator.h>
 
 #include "query/bson_dollar_selectivity.h"
+#include "aggregation/bson_query_common.h"
 
 extern bool EnableNewOperatorSelectivityMode;
 extern bool LowSelectivityForLookup;
+extern bool SetSelectivityForFullScan;
 
-
+static bool IsDollarRangeFullScan(List *args);
 static double GetStatisticsNoStatsData(List *args, Oid selectivityOpExpr, double
 									   defaultExprSelectivity);
 
@@ -72,6 +74,14 @@ GetDollarOperatorSelectivity(PlannerInfo *planner, Oid selectivityOpExpr,
 							 List *args, Oid collation, int varRelId,
 							 double defaultExprSelectivity)
 {
+	/* Special case, check if it's a full scan */
+	if (SetSelectivityForFullScan &&
+		selectivityOpExpr == BsonRangeMatchOperatorOid() &&
+		IsDollarRangeFullScan(args))
+	{
+		return 1.0;
+	}
+
 	if (!EnableNewOperatorSelectivityMode)
 	{
 		return GetDisableStatisticSelectivity(args, defaultExprSelectivity);
@@ -89,6 +99,26 @@ GetDollarOperatorSelectivity(PlannerInfo *planner, Oid selectivityOpExpr,
 		planner, selectivityOpExpr, collation, args, varRelId, defaultInputSelectivity);
 
 	return selectivity;
+}
+
+
+static bool
+IsDollarRangeFullScan(List *args)
+{
+	/* Special case, check if it's a full scan */
+	Node *secondNode = lsecond(args);
+	if (!IsA(secondNode, Const))
+	{
+		return false;
+	}
+
+	Const *secondConst = (Const *) secondNode;
+	pgbsonelement dollarElement;
+	PgbsonToSinglePgbsonElement(
+		DatumGetPgBson(secondConst->constvalue), &dollarElement);
+	DollarRangeParams rangeParams = { 0 };
+	InitializeQueryDollarRange(&dollarElement, &rangeParams);
+	return rangeParams.isFullScan;
 }
 
 
@@ -120,29 +150,40 @@ GetStatisticsNoStatsData(List *args, Oid selectivityOpExpr, double defaultExprSe
 	}
 
 	Const *secondConst = (Const *) secondNode;
-	const MongoIndexOperatorInfo *indexOp;
+	BsonIndexStrategy indexStrategy = BSON_INDEX_STRATEGY_INVALID;
 	if (secondConst->consttype == BsonQueryTypeId())
 	{
 		Oid selectFuncId = get_opcode(selectivityOpExpr);
-		indexOp = GetMongoIndexOperatorInfoByPostgresFuncId(selectFuncId);
+		const MongoIndexOperatorInfo *indexOp = GetMongoIndexOperatorInfoByPostgresFuncId(
+			selectFuncId);
+		indexStrategy = indexOp->indexStrategy;
 	}
 	else
 	{
 		/* This is an index pushdown operator */
-		indexOp = GetMongoIndexOperatorByPostgresOperatorId(selectivityOpExpr);
+		const MongoIndexOperatorInfo *indexOp = GetMongoIndexOperatorByPostgresOperatorId(
+			selectivityOpExpr);
+		indexStrategy = indexOp->indexStrategy;
 	}
 
-	if (indexOp->indexStrategy == BSON_INDEX_STRATEGY_INVALID)
+	if (indexStrategy == BSON_INDEX_STRATEGY_INVALID)
 	{
-		/* Unknown - thunk to PG value */
-		return defaultExprSelectivity;
+		if (selectivityOpExpr == BsonRangeMatchOperatorOid())
+		{
+			indexStrategy = BSON_INDEX_STRATEGY_DOLLAR_RANGE;
+		}
+		else
+		{
+			/* Unknown - thunk to PG value */
+			return defaultExprSelectivity;
+		}
 	}
 
 	pgbsonelement dollarElement;
 	PgbsonToSinglePgbsonElement(
 		DatumGetPgBson(secondConst->constvalue), &dollarElement);
 
-	switch (indexOp->indexStrategy)
+	switch (indexStrategy)
 	{
 		case BSON_INDEX_STRATEGY_DOLLAR_EQUAL:
 		{
@@ -189,6 +230,13 @@ GetStatisticsNoStatsData(List *args, Oid selectivityOpExpr, double defaultExprSe
 			/* Since $range does a $gt/$lt together, assume that it gives you
 			 * half the selectivity of each $gt/$lt.
 			 */
+			DollarRangeParams rangeParams = { 0 };
+			InitializeQueryDollarRange(&dollarElement, &rangeParams);
+			if (rangeParams.isFullScan)
+			{
+				return 1.0;
+			}
+
 			return defaultExprSelectivity / 2;
 		}
 

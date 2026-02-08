@@ -2,7 +2,6 @@ SET search_path TO documentdb_core,documentdb_api,documentdb_api_catalog,documen
 SET citus.next_shard_id TO 1200000;
 SET documentdb.next_collection_id TO 1200;
 SET documentdb.next_collection_index_id TO 1200;
-SET documentdb.enableNewCompositeIndexOpClass to on;
 set documentdb.enableExtendedExplainPlans to on;
 SELECT documentdb_api.drop_collection('db', 'queryoperator') IS NOT NULL;
  ?column? 
@@ -122,7 +121,6 @@ set local documentdb.useLocalExecutionShardQueries to off;
 -- avoid sequential scan (likely to be preferred on small tables)
 set local enable_seqscan TO off;
 set local documentdb.forceUseIndexIfAvailable to on;
-set local documentdb.enableNewCompositeIndexOpClass to on;
 set local documentdb.enableExtendedExplainPlans to on;
 \i sql/bson_query_operator_tests_explain_core.sql
 \i sql/bson_query_operator_tests_insert.sql
@@ -1468,7 +1466,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
                            Filter: ((document OPERATOR(documentdb_api_catalog.@#?) '{ "a" : { "b" : "M", "c" : { "$gt" : { "$numberInt" : "50" } } } }'::documentdb_core.bson) AND (document OPERATOR(documentdb_api_catalog.@#?) '{ "a" : { "c" : { "$numberInt" : "100" }, "d" : "Y" } }'::documentdb_core.bson))
                            Heap Blocks: exact=1
                            ->  Bitmap Index Scan on queryoperator_ab (actual rows=2 loops=1)
-                                 Index Cond: (document OPERATOR(documentdb_api_catalog.@=) '{ "a.b" : "M" }'::documentdb_core.bson)
+                                 Index Cond: (document OPERATOR(documentdb_api_catalog.@<>) '{ "a.b" : { "elemMatchIndexOp" : [ { "op" : { "$numberInt" : "1" }, "value" : "M", "isTopLevel" : false } ] } }'::documentdb_core.bson)
 (22 rows)
 
 -- $or gets converted to $in for simple expressions.
@@ -1904,7 +1902,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          Node: host=localhost port=58070 dbname=regression
          ->  Sort (actual rows=25 loops=1)
                Sort Key: object_id
-               Sort Method: quicksort  Memory: 27kB
+               Sort Method: quicksort  Memory: 28kB
                ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=25 loops=1)
                      indexName: queryoperator_a_c
                      isMultiKey: true
@@ -1932,7 +1930,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          Node: host=localhost port=58070 dbname=regression
          ->  Sort (actual rows=27 loops=1)
                Sort Key: object_id
-               Sort Method: quicksort  Memory: 27kB
+               Sort Method: quicksort  Memory: 28kB
                ->  Bitmap Heap Scan on documents_1200_1200005 collection (actual rows=27 loops=1)
                      Recheck Cond: (shard_key_value = '1200'::bigint)
                      Heap Blocks: exact=1
@@ -1952,7 +1950,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          Node: host=localhost port=58070 dbname=regression
          ->  Sort (actual rows=25 loops=1)
                Sort Key: object_id
-               Sort Method: quicksort  Memory: 27kB
+               Sort Method: quicksort  Memory: 28kB
                ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=25 loops=1)
                      indexName: queryoperator_a_c
                      isMultiKey: true

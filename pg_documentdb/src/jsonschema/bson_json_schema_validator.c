@@ -90,7 +90,7 @@ bson_dollar_json_schema(PG_FUNCTION_ARGS)
 	{
 		ereport(ERROR,
 				(errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
-				 errmsg("$jsonSchema must be an object")));
+				 errmsg("$jsonSchema must be of object type")));
 	}
 
 	BsonValueInitIterator(&(element.bsonValue), &schemaIter);
@@ -207,6 +207,30 @@ ValidateBsonValueObject(const bson_value_t *value, const SchemaNode *node)
 		return true;
 	}
 
+	HTAB *hashTableForRequired = NULL;
+	bool isRequiredValid = false;
+	int requiredCount = 0;
+
+	/* required */
+	if (node->validationFlags.object & ObjectValidationTypes_Required)
+	{
+		isRequiredValid = true;
+		requiredCount = 0;
+		hashTableForRequired = CreateStringViewHashSet();
+		bson_iter_t iter;
+		BsonValueInitIterator(node->validations.object->required, &iter);
+		while (bson_iter_next(&iter))
+		{
+			const char *field = bson_iter_utf8(&iter, NULL);
+			StringView fieldValue = {
+				.string = field,
+				.length = strlen(field)
+			};
+			hash_search(hashTableForRequired, &fieldValue, HASH_ENTER, NULL);
+			requiredCount++;
+		}
+	}
+
 	bson_iter_t iter;
 	BsonValueInitIterator(value, &iter);
 	while (bson_iter_next(&iter))
@@ -222,6 +246,30 @@ ValidateBsonValueObject(const bson_value_t *value, const SchemaNode *node)
 			{
 				return false;
 			}
+		}
+
+		/* required validation */
+		if (isRequiredValid)
+		{
+			bool found = false;
+			StringView fieldView = {
+				.string = field,
+				.length = strlen(field)
+			};
+			hash_search(hashTableForRequired, &fieldView, HASH_REMOVE, &found);
+			if (found)
+			{
+				requiredCount--;
+			}
+		}
+	}
+
+	if (isRequiredValid)
+	{
+		hash_destroy(hashTableForRequired);
+		if (requiredCount > 0)
+		{
+			return false;
 		}
 	}
 

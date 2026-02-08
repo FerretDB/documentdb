@@ -58,7 +58,9 @@ typedef struct CompositeRegexData
 /* --------------------------------------------------------- */
 /* Forward declaration */
 /* --------------------------------------------------------- */
-
+static void ParseOperatorStrategyWithPath(int i, pgbsonelement *queryElement,
+										  BsonIndexStrategy queryStrategy,
+										  VariableIndexBounds *indexBounds);
 static void ProcessBoundForQuery(CompositeSingleBound *bound, const
 								 IndexTermCreateMetadata *metadata);
 static void SetEqualityBound(const bson_value_t *queryValue,
@@ -208,6 +210,35 @@ BuildLowerBoundTermFromIndexBounds(CompositeQueryRunData *runData,
 }
 
 
+static void
+MergeSingleCompositeIndexBounds(CompositeIndexBounds *sourceBound,
+								CompositeIndexBounds *targetBound)
+{
+	if (sourceBound->lowerBound.bound.value_type != BSON_TYPE_EOD)
+	{
+		SetLowerBound(&targetBound->lowerBound,
+					  &sourceBound->lowerBound);
+	}
+
+	if (sourceBound->upperBound.bound.value_type != BSON_TYPE_EOD)
+	{
+		SetUpperBound(&targetBound->upperBound,
+					  &sourceBound->upperBound);
+	}
+
+	if (sourceBound->indexRecheckFunctions != NIL)
+	{
+		targetBound->indexRecheckFunctions =
+			list_concat(targetBound->indexRecheckFunctions,
+						sourceBound->indexRecheckFunctions);
+	}
+
+	targetBound->requiresRuntimeRecheck =
+		targetBound->requiresRuntimeRecheck ||
+		sourceBound->requiresRuntimeRecheck;
+}
+
+
 void
 UpdateRunDataForVariableBounds(CompositeQueryRunData *runData,
 							   PathScanTermMap *termMap,
@@ -247,7 +278,8 @@ UpdateRunDataForVariableBounds(CompositeQueryRunData *runData,
 
 		if (scanKeyIndex == -1 || set == NULL)
 		{
-			ereport(ERROR, (errmsg("Could not find scan key for term")));
+			ereport(ERROR, (errmsg(
+								"Unable to locate scan key associated with the specified term")));
 		}
 
 		/* Track the current term in the scan key */
@@ -284,12 +316,12 @@ UpdateRunDataForVariableBounds(CompositeQueryRunData *runData,
 }
 
 
-void
-MergeSingleVariableBounds(VariableIndexBounds *variableBounds,
-						  CompositeQueryRunData *runData)
+List *
+MergeSingleVariableBounds(List *boundsList,
+						  CompositeIndexBounds *mergedBounds)
 {
 	ListCell *cell;
-	foreach(cell, variableBounds->variableBoundsList)
+	foreach(cell, boundsList)
 	{
 		CompositeIndexBoundsSet *set =
 			(CompositeIndexBoundsSet *) lfirst(cell);
@@ -301,25 +333,25 @@ MergeSingleVariableBounds(VariableIndexBounds *variableBounds,
 		CompositeIndexBounds *bound = &set->bounds[0];
 		if (bound->lowerBound.bound.value_type != BSON_TYPE_EOD)
 		{
-			SetLowerBound(&runData->indexBounds[set->indexAttribute].lowerBound,
+			SetLowerBound(&mergedBounds[set->indexAttribute].lowerBound,
 						  &bound->lowerBound);
 		}
 
 		if (bound->upperBound.bound.value_type != BSON_TYPE_EOD)
 		{
-			SetUpperBound(&runData->indexBounds[set->indexAttribute].upperBound,
+			SetUpperBound(&mergedBounds[set->indexAttribute].upperBound,
 						  &bound->upperBound);
 		}
 
-		runData->indexBounds[set->indexAttribute].requiresRuntimeRecheck =
-			runData->indexBounds[set->indexAttribute].requiresRuntimeRecheck ||
+		mergedBounds[set->indexAttribute].requiresRuntimeRecheck =
+			mergedBounds[set->indexAttribute].requiresRuntimeRecheck ||
 			set->bounds->requiresRuntimeRecheck;
 
 		if (set->bounds->indexRecheckFunctions != NIL)
 		{
-			runData->indexBounds[set->indexAttribute].indexRecheckFunctions =
+			mergedBounds[set->indexAttribute].indexRecheckFunctions =
 				list_concat(
-					runData->indexBounds[set->indexAttribute].indexRecheckFunctions,
+					mergedBounds[set->indexAttribute].indexRecheckFunctions,
 					set->bounds->indexRecheckFunctions);
 		}
 
@@ -327,10 +359,12 @@ MergeSingleVariableBounds(VariableIndexBounds *variableBounds,
 		/* Postgres requires that we don't use cell or anything in foreach after
 		 * calling delete. explicity add a continue to match that contract.
 		 */
-		variableBounds->variableBoundsList =
-			foreach_delete_current(variableBounds->variableBoundsList, cell);
+		boundsList =
+			foreach_delete_current(boundsList, cell);
 		continue;
 	}
+
+	return boundsList;
 }
 
 
@@ -372,7 +406,7 @@ PickVariableBoundsForOrderedScan(VariableIndexBounds *variableBounds,
 			pfree(otherSet);
 		}
 
-		/* Remove the current index */
+		/* Remove current index */
 		foreach_delete_current(
 			variableBounds->variableBoundsList, cell);
 	}
@@ -470,6 +504,15 @@ ParseOperatorStrategy(const char **indexPaths, int32_t numPaths,
 							queryElement->path)));
 	}
 
+	ParseOperatorStrategyWithPath(i, queryElement, queryStrategy, indexBounds);
+}
+
+
+static void
+ParseOperatorStrategyWithPath(int i, pgbsonelement *queryElement,
+							  BsonIndexStrategy queryStrategy,
+							  VariableIndexBounds *indexBounds)
+{
 	bool isNegationOp = false;
 
 	/* Now that we have the index path, add or update the bounds */
@@ -1331,7 +1374,7 @@ SetSingleBoundsDollarType(const bson_value_t *queryValue,
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-					 errmsg("Invalid $type value: %ld", typeCode)));
+					 errmsg("Invalid $type specified: %ld", typeCode)));
 		}
 	}
 	else
@@ -1366,7 +1409,7 @@ AddMultiBoundaryForDollarIn(int32_t indexAttribute,
 	if (queryElement->bsonValue.value_type != BSON_TYPE_ARRAY)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"$in should have an array of values")));
+							"$in must contain an array of values")));
 	}
 
 	bson_iter_t arrayIter;
@@ -1704,7 +1747,8 @@ AddMultiBoundaryForDollarType(int32_t indexAttribute, pgbsonelement *queryElemen
 	if (queryElement->bsonValue.value_type != BSON_TYPE_ARRAY)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"$type should have an array of values")));
+							"Expected 'array' type for $type but found '%s' type",
+							BsonTypeName(queryElement->bsonValue.value_type))));
 	}
 
 	bson_iter_t arrayIter;
@@ -1754,6 +1798,131 @@ AddMultiBoundaryForDollarRange(int32_t indexAttribute,
 	if (params->isFullScan)
 	{
 		/* Don't update any bounds */
+		return;
+	}
+
+	if (params->isElemMatch)
+	{
+		pgbsonelement innerElemMatchElement = { 0 };
+		innerElemMatchElement.path = queryElement->path;
+		innerElemMatchElement.pathLength = queryElement->pathLength;
+
+		if (params->elemMatchValue.value_type != BSON_TYPE_ARRAY)
+		{
+			ereport(ERROR, (errmsg(
+								"elemMatch index operator expecting an array, but found %s",
+								BsonTypeName(params->elemMatchValue.value_type))));
+		}
+
+		VariableIndexBounds localBounds = { 0 };
+		bson_iter_t elemMatchIter;
+		BsonValueInitIterator(&params->elemMatchValue, &elemMatchIter);
+		while (bson_iter_next(&elemMatchIter))
+		{
+			bson_iter_t innerIter;
+			if (bson_iter_recurse(&elemMatchIter, &innerIter))
+			{
+				BsonIndexStrategy queryStrategy = BSON_INDEX_STRATEGY_INVALID;
+				bool isTopLevelPath = false;
+				while (bson_iter_next(&innerIter))
+				{
+					const char *key = bson_iter_key(&innerIter);
+					const bson_value_t *value = bson_iter_value(&innerIter);
+					if (strcmp(key, "op") == 0)
+					{
+						queryStrategy = (BsonIndexStrategy) BsonValueAsInt32(value);
+					}
+					else if (strcmp(key, "value") == 0)
+					{
+						innerElemMatchElement.bsonValue = *value;
+					}
+					else if (strcmp(key, "isTopLevel") == 0)
+					{
+						isTopLevelPath = BsonValueAsBool(value);
+					}
+					else
+					{
+						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
+											"Unsupported key in $range $elemMatch: %s",
+											key)));
+					}
+				}
+
+				if (queryStrategy == BSON_INDEX_STRATEGY_INVALID)
+				{
+					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
+										"Missing 'op' key in $elemMatch index operator")));
+				}
+
+				if (isTopLevelPath)
+				{
+					/* Top level path conditions are mergable */
+					ParseOperatorStrategyWithPath(indexAttribute, &innerElemMatchElement,
+												  queryStrategy, &localBounds);
+				}
+				else
+				{
+					/* deduced child path conditions are not mergeable */
+					ParseOperatorStrategyWithPath(indexAttribute, &innerElemMatchElement,
+												  queryStrategy, indexBounds);
+				}
+			}
+		}
+
+		if (localBounds.variableBoundsList != NIL)
+		{
+			/* Now that all the conditions are accumulated into the localBounds, first merge
+			 * the bounds together. These can always be merged together since $elemMatch works
+			 * as a qual on ALL. Note that we can't do this if there's a dotted path in the elemMatch.
+			 * Consider the case where we have a
+			 */
+			VariableIndexBounds finalBounds = { 0 };
+			CompositeIndexBoundsSet *singleBounds = CreateAndRegisterSingleIndexBoundsSet(
+				&finalBounds, indexAttribute);
+
+			int initialVariableBoundsCount = list_length(localBounds.variableBoundsList);
+			localBounds.variableBoundsList =
+				MergeSingleVariableBounds(localBounds.variableBoundsList,
+										  singleBounds->bounds);
+
+			if (list_length(localBounds.variableBoundsList) == initialVariableBoundsCount)
+			{
+				/* No bounds got merged - nothing can be simplified */
+				indexBounds->variableBoundsList = list_concat(
+					indexBounds->variableBoundsList, localBounds.variableBoundsList);
+				list_free_deep(finalBounds.variableBoundsList);
+				list_free(localBounds.variableBoundsList);
+			}
+			else if (localBounds.variableBoundsList == NIL)
+			{
+				/* All variable bounds got merged, just add the single bounds */
+				indexBounds->variableBoundsList = list_concat(
+					indexBounds->variableBoundsList, finalBounds.variableBoundsList);
+				list_free(finalBounds.variableBoundsList);
+			}
+			else
+			{
+				/* some bounds got merged, but others did not, repeat similar to the top level and push down the single
+				 * bounds to the other bounds.
+				 */
+				ListCell *boundCell;
+				foreach(boundCell, localBounds.variableBoundsList)
+				{
+					CompositeIndexBoundsSet *set = lfirst(boundCell);
+					for (int i = 0; i < set->numBounds; i++)
+					{
+						MergeSingleCompositeIndexBounds(singleBounds->bounds,
+														&set->bounds[i]);
+					}
+				}
+
+				indexBounds->variableBoundsList = list_concat(
+					indexBounds->variableBoundsList, localBounds.variableBoundsList);
+				list_free_deep(finalBounds.variableBoundsList);
+				list_free(localBounds.variableBoundsList);
+			}
+		}
+
 		return;
 	}
 

@@ -2,7 +2,6 @@ SET search_path TO documentdb_core,documentdb_api,documentdb_api_catalog,documen
 SET citus.next_shard_id TO 380000;
 SET documentdb.next_collection_id TO 3800;
 SET documentdb.next_collection_index_id TO 3800;
-SET documentdb.enableNewCompositeIndexOpClass to on;
 set enable_seqscan TO off;
 set documentdb.forceUseIndexIfAvailable to on;
 set documentdb.forceDisableSeqScan to on;

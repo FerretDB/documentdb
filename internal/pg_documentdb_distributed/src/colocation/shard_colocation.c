@@ -179,7 +179,7 @@ HandleDistributedColocation(MongoCollection *collection, const
 	if (colocationValue->value_type != BSON_TYPE_DOCUMENT)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("colocation options must be a document.")));
+						errmsg("Colocation options must be provided as a document.")));
 	}
 
 	char *tableWithNamespace = psprintf("%s.%s", ApiDataSchemaName,
@@ -218,8 +218,8 @@ HandleDistributedColocation(MongoCollection *collection, const
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("Unknown field colocation.%s", key),
-							errdetail_log("Unknown field colocation.%s", key)));
+							errmsg("Unrecognized field in colocation.%s", key),
+							errdetail_log("Unrecognized field in colocation.%s", key)));
 		}
 	}
 
@@ -267,10 +267,10 @@ HandleDistributedColocation(MongoCollection *collection, const
 		if (targetCollection == NULL)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE),
-							errmsg("ns %s.%s does not exist",
+							errmsg("Namespace %s.%s cannot be found",
 								   collection->name.databaseName,
 								   targetCollectionName),
-							errdetail_log("ns %s.%s does not exist",
+							errdetail_log("Namespace %s.%s cannot be found",
 										  collection->name.databaseName,
 										  targetCollectionName)));
 		}
@@ -307,7 +307,7 @@ HandleDistributedColocation(MongoCollection *collection, const
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
 							errmsg(
-								"Cannot colocate current collection with a sharded collection.")));
+								"Current collection cannot be colocated with any sharded collection.")));
 		}
 
 		/* Also check if the colocated source has only 1 shard (otherwise require colocate=null explicitly) */
@@ -445,7 +445,7 @@ RewriteListCollectionsQueryForDistribution(Query *source)
 										InvalidOid, DEFAULT_COLLATION_OID,
 										COERCE_EXPLICIT_CALL);
 
-	FuncExpr *castConcatExpr = makeFuncExpr(F_REGCLASS, OIDOID, list_make1(concatExpr),
+	FuncExpr *castConcatExpr = makeFuncExpr(F_TO_REGCLASS, OIDOID, list_make1(concatExpr),
 											DEFAULT_COLLATION_OID, DEFAULT_COLLATION_OID,
 											COERCE_EXPLICIT_CALL);
 

@@ -100,7 +100,8 @@ command_compact(PG_FUNCTION_ARGS)
 	if (!EnableCompact || !IsClusterVersionAtleast(DocDB_V0, 104, 0))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
-						errmsg("Compact command is not supported yet")));
+						errmsg(
+							"Compact command functionality is currently unsupported")));
 	}
 
 	CompactArgs args;
@@ -320,10 +321,11 @@ ParseCompactCommandSpec(pgbson *compactSpec, CompactArgs *args)
 		else if (!IsCommonSpecIgnoredField(element.path))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
-							errmsg("BSON field compact.%s is an unknown field",
-								   element.path),
+							errmsg(
+								"The BSON field compact.%s is not recognized as a known field",
+								element.path),
 							errdetail_log(
-								"BSON field compact.%s is an unknown field",
+								"The BSON field compact.%s is not recognized as a known field",
 								element.path)));
 		}
 	}

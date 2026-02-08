@@ -88,7 +88,7 @@ GenerateBaseAgnosticQuery(text *databaseDatum, AggregationPipelineBuildContext *
 
 	query->rtable = NIL;
 
-	/* Create an empty jointree */
+	/* Create an empty jointree structure */
 	query->jointree = makeNode(FromExpr);
 
 	/* Create the projector. We only project the NULL::bson in this type of query */
@@ -176,10 +176,11 @@ GenerateListCollectionsQuery(text *databaseDatum, pgbson *listCollectionsSpec,
 		else if (!IsCommonSpecIgnoredField(keyView.string))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
-							errmsg("BSON field listCollections.%.*s is an unknown field",
-								   keyView.length, keyView.string),
+							errmsg(
+								"The BSON field listCollections.%.*s is not recognized as a valid field",
+								keyView.length, keyView.string),
 							errdetail_log(
-								"BSON field listCollections.%.*s is an unknown field",
+								"The BSON field listCollections.%.*s is not recognized as a valid field",
 								keyView.length, keyView.string)));
 		}
 	}
@@ -262,10 +263,11 @@ GenerateListIndexesQuery(text *databaseDatum, pgbson *listIndexesSpec,
 		else if (!IsCommonSpecIgnoredField(keyView.string))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
-							errmsg("BSON field listIndexes.%.*s is an unknown field",
-								   keyView.length, keyView.string),
+							errmsg(
+								"The BSON field listIndexes.%.*s is not recognized as a valid field",
+								keyView.length, keyView.string),
 							errdetail_log(
-								"BSON field listIndexes.%.*s is an unknown field",
+								"The BSON field listIndexes.%.*s is not recognized as a valid field",
 								keyView.length, keyView.string)));
 		}
 	}
@@ -302,7 +304,7 @@ HandleCurrentOp(const bson_value_t *existingValue, Query *query,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40602),
 						errmsg(
-							"$currentOp is only valid as the first stage in the pipeline.")));
+							"The $currentOp can only be used as the initial stage in the pipeline.")));
 	}
 
 	const char *databaseStr = text_to_cstring(context->databaseNameDatum);
@@ -311,7 +313,7 @@ HandleCurrentOp(const bson_value_t *existingValue, Query *query,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE),
 						errmsg(
-							"$currentOp must be run against the 'admin' database with {aggregate: 1}")));
+							"$currentOp must be executed on the 'admin' database with parameter {aggregate: 1}")));
 	}
 
 	/* Any further validation done during processing of the currentOp aggregation */
@@ -395,7 +397,8 @@ GenerateBaseListIndexesQuery(text *databaseDatum, const StringView *collectionNa
 	if (collection == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_NAMESPACENOTFOUND),
-						errmsg("ns does not exist: %s", context->namespaceName)));
+						errmsg("Namespace does not currently exist: %s",
+							   context->namespaceName)));
 	}
 
 	/* Add ApiInternalSchemaName.index_spec_as_bson(index_spec, TRUE) projector */
@@ -616,7 +619,7 @@ HandleCollStats(const bson_value_t *existingValue, Query *query,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40602),
 						errmsg(
-							"$collStats is only valid as the first stage in the pipeline.")));
+							"$collStats can only be used as the initial stage within the processing pipeline.")));
 	}
 
 	/* Skip validate the collStats document: done in the function */
@@ -651,21 +654,22 @@ HandleIndexStats(const bson_value_t *existingValue, Query *query,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION28803),
 						errmsg(
-							"The $indexStats stage specification must be an empty object")));
+							"The $indexStats stage specification is required to be provided as an empty object.")));
 	}
 
 	if (context->stageNum != 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40602),
 						errmsg(
-							"$indexStats is only valid as the first stage in the pipeline.")));
+							"The $indexStats operator can only be used as the initial stage in the pipeline.")));
 	}
 
 	bool isTopLevel = true;
 	if (IsInTransactionBlock(isTopLevel))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_OPERATIONNOTSUPPORTEDINTRANSACTION),
-						errmsg("$indexStats cannot be used in a transaction")));
+						errmsg(
+							"$indexStats is not permitted for use within a transaction")));
 	}
 
 	Const *databaseConst = makeConst(TEXTOID, -1, InvalidOid, -1,

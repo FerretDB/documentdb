@@ -102,7 +102,7 @@ command_coll_stats(PG_FUNCTION_ARGS)
 {
 	if (PG_ARGISNULL(0))
 	{
-		ereport(ERROR, (errmsg("db name cannot be NULL")));
+		ereport(ERROR, (errmsg("Database name must not be NULL")));
 	}
 	Datum databaseName = PG_GETARG_DATUM(0);
 
@@ -198,10 +198,11 @@ command_coll_stats_aggregation(PG_FUNCTION_ARGS)
 			if (!IsBsonValueEmptyDocument(value))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION31170),
-								errmsg("expected an empty object, but got %s",
-									   BsonValueToJsonForLogging(value)),
+								errmsg(
+									"An empty object was expected, but instead received %s",
+									BsonValueToJsonForLogging(value)),
 								errdetail_log(
-									"expected an empty object for `count` in $collStats")));
+									"An empty object was expected for `count` within the $collStats.")));
 			}
 			aggregateMode |= CollStatsAggMode_Count;
 		}
@@ -213,9 +214,12 @@ command_coll_stats_aggregation(PG_FUNCTION_ARGS)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
-							errmsg("BSON field $collStats.%s is an unknown field", key),
-							errdetail_log("BSON field $collStats.%s is an unknown field",
-										  key)));
+							errmsg(
+								"The BSON field $collStats.%s is not recognized as a valid field",
+								key),
+							errdetail_log(
+								"The BSON field $collStats.%s is not recognized as a valid field",
+								key)));
 		}
 	}
 
@@ -245,8 +249,9 @@ command_coll_stats_aggregation(PG_FUNCTION_ARGS)
 	{
 		/* storageStats & count not supported on views */
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTEDONVIEW),
-						errmsg("Namespace %s is a view, not a collection",
-							   namespaceString->data)));
+						errmsg(
+							"The namespace %s is identified as a view rather than being recognized as a collection.",
+							namespaceString->data)));
 	}
 
 	CollStatsResult result = { 0 };
@@ -284,7 +289,7 @@ command_coll_stats_worker(PG_FUNCTION_ARGS)
 {
 	if (PG_ARGISNULL(0))
 	{
-		ereport(ERROR, (errmsg("db name cannot be NULL")));
+		ereport(ERROR, (errmsg("Database name must not be NULL")));
 	}
 
 	if (PG_ARGISNULL(1))
@@ -310,7 +315,7 @@ CollStatsCoordinator(Datum databaseName, Datum collectionName, int scale)
 	if (scale < 1)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51024), errmsg(
-							"BSON field 'scale' value must be >= 1, actual value '%d'",
+							"The BSON field 'scale' must have a value of at least 1, but the provided value is '%d'.",
 							scale)));
 	}
 
@@ -658,7 +663,7 @@ CollStatsWorker(void *fcinfoPointer)
 	if (collection == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE),
-						errmsg("Collection not found")));
+						errmsg("Collection could not be found")));
 	}
 
 	/* First step, get the relevant shards on this node (We're already in the query worker) */

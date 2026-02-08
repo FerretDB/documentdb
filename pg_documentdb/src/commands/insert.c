@@ -144,6 +144,7 @@ static inline List * CreateTargetListForInsert(MongoCollection *collection);
 static inline RangeTblEntry * CreateBaseTableRteForInsert(MongoCollection *collection, Oid
 														  shardOid,
 														  List **optionalPermInfos);
+static inline void ReportInsertFeatureUsage(int batchSize);
 
 /*
  * ApiGucPrefix.enable_create_collection_on_insert GUC determines whether
@@ -227,7 +228,7 @@ CreateCollectionForInsert(Datum databaseNameDatum, Datum collectionNameDatum)
 		char *collectionName = TextDatumGetCString(collectionNameDatum);
 
 		ereport(ERROR, (errcode(ERRCODE_UNDEFINED_TABLE),
-						errmsg("collection %s does not exist",
+						errmsg("The collection named %s cannot be found",
 							   quote_literal_cstr(collectionName))));
 	}
 
@@ -245,7 +246,7 @@ CreateCollectionForInsert(Datum databaseNameDatum, Datum collectionNameDatum)
 	if (collection == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INTERNALERROR),
-						errmsg("failed to create collection"),
+						errmsg("Unable to create the specified collection"),
 						errdetail_log(
 							"Could not get collection from cache after creating the collection")));
 	}
@@ -277,7 +278,7 @@ BuildBatchInsertionSpec(bson_iter_t *insertCommandIter, pgbsonsequence *insertDo
 			if (!BSON_ITER_HOLDS_UTF8(insertCommandIter))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("collection name has invalid type %s",
+								errmsg("Collection name contains an invalid data type %s",
 									   BsonIterTypeName(insertCommandIter))));
 			}
 
@@ -292,7 +293,8 @@ BuildBatchInsertionSpec(bson_iter_t *insertCommandIter, pgbsonsequence *insertDo
 			if (insertDocs != NULL)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-								errmsg("Unexpected additional documents")));
+								errmsg(
+									"Both 'documents' and 'insert.documents' cannot be specified.")));
 			}
 
 			bson_iter_t insertArrayIter;
@@ -329,7 +331,7 @@ BuildBatchInsertionSpec(bson_iter_t *insertCommandIter, pgbsonsequence *insertDo
 		}
 		else if (IsCommonSpecIgnoredField(field))
 		{
-			elog(DEBUG1, "Unrecognized command field: insert.%s", field);
+			elog(DEBUG1, "Command field not recognized: insert.%s", field);
 
 			/*
 			 *  Silently ignore now, so that clients don't break
@@ -341,16 +343,17 @@ BuildBatchInsertionSpec(bson_iter_t *insertCommandIter, pgbsonsequence *insertDo
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
-							errmsg("BSON field 'insert.%s' is an unknown field",
-								   field)));
+							errmsg(
+								"The BSON field 'insert.%s' is not recognized as a valid field.",
+								field)));
 		}
 	}
 
 	if (collectionName == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40414),
-						errmsg("BSON field 'insert.insert' is missing but "
-							   "a required field")));
+						errmsg(
+							"The BSON field 'insert.insert' is required but not provided")));
 	}
 
 	if (insertDocs != NULL)
@@ -372,8 +375,9 @@ BuildBatchInsertionSpec(bson_iter_t *insertCommandIter, pgbsonsequence *insertDo
 		insertionCount > MaxWriteBatchSize)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDLENGTH),
-						errmsg("Write batch sizes must be between 1 and %d. "
-							   "Got %d operations.", MaxWriteBatchSize, insertionCount)));
+						errmsg(
+							"Write batch size must fall within the range of 1 to %d, but %d operations were provided.",
+							MaxWriteBatchSize, insertionCount)));
 	}
 
 	BatchInsertionSpec *batchSpec = palloc0(sizeof(BatchInsertionSpec));
@@ -628,7 +632,7 @@ DoMultiInsertWithoutTransactionId(MongoCollection *collection, List *inserts, Oi
 		MemoryContextSwitchTo(oldContext);
 		ErrorData *errorData = CopyErrorDataAndFlush();
 
-		/* Abort the inner transaction */
+		/* Abort inner transaction */
 		RollbackAndReleaseCurrentSubTransaction();
 		MemoryContextSwitchTo(oldContext);
 		CurrentResourceOwner = oldOwner;
@@ -706,7 +710,7 @@ DoSingleInsert(MongoCollection *collection,
 		MemoryContextSwitchTo(oldContext);
 		ErrorData *errorData = CopyErrorDataAndFlush();
 
-		/* Abort the inner transaction */
+		/* Abort inner transaction */
 		RollbackAndReleaseCurrentSubTransaction();
 		CurrentResourceOwner = oldOwner;
 
@@ -948,7 +952,7 @@ CommandInsertCore(PG_FUNCTION_ARGS, bool isTransactional, MemoryContext allocCon
 {
 	if (PG_ARGISNULL(0))
 	{
-		ereport(ERROR, (errmsg("database name cannot be NULL")));
+		ereport(ERROR, (errmsg("Database name must not be NULL value")));
 	}
 
 	if (PG_ARGISNULL(1))
@@ -987,20 +991,20 @@ CommandInsertCore(PG_FUNCTION_ARGS, bool isTransactional, MemoryContext allocCon
 	/* we first validate insert command BSON and build a specification */
 	BatchInsertionSpec *batchSpec = BuildBatchInsertionSpec(&insertCommandIter,
 															insertDocs);
-
+	ReportInsertFeatureUsage(list_length(batchSpec->documents));
 	BatchInsertionResult batchResult;
 	batchResult.resultMemoryContext = allocContext;
 	MemoryContextSwitchTo(oldContext);
 	if (list_length(batchSpec->documents) == 0)
 	{
-		/* If there's no documents to insert exit and don't create the collection */
+		/* Don't create the collection if there are no documents to insert */
 		batchResult.rowsInserted = 0;
 		batchResult.ok = 1;
 		batchResult.writeErrors = NIL;
 	}
 	else
 	{
-		/* open the collection */
+		/* open collection */
 		Datum collectionNameDatum = CStringGetTextDatum(batchSpec->collectionName);
 		MongoCollection *collection =
 			GetMongoCollectionByNameDatum(databaseNameDatum, collectionNameDatum,
@@ -1017,7 +1021,7 @@ CommandInsertCore(PG_FUNCTION_ARGS, bool isTransactional, MemoryContext allocCon
 																   RowExclusiveLock);
 		}
 
-		/* do the inserts */
+		/* execute data inserts */
 		ProcessBatchInsertion(collection, batchSpec, transactionId, &batchResult,
 							  isTransactional);
 	}
@@ -1178,7 +1182,7 @@ command_insert_worker(PG_FUNCTION_ARGS)
 
 
 /*
- * InsertDocument inserts a document into a collection.
+ * InsertDocument adds a new document into the specified collection.
  */
 bool
 InsertDocument(uint64 collectionId, const char *shardTableName,
@@ -1232,20 +1236,23 @@ InsertDocument(uint64 collectionId, const char *shardTableName,
 
 /*
  * Inserts a document with the given shardKeyValue and object_id, and on conflict
- * with the _id index, replaces the document (Similar to upsert behavior)
+ * with the _id index, reapplies the update on the conflicting document (Similar to upsert behavior)
  */
 bool
 InsertOrReplaceDocument(uint64 collectionId, const char *shardTableName, int64
 						shardKeyValue,
-						pgbson *objectId, pgbson *document)
+						pgbson *objectId, pgbson *document,
+						const bson_value_t *updateSpecValue)
 {
 	StringInfoData query;
-	const int argCount = 3;
-	Oid argTypes[3];
-	Datum argValues[3];
+	const int argCount = 4;
+	Oid argTypes[4];
+	Datum argValues[4];
 	int spiStatus PG_USED_FOR_ASSERTS_ONLY = 0;
 
 	SPI_connect();
+
+	pgbson *updateSpecDoc = BsonValueToDocumentPgbson(updateSpecValue);
 
 	initStringInfo(&query);
 	appendStringInfo(&query, "INSERT INTO %s.", ApiDataSchemaName);
@@ -1271,14 +1278,19 @@ InsertOrReplaceDocument(uint64 collectionId, const char *shardTableName, int64
 		const int prefixLength = 10;
 		const char *shardSuffix = shardTableName + prefixLength;
 		appendStringInfo(&query, " ON CONFLICT ON CONSTRAINT collection_pk_%s"
-								 " DO UPDATE set document = %s.bson_from_bytea($3)",
-						 shardSuffix, CoreSchemaName);
+								 " DO UPDATE set document = ( %s.bson_update_document(%s.documents_%s.document, %s.bson_from_bytea($4), '{}'::%s.bson)).newDocument",
+						 shardSuffix, ApiInternalSchemaName, ApiDataSchemaName,
+						 shardSuffix, CoreSchemaName, CoreSchemaName);
 	}
 	else
 	{
 		appendStringInfo(&query, " ON CONFLICT ON CONSTRAINT collection_pk_" UINT64_FORMAT
-						 " DO UPDATE set document = %s.bson_from_bytea($3)", collectionId,
-						 CoreSchemaName);
+						 " DO UPDATE set document = (%s.bson_update_document(%s.documents_"
+						 UINT64_FORMAT
+						 ".document, %s.bson_from_bytea($4), '{}'::%s.bson)).newDocument",
+						 collectionId, ApiInternalSchemaName, ApiDataSchemaName,
+						 collectionId,
+						 CoreSchemaName, CoreSchemaName);
 	}
 
 	argTypes[0] = INT8OID;
@@ -1287,6 +1299,8 @@ InsertOrReplaceDocument(uint64 collectionId, const char *shardTableName, int64
 	argValues[1] = PointerGetDatum(CastPgbsonToBytea(objectId));
 	argTypes[2] = BYTEAOID;
 	argValues[2] = PointerGetDatum(CastPgbsonToBytea(document));
+	argTypes[3] = BYTEAOID;
+	argValues[3] = PointerGetDatum(CastPgbsonToBytea(updateSpecDoc));
 
 	SPIPlanPtr plan = GetSPIQueryPlanWithLocalShard(collectionId, shardTableName,
 													QUERY_ID_INSERT_OR_REPLACE,
@@ -1421,7 +1435,7 @@ CreateInsertQuery(MongoCollection *collection, Oid shardOid, List *valuesLists)
 
 
 /*
- * Executes the Insert query and returns the number of results processed.
+ * Executes the Insert query and returns the total count of processed results.
  */
 static uint64_t
 RunInsertQuery(Query *insertQuery, ParamListInfo paramListInfo)
@@ -1556,7 +1570,8 @@ ExecuteLocalShardInsertPlan(PlannedStmt *queryPlan, ParamListInfo paramListInfo)
 										   queryEnv, 0);
 
 	ExecutorStart(queryDesc, eflags);
-	ExecutorRun(queryDesc, scanDirection, 0L, true);
+
+	ExecutorRun_Compat(queryDesc, scanDirection, 0L, true);
 
 	uint64_t numRowsProcessed = queryDesc->estate->es_processed;
 
@@ -1710,4 +1725,30 @@ CreateTargetListForInsert(MongoCollection *collection)
 	}
 
 	return targetList;
+}
+
+
+static inline void
+ReportInsertFeatureUsage(int batchSize)
+{
+	if (batchSize == 1)
+	{
+		ReportFeatureUsage(FEATURE_COMMAND_INSERT_ONE);
+	}
+	else if (batchSize <= 100)
+	{
+		ReportFeatureUsage(FEATURE_COMMAND_INSERT_100);
+	}
+	else if (batchSize <= 500)
+	{
+		ReportFeatureUsage(FEATURE_COMMAND_INSERT_500);
+	}
+	else if (batchSize <= 1000)
+	{
+		ReportFeatureUsage(FEATURE_COMMAND_INSERT_1000);
+	}
+	else
+	{
+		ReportFeatureUsage(FEATURE_COMMAND_INSERT_EXTENDED);
+	}
 }

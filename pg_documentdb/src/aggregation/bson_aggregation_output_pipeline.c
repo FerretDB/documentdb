@@ -90,7 +90,7 @@ typedef struct MergeArgs
 	/* name of input target Databse */
 	StringView targetDB;
 
-	/* name of input target collection */
+	/* name to the specified input target collection */
 	StringView targetCollection;
 
 	/* input `on` field can be an array or string */
@@ -112,7 +112,7 @@ typedef struct OutArgs
 	/* name of input target Databse */
 	StringView targetDB;
 
-	/* name of input target collection */
+	/* name to the specified input target collection */
 	StringView targetCollection;
 } OutArgs;
 
@@ -216,9 +216,9 @@ bson_dollar_extract_merge_filter(PG_FUNCTION_ARGS)
 
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51132),
 						errmsg(
-							"$merge write error: 'on' field cannot be missing, null, undefined or an array"),
+							"Write operation for $merge failed: the 'on' field must be provided and cannot be null, undefined, or an array"),
 						errdetail_log(
-							"$merge write error: 'on' field cannot be missing, null, undefined or an array")));
+							"Write operation for $merge failed: the 'on' field must be provided and cannot be null, undefined, or an array")));
 	}
 
 	pgbsonelement filterElement;
@@ -230,18 +230,18 @@ bson_dollar_extract_merge_filter(PG_FUNCTION_ARGS)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51185),
 						errmsg(
-							"$merge write error: 'on' field cannot be missing, null, undefined or an array"),
+							"Write operation for $merge failed: the 'on' field must be provided and cannot be null, undefined, or an array"),
 						errdetail_log(
-							"$merge write error: 'on' field cannot be missing, null, undefined or an array")));
+							"Write operation for $merge failed: the 'on' field must be provided and cannot be null, undefined, or an array")));
 	}
 	else if (filterElement.bsonValue.value_type == BSON_TYPE_NULL ||
 			 filterElement.bsonValue.value_type == BSON_TYPE_UNDEFINED)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51132),
 						errmsg(
-							"$merge write error: 'on' field cannot be missing, null, undefined or an array"),
+							"Write operation for $merge failed: the 'on' field must be provided and cannot be null, undefined, or an array"),
 						errdetail_log(
-							"$merge write error: 'on' field cannot be missing, null, undefined or an array")));
+							"Write operation for $merge failed: the 'on' field must be provided and cannot be null, undefined, or an array")));
 	}
 
 	PG_RETURN_POINTER(PgbsonElementToPgbson(&filterElement));
@@ -500,6 +500,13 @@ bson_dollar_merge_handle_when_matched(PG_FUNCTION_ARGS)
 
 		case WhenMatched_FAIL:
 		{
+			/*
+			 * Compatibility Notice: The text in this error string is copied verbatim from MongoDB output to maintain
+			 * compatibility with existing tools and scripts that rely on specific error message formats. Modifying
+			 * this text may cause unexpected behavior in dependent systems.
+			 *
+			 * JsTest to resolve: mode_fail_insert.js
+			 */
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DUPLICATEKEY),
 							errmsg(
 								"$merge with whenMatched: fail found an existing document with the same values for the 'on' fields"),
@@ -572,9 +579,9 @@ bson_dollar_merge_fail_when_not_matched(PG_FUNCTION_ARGS)
 {
 	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_MERGESTAGENOMATCHINGDOCUMENT),
 					errmsg(
-						"$merge could not find a matching document in the target collection for at least one document in the source collection"),
+						"$merge failed to locate a corresponding document in the target collection for one or more documents from the source collection"),
 					errdetail_log(
-						"$merge could not find a matching document in the target collection for at least one document in the source collection")));
+						"$merge failed to locate a corresponding document in the target collection for one or more documents from the source collection")));
 
 	PG_RETURN_NULL();
 }
@@ -623,7 +630,8 @@ HandleMerge(const bson_value_t *existingValue, Query *query,
 	if (IsInTransactionBlock(isTopLevel))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_OPERATIONNOTSUPPORTEDINTRANSACTION),
-						errmsg("$merge cannot be used in a transaction")));
+						errmsg(
+							"$merge is not permitted within an active transaction")));
 	}
 
 	/* if source table does not exist do not modify query */
@@ -663,12 +671,14 @@ HandleMerge(const bson_value_t *existingValue, Query *query,
 		if (targetCollection->viewDefinition != NULL)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTEDONVIEW),
-							errmsg("Namespace %s.%s is a view, not a collection",
-								   targetCollection->name.databaseName,
-								   targetCollection->name.collectionName),
-							errdetail_log("Namespace %s.%s is a view, not a collection",
-										  targetCollection->name.databaseName,
-										  targetCollection->name.collectionName)));
+							errmsg(
+								"The namespace %s.%s refers to a view object rather than a collection",
+								targetCollection->name.databaseName,
+								targetCollection->name.collectionName),
+							errdetail_log(
+								"The namespace %s.%s refers to a view object rather than a collection",
+								targetCollection->name.databaseName,
+								targetCollection->name.collectionName)));
 		}
 		else if (targetCollection->shardKey != NULL)
 		{
@@ -691,7 +701,7 @@ HandleMerge(const bson_value_t *existingValue, Query *query,
 	const int targetObjectIdAttrNo = 2;      /* From Target table we are just selecting 3 columns first one is shard_key_value */
 	const int targetDocAttrNo = 3;           /* From Target table we are just selecting 3 columns third one is document */
 
-	/* constant for source collection */
+	/* Constant value assigned for source collection */
 	const int sourceCollectionVarNo = 2;            /* In merge query source table is 2nd table */
 	const int sourceDocAttrNo = 1;                  /* In source table first projector is document */
 	const int sourceShardKeyValueAttrNo = 2;        /* we will append shard_key_value in source query at 2nd position after document column */
@@ -916,11 +926,11 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
 						errmsg(
-							"$merge requires a string or object argument, but found %s",
+							"The $merge operator needs a string or object input, but received %s instead",
 							BsonTypeName(
 								existingValue->value_type)),
 						errdetail_log(
-							"$merge requires a string or object argument, but found %s",
+							"The $merge operator needs a string or object input, but received %s instead",
 							BsonTypeName(
 								existingValue->value_type))));
 	}
@@ -973,10 +983,10 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 					{
 						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 										errmsg(
-											"BSON field 'into.%s' is the wrong type '%s', expected type 'string",
+											"BSON field 'into.%s' has an incorrect type '%s'; the expected data type is 'string'",
 											innerKey, BsonTypeName(value->value_type)),
 										errdetail_log(
-											"BSON field 'into.%s' is the wrong type '%s', expected type 'string",
+											"BSON field 'into.%s' has an incorrect type '%s'; the expected data type is 'string'",
 											innerKey, BsonTypeName(value->value_type))));
 					}
 
@@ -997,10 +1007,11 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 					else
 					{
 						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
-										errmsg("BSON field 'into.%s' is an unknown field",
-											   innerKey),
+										errmsg(
+											"BSON field 'into.%s' is not recognized as a valid field",
+											innerKey),
 										errdetail_log(
-											"BSON field 'into.%s' is an unknown field",
+											"BSON field 'into.%s' is not recognized as a valid field",
 											innerKey)));
 					}
 				}
@@ -1009,19 +1020,19 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51178),
 									errmsg(
-										"$merge 'into' field must specify a 'coll' that is not empty, null or undefined"),
+										"The 'into' field of $merge must define a collection name that is neither empty, null, nor undefined."),
 									errdetail_log(
-										"$merge 'into' field must specify a 'coll' that is not empty, null or undefined")));
+										"The 'into' field of $merge must define a collection name that is neither empty, null, nor undefined.")));
 				}
 			}
 			else
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51178),
 								errmsg(
-									"$merge 'into' field  must be either a string or an object, but found %s",
+									"$merge 'into' field must contain either a string value or an object, but was given %s instead",
 									BsonTypeName(value->value_type)),
 								errdetail_log(
-									"$merge 'into' field  must be either a string or an object, but found %s",
+									"$merge 'into' field must contain either a string value or an object, but was given %s instead",
 									BsonTypeName(value->value_type))));
 			}
 
@@ -1041,10 +1052,10 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51186),
 								errmsg(
-									"$merge 'on' field  must be either a string or an array of strings, but found %s",
+									"The $merge 'on' field must be provided as either a single string or an array containing multiple strings, but received %s instead.",
 									BsonTypeName(value->value_type)),
 								errdetail_log(
-									"$merge 'on' field  must be either a string or an array of strings, but found %s",
+									"The $merge 'on' field must be provided as either a single string or an array containing multiple strings, but received %s instead.",
 									BsonTypeName(value->value_type))));
 			}
 
@@ -1062,10 +1073,10 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 					{
 						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51134),
 										errmsg(
-											"$merge 'on' array elements must be strings, but found %s",
+											"Array elements for $merge 'on' must be strings, but a %s type was detected",
 											BsonTypeName(onValuesElement->value_type)),
 										errdetail_log(
-											"$merge 'on' array elements must be strings, but found %s",
+											"Array elements for $merge 'on' must be strings, but a %s type was detected",
 											BsonTypeName(onValuesElement->value_type))));
 					}
 				}
@@ -1074,9 +1085,9 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51187),
 									errmsg(
-										"If explicitly specifying $merge 'on', must include at least one field"),
+										"When you explicitly set the operators merge to 'on', you are required to include at least one field."),
 									errdetail_log(
-										"If explicitly specifying $merge 'on', must include at least one field")));
+										"When you explicitly set the operators merge to 'on', you are required to include at least one field.")));
 				}
 			}
 
@@ -1086,8 +1097,9 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 		else if (strcmp(key, "let") == 0)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
-							errmsg("let option is not supported"),
-							errdetail_log("let option is not supported")));
+							errmsg("The let option is currently unsupported"),
+							errdetail_log(
+								"The let option is currently unsupported")));
 		}
 		else if (strcmp(key, "whenMatched") == 0)
 		{
@@ -1104,11 +1116,11 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 				/* TODO : Modify error text when we support pipeline. Replace `must be string` with `must be either a string or array` */
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51191),
 								errmsg(
-									"$merge 'whenMatched' field  must be string, but found %s",
+									"The 'whenMatched' field in $merge needs to be a string value, but a %s type was provided.",
 									BsonTypeName(
 										value->value_type)),
 								errdetail_log(
-									"$merge 'whenMatched' field  must be string, but found %s",
+									"The 'whenMatched' field in $merge needs to be a string value, but a %s type was provided.",
 									BsonTypeName(
 										value->value_type))));
 			}
@@ -1133,10 +1145,10 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"Enumeration value '%s' for field 'whenMatched' is not a valid value.",
+									"The enumeration value '%s' specified for the 'whenMatched' field is invalid.",
 									value->value.v_utf8.str),
 								errdetail_log(
-									"Enumeration value '%s' for field 'whenMatched' is not a valid value.",
+									"The enumeration value '%s' specified for the 'whenMatched' field is invalid.",
 									value->value.v_utf8.str)));
 			}
 		}
@@ -1146,10 +1158,10 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
 								errmsg(
-									"BSON field '$merge.whenNotMatched' is the wrong type '%s', expected type 'string'",
+									"BSON field '$merge.whenNotMatched' has an incorrect type '%s', but it should be of type 'string'",
 									BsonTypeName(value->value_type)),
 								errdetail_log(
-									"BSON field '$merge.whenNotMatched' is the wrong type '%s', expected type 'string'",
+									"BSON field '$merge.whenNotMatched' has an incorrect type '%s', but it should be of type 'string'",
 									BsonTypeName(value->value_type))));
 			}
 
@@ -1169,19 +1181,22 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"Enumeration value '%s' for field '$merge.whenNotMatched' is not a valid value",
+									"The enumeration value '%s' provided for the field operator '$merge.whenNotMatched' is invalid.",
 									value->value.v_utf8.str),
 								errdetail_log(
-									"Enumeration value '%s' for field '$merge.whenNotMatched' is not a valid value",
+									"The enumeration value '%s' provided for the field operator '$merge.whenNotMatched' is invalid.",
 									value->value.v_utf8.str)));
 			}
 		}
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("BSON field '$merge.%s' is an unknown field", key),
-							errdetail_log("BSON field '$merge.%s' is an unknown field",
-										  key)));
+							errmsg(
+								"The BSON field '$merge.%s' is not recognized as a valid field.",
+								key),
+							errdetail_log(
+								"The BSON field '$merge.%s' is not recognized as a valid field.",
+								key)));
 		}
 	}
 
@@ -1189,9 +1204,9 @@ ParseMergeStage(const bson_value_t *existingValue, const char *currentNameSpace,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40414),
 						errmsg(
-							"BSON field '$merge.into' is missing but a required field"),
+							"The required BSON field '$merge.into' is missing."),
 						errdetail_log(
-							"BSON field '$merge.into' is missing but a required field")));
+							"The required BSON field '$merge.into' is missing.")));
 	}
 
 	if (!isOnSpecified)
@@ -1450,10 +1465,10 @@ WriteJoinConditionToQueryDollarMerge(Query *query,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 						errmsg(
-							"on field in $merge stage must be either a string or an array of strings, but found %s",
+							"The on field specified in the $merge stage should be a string or an array containing strings, but a value of type %s was provided instead.",
 							BsonTypeName(mergeArgs.on.value_type)),
 						errdetail_log(
-							"on field in $merge stage must be either a string or an array of strings, but found %s",
+							"The on field specified in the $merge stage should be a string or an array containing strings, but a value of type %s was provided instead.",
 							BsonTypeName(mergeArgs.on.value_type))));
 	}
 
@@ -1605,9 +1620,9 @@ VaildateMergeOnFieldValues(const bson_value_t *onValues, uint64 collectionId)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51183),
 						errmsg(
-							"Cannot find index to verify that join fields will be unique"),
+							"Unable to locate index required to confirm join fields are unique"),
 						errdetail_log(
-							"Cannot find index to verify that join fields will be unique")));
+							"Unable to locate index required to confirm join fields are unique")));
 	}
 }
 
@@ -1738,9 +1753,9 @@ InitHashTableFromStringArray(const bson_value_t *inputKeyArray, int arraySize)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION31465),
 							errmsg(
-								"Found a duplicate field %s", value.string),
+								"Duplicate field %s detected", value.string),
 							errdetail_log(
-								"Found a duplicate field %s", value.string)));
+								"Duplicate field %s detected", value.string)));
 		}
 	}
 
@@ -1762,7 +1777,7 @@ ValidatePreOutputStages(Query *query, char *stageName)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
 						errmsg(
-							"The `%s` stage is not supported with mutable functions yet.",
+							"The `%s` stage currently does not have support for use with mutable functions.",
 							stageName),
 						errdetail_log(
 							"MUTABLE functions are not yet in MERGE command by citus")));
@@ -1908,7 +1923,7 @@ ValidateAndAddObjectIdToWriter(pgbson_writer *writer,
 			ValidateIdField(value);
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_IMMUTABLEFIELD),
 							errmsg(
-								"$merge failed to update the matching document, did you attempt to modify the _id or the shard key?")));
+								"$merge could not update the target document as an immutable field (like '_id' or shardKey) was detected to be modified.")));
 		}
 	}
 
@@ -1962,12 +1977,14 @@ HandleOut(const bson_value_t *existingValue, Query *query,
 		if (targetCollection->viewDefinition != NULL)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTEDONVIEW),
-							errmsg("Namespace %s.%s is a view, not a collection",
-								   targetCollection->name.databaseName,
-								   targetCollection->name.collectionName),
-							errdetail_log("Namespace %s.%s is a view, not a collection",
-										  targetCollection->name.databaseName,
-										  targetCollection->name.collectionName)));
+							errmsg(
+								"The namespace %s.%s refers to a view object rather than a collection",
+								targetCollection->name.databaseName,
+								targetCollection->name.collectionName),
+							errdetail_log(
+								"The namespace %s.%s refers to a view object rather than a collection",
+								targetCollection->name.databaseName,
+								targetCollection->name.collectionName)));
 		}
 		else if (targetCollection && targetCollection->shardKey != NULL)
 		{
@@ -1991,7 +2008,6 @@ HandleOut(const bson_value_t *existingValue, Query *query,
 		ValidateTargetNameSpaceForOutputStage(&outArgs.targetDB,
 											  &outArgs.targetCollection, isMergeStage);
 
-		/* Create the target collection if it does not exist */
 		targetCollection =
 			CreateCollectionForInsert(StringViewGetTextDatum(&outArgs.targetDB),
 									  StringViewGetTextDatum(&outArgs.targetCollection));
@@ -2012,7 +2028,7 @@ HandleOut(const bson_value_t *existingValue, Query *query,
 			targetCollection->schemaValidator.validator);
 	}
 
-	/* constant for source collection */
+	/* Constant value assigned for source collection */
 	const int sourceCollectionVarNo = 2;     /* In merge query source table is 2nd table */
 	const int sourceDocAttrNo = 1;           /* In source table first projector is document */
 	const int sourceShardKeyValueAttrNo = 2; /* we will append shard_key_value in source query at 2nd position after document column */
@@ -2099,7 +2115,7 @@ ParseOutStage(const bson_value_t *existingValue, const char *currentNameSpace,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION16990),
 						errmsg(
-							"$out only supports a string or object argument, but found %s",
+							"Expected 'string' or 'document' type but found '%s' type",
 							BsonTypeName(existingValue->value_type))));
 	}
 
@@ -2149,8 +2165,9 @@ ParseOutStage(const bson_value_t *existingValue, const char *currentNameSpace,
 			if (bsonValue->value_type != BSON_TYPE_UTF8)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION13111),
-								errmsg("wrong type for field (coll) %s != string",
-									   BsonTypeName(bsonValue->value_type))));
+								errmsg(
+									"Field type mismatch in (coll): %s expected string",
+									BsonTypeName(bsonValue->value_type))));
 			}
 
 			args->targetCollection = (StringView) {
@@ -2201,7 +2218,8 @@ ValidateTargetNameSpaceForOutputStage(const StringView *targetDB,
 		int errorCode = isMergeStage ? ERRCODE_DOCUMENTDB_LOCATION31320 :
 						ERRCODE_DOCUMENTDB_LOCATION31321;
 		ereport(ERROR, (errcode(errorCode),
-						errmsg("Cannot %s to internal database: %s", stageName,
+						errmsg("Unable to %s into internal database resource: %s",
+							   stageName,
 							   targetDB->string)));
 	}
 
@@ -2211,7 +2229,7 @@ ValidateTargetNameSpaceForOutputStage(const StringView *targetDB,
 		int errorCode = isMergeStage ? ERRCODE_DOCUMENTDB_LOCATION31319 :
 						ERRCODE_DOCUMENTDB_LOCATION17385;
 		ereport(ERROR, (errcode(errorCode),
-						errmsg(" Can't %s to special collection: %s",
+						errmsg(" Unable to %s into designated special collection: %s",
 							   stageName, targetCollection->string)));
 	}
 }

@@ -1,0 +1,176 @@
+SET search_path TO documentdb_api,documentdb_core,documentdb_api_catalog;
+SET citus.next_shard_id TO 5880000;
+SET documentdb.next_collection_id TO 588000;
+SET documentdb.next_collection_index_id TO 588000;
+-- if documentdb_extended_rum exists, set alternate index handler
+SELECT pg_catalog.set_config('documentdb.alternate_index_handler_name', 'extended_rum', false), extname FROM pg_extension WHERE extname = 'documentdb_extended_rum';
+  set_config  |         extname         
+---------------------------------------------------------------------
+ extended_rum | documentdb_extended_rum
+(1 row)
+
+SELECT documentdb_api_internal.create_indexes_non_concurrently('prep_unique_db', '{ "createIndexes": "collection", "indexes": [ { "name": "a_1", "key": { "a": 1 }, "storageEngine": { "enableOrderedIndex": true, "buildAsUnique": true } } ] }', TRUE);
+NOTICE:  creating collection
+                                                                                                   create_indexes_non_concurrently                                                                                                   
+---------------------------------------------------------------------
+ { "raw" : { "defaultShard" : { "numIndexesBefore" : { "$numberInt" : "1" }, "numIndexesAfter" : { "$numberInt" : "2" }, "createdCollectionAutomatically" : true, "ok" : { "$numberInt" : "1" } } }, "ok" : { "$numberInt" : "1" } }
+(1 row)
+
+\d documentdb_data.documents_588001;
+         Table "documentdb_data.documents_588001"
+     Column      |  Type  | Collation | Nullable | Default 
+---------------------------------------------------------------------
+ shard_key_value | bigint |           | not null | 
+ object_id       | bson   |           | not null | 
+ document        | bson   |           | not null | 
+Indexes:
+    "collection_pk_588001" PRIMARY KEY, btree (shard_key_value, object_id)
+    "documents_rum_index_588002" documentdb_extended_rum (document documentdb_extended_rum_catalog.bson_extended_rum_composite_path_ops (pathspec='[ "a" ]', tl='2691'), documentdb_api_internal.generate_unique_shard_document(document, shard_key_value, '{ "a" : { "$numberInt" : "1" } }'::bson, false) documentdb_extended_rum_catalog.bson_extended_rum_unique_shard_path_ops)
+Check constraints:
+    "shard_key_value_check" CHECK (shard_key_value = '588001'::bigint)
+
+-- inserting and querying works fine.
+select COUNT(documentdb_api.insert_one('prep_unique_db', 'collection', FORMAT('{ "a": %s, "b": %s }', i, 100-i)::bson)) FROM generate_series(1, 100) i;
+ count 
+---------------------------------------------------------------------
+   100
+(1 row)
+
+-- insert a duplicate, should not fail
+SELECT documentdb_api.insert_one('prep_unique_db', 'collection', '{ "a": 1 }');
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+ANALYZE documentdb_data.documents_588001;
+set citus.propagate_set_commands to 'local';
+BEGIN;
+set local documentdb.enableExtendedExplainPlans to on;
+set local enable_seqscan to off;
+EXPLAIN (ANALYZE ON, VERBOSE ON, COSTS OFF, TIMING OFF, SUMMARY OFF) select document FROM bson_aggregation_find('prep_unique_db', '{ "find": "collection", "filter": {"a": {"$gt": 2}} }');
+                                                                                                                                 QUERY PLAN                                                                                                                                 
+---------------------------------------------------------------------
+ Custom Scan (Citus Adaptive) (actual rows=98 loops=1)
+   Output: remote_scan.document
+   Task Count: 1
+   Tuple data received from nodes: 3528 bytes
+   Tasks Shown: All
+   ->  Task
+         Query: SELECT document FROM documentdb_data.documents_588001_5880002 collection WHERE ((document OPERATOR(documentdb_api_catalog.#>) '{ "a" : { "$numberInt" : "2" } }'::documentdb_core.bsonquery) AND (shard_key_value OPERATOR(pg_catalog.=) '588001'::bigint))
+         Tuple data received from node: 3528 bytes
+         Node: host=localhost port=58070 dbname=regression
+         ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=98 loops=1)
+               Output: document
+               indexName: a_1
+               isMultiKey: false
+               indexBounds: ["a": (2, Infinity]]
+               innerScanLoops: 99 loops
+               scanType: ordered
+               scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 98)]
+               ->  Bitmap Heap Scan on documentdb_data.documents_588001_5880002 collection (actual rows=98 loops=1)
+                     Output: document
+                     Recheck Cond: (collection.document OPERATOR(documentdb_api_catalog.@>) '{ "a" : { "$numberInt" : "2" } }'::documentdb_core.bson)
+                     Heap Blocks: exact=2
+                     ->  Bitmap Index Scan on a_1 (actual rows=98 loops=1)
+                           Index Cond: (collection.document OPERATOR(documentdb_api_catalog.@>) '{ "a" : { "$numberInt" : "2" } }'::documentdb_core.bson)
+(23 rows)
+
+ROLLBACK;
+BEGIN;
+set local documentdb.enableExtendedExplainPlans to on;
+set local documentdb.enableIndexOrderByPushdown to on;
+EXPLAIN (ANALYZE ON, VERBOSE ON, COSTS OFF, TIMING OFF, SUMMARY OFF) select document FROM bson_aggregation_find('prep_unique_db', '{ "find": "collection", "filter": {"a": {"$gt": 2}}, "sort": {"a": 1} }');
+                                                                                                                                                                                                                                                           QUERY PLAN                                                                                                                                                                                                                                                           
+---------------------------------------------------------------------
+ Custom Scan (Citus Adaptive) (actual rows=98 loops=1)
+   Output: remote_scan.document
+   Task Count: 1
+   Tuple data received from nodes: 3528 bytes
+   Tasks Shown: All
+   ->  Task
+         Query: SELECT document FROM documentdb_data.documents_588001_5880002 collection WHERE ((document OPERATOR(documentdb_api_catalog.#>) '{ "a" : { "$numberInt" : "2" } }'::documentdb_core.bsonquery) AND (shard_key_value OPERATOR(pg_catalog.=) '588001'::bigint) AND documentdb_api_internal.bson_dollar_fullscan(document, '{ "a" : { "$numberInt" : "1" } }'::documentdb_core.bson)) ORDER BY (documentdb_api_catalog.bson_orderby(document, '{ "a" : { "$numberInt" : "1" } }'::documentdb_core.bson)) NULLS FIRST
+         Tuple data received from node: 3528 bytes
+         Node: host=localhost port=58070 dbname=regression
+         ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=98 loops=1)
+               Output: document, documentdb_api_catalog.bson_orderby(document, '{ "a" : { "$numberInt" : "1" } }'::documentdb_core.bson)
+               indexName: a_1
+               isMultiKey: false
+               indexBounds: ["a": (2, Infinity]]
+               innerScanLoops: 99 loops
+               scanType: ordered
+               scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 98)]
+               ->  Index Scan using a_1 on documentdb_data.documents_588001_5880002 collection (actual rows=98 loops=1)
+                     Output: document
+                     Index Cond: (collection.document OPERATOR(documentdb_api_catalog.@>) '{ "a" : { "$numberInt" : "2" } }'::documentdb_core.bson)
+                     Order By: (collection.document OPERATOR(documentdb_api_catalog.|-<>) '{ "a" : { "$numberInt" : "1" } }'::documentdb_core.bson)
+(21 rows)
+
+ROLLBACK;
+-- multiple fields work fine
+SELECT documentdb_api_internal.create_indexes_non_concurrently('prep_unique_db', '{ "createIndexes": "collection", "indexes": [ { "name": "a_1_b_1", "key": { "a": 1, "b": 1 }, "storageEngine": { "enableOrderedIndex": true, "buildAsUnique": true } } ] }', TRUE);
+                                                                                                   create_indexes_non_concurrently                                                                                                    
+---------------------------------------------------------------------
+ { "raw" : { "defaultShard" : { "numIndexesBefore" : { "$numberInt" : "2" }, "numIndexesAfter" : { "$numberInt" : "3" }, "createdCollectionAutomatically" : false, "ok" : { "$numberInt" : "1" } } }, "ok" : { "$numberInt" : "1" } }
+(1 row)
+
+SELECT bson_dollar_unwind(cursorpage, '$cursor.firstBatch') FROM documentdb_api.list_indexes_cursor_first_page('prep_unique_db', '{ "listIndexes": "collection" }') ORDER BY 1;
+                                                                                                                                                                         bson_dollar_unwind                                                                                                                                                                         
+---------------------------------------------------------------------
+ { "cursor" : { "id" : { "$numberLong" : "0" }, "ns" : "prep_unique_db.collection", "firstBatch" : { "v" : { "$numberInt" : "2" }, "key" : { "_id" : { "$numberInt" : "1" } }, "name" : "_id_" } }, "ok" : { "$numberDouble" : "1.0" } }
+ { "cursor" : { "id" : { "$numberLong" : "0" }, "ns" : "prep_unique_db.collection", "firstBatch" : { "v" : { "$numberInt" : "2" }, "key" : { "a" : { "$numberInt" : "1" } }, "name" : "a_1", "enableOrderedIndex" : { "$numberInt" : "1" }, "buildAsUnique" : { "$numberInt" : "1" } } }, "ok" : { "$numberDouble" : "1.0" } }
+ { "cursor" : { "id" : { "$numberLong" : "0" }, "ns" : "prep_unique_db.collection", "firstBatch" : { "v" : { "$numberInt" : "2" }, "key" : { "a" : { "$numberInt" : "1" }, "b" : { "$numberInt" : "1" } }, "name" : "a_1_b_1", "enableOrderedIndex" : { "$numberInt" : "1" }, "buildAsUnique" : { "$numberInt" : "1" } } }, "ok" : { "$numberDouble" : "1.0" } }
+(3 rows)
+
+\d documentdb_data.documents_588001;
+         Table "documentdb_data.documents_588001"
+     Column      |  Type  | Collation | Nullable | Default 
+---------------------------------------------------------------------
+ shard_key_value | bigint |           | not null | 
+ object_id       | bson   |           | not null | 
+ document        | bson   |           | not null | 
+Indexes:
+    "collection_pk_588001" PRIMARY KEY, btree (shard_key_value, object_id)
+    "documents_rum_index_588002" documentdb_extended_rum (document documentdb_extended_rum_catalog.bson_extended_rum_composite_path_ops (pathspec='[ "a" ]', tl='2691'), documentdb_api_internal.generate_unique_shard_document(document, shard_key_value, '{ "a" : { "$numberInt" : "1" } }'::bson, false) documentdb_extended_rum_catalog.bson_extended_rum_unique_shard_path_ops)
+    "documents_rum_index_588003" documentdb_extended_rum (document documentdb_extended_rum_catalog.bson_extended_rum_composite_path_ops (pathspec='[ "a", "b" ]', tl='2691'), documentdb_api_internal.generate_unique_shard_document(document, shard_key_value, '{ "a" : { "$numberInt" : "1" }, "b" : { "$numberInt" : "1" } }'::bson, false) documentdb_extended_rum_catalog.bson_extended_rum_unique_shard_path_ops)
+Check constraints:
+    "shard_key_value_check" CHECK (shard_key_value = '588001'::bigint)
+
+ANALYZE documentdb_data.documents_588001;
+BEGIN;
+set local documentdb.enableExtendedExplainPlans to on;
+set local enable_seqscan to off;
+EXPLAIN (ANALYZE ON, VERBOSE ON, COSTS OFF, TIMING OFF, SUMMARY OFF) select document FROM bson_aggregation_find('prep_unique_db', '{ "find": "collection", "filter": {"a": {"$gt": 2}, "b": 3} }');
+                                                                                                                                                                                         QUERY PLAN                                                                                                                                                                                          
+---------------------------------------------------------------------
+ Custom Scan (Citus Adaptive) (actual rows=1 loops=1)
+   Output: remote_scan.document
+   Task Count: 1
+   Tuple data received from nodes: 36 bytes
+   Tasks Shown: All
+   ->  Task
+         Query: SELECT document FROM documentdb_data.documents_588001_5880002 collection WHERE ((document OPERATOR(documentdb_api_catalog.#>) '{ "a" : { "$numberInt" : "2" } }'::documentdb_core.bsonquery) AND (document OPERATOR(documentdb_api_catalog.#=) '{ "b" : { "$numberInt" : "3" } }'::documentdb_core.bsonquery) AND (shard_key_value OPERATOR(pg_catalog.=) '588001'::bigint))
+         Tuple data received from node: 36 bytes
+         Node: host=localhost port=58070 dbname=regression
+         ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=1 loops=1)
+               Output: document
+               indexName: a_1_b_1
+               isMultiKey: false
+               indexBounds: ["a": (2, Infinity], "b": [3, 3]]
+               innerScanLoops: 99 loops
+               scanType: ordered
+               scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 1)]
+               ->  Bitmap Heap Scan on documentdb_data.documents_588001_5880002 collection (actual rows=1 loops=1)
+                     Output: document
+                     Recheck Cond: ((collection.document OPERATOR(documentdb_api_catalog.@>) '{ "a" : { "$numberInt" : "2" } }'::documentdb_core.bson) AND (collection.document OPERATOR(documentdb_api_catalog.@=) '{ "b" : { "$numberInt" : "3" } }'::documentdb_core.bson))
+                     Heap Blocks: exact=1
+                     ->  Bitmap Index Scan on a_1_b_1 (actual rows=1 loops=1)
+                           Index Cond: ((collection.document OPERATOR(documentdb_api_catalog.@>) '{ "a" : { "$numberInt" : "2" } }'::documentdb_core.bson) AND (collection.document OPERATOR(documentdb_api_catalog.@=) '{ "b" : { "$numberInt" : "3" } }'::documentdb_core.bson))
+(23 rows)
+
+ROLLBACK;
+-- test error paths
+SELECT documentdb_api_internal.create_indexes_non_concurrently('prep_unique_db', '{"createIndexes": "collection", "indexes": [{"key": {"a": 1 }, "storageEngine": { "enableOrderedIndex": false, "buildAsUnique": true }, "name": "invalid"}]}',true);
+ERROR:  Error in specification { "key" : { "a" : 1 }, "storageEngine" : { "enableOrderedIndex" : false, "buildAsUnique" : true }, "name" : "invalid" }:enableOrderedIndex must be specified when preparing for a unique index.
+SELECT documentdb_api_internal.create_indexes_non_concurrently('prep_unique_db', '{"createIndexes": "collection", "indexes": [{"key": {"b": 1 }, "unique": true, "storageEngine": { "enableOrderedIndex": true, "buildAsUnique": true }, "name": "invalid"}]}',true);
+ERROR:  Error in specification { "key" : { "b" : 1 }, "unique" : true, "storageEngine" : { "enableOrderedIndex" : true, "buildAsUnique" : true }, "name" : "invalid" }:buildAsUnique can only be set when unique is false.

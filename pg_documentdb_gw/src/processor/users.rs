@@ -7,64 +7,58 @@
  */
 
 use crate::{
-    context::ConnectionContext,
+    context::{ConnectionContext, RequestContext},
     error::DocumentDBError,
     postgres::PgDataClient,
-    requests::{Request, RequestInfo},
     responses::Response,
 };
 
 pub async fn process_create_user(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &mut ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response, DocumentDBError> {
     pg_data_client
-        .execute_create_user(request, request_info, connection_context)
+        .execute_create_user(request_context, connection_context)
         .await
 }
 
 pub async fn process_drop_user(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &mut ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response, DocumentDBError> {
     pg_data_client
-        .execute_drop_user(request, request_info, connection_context)
+        .execute_drop_user(request_context, connection_context)
         .await
 }
 
 pub async fn process_update_user(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &mut ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response, DocumentDBError> {
     pg_data_client
-        .execute_update_user(request, request_info, connection_context)
+        .execute_update_user(request_context, connection_context)
         .await
 }
 
 pub async fn process_users_info(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &mut ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response, DocumentDBError> {
     pg_data_client
-        .execute_users_info(request, request_info, connection_context)
+        .execute_users_info(request_context, connection_context)
         .await
 }
 
 pub async fn process_connection_status(
-    request: &Request<'_>,
-    request_info: &mut RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &mut ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<Response, DocumentDBError> {
     pg_data_client
-        .execute_connection_status(request, request_info, connection_context)
+        .execute_connection_status(request_context, connection_context)
         .await
 }

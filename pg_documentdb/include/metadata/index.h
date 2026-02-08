@@ -7,8 +7,8 @@
  *
  *-------------------------------------------------------------------------
  */
-#ifndef MONGO_INDEXES_H
-#define MONGO_INDEXES_H
+#ifndef INDEXES_H
+#define INDEXES_H
 
 #include <postgres.h>
 #include <utils/array.h>
@@ -66,7 +66,7 @@ typedef struct IndexSpec
 
 	/** index options start here **/
 
-	/* "v" number, must be greater than 0 */
+	/* index version specified by "v" number. must be a positive number */
 	int indexVersion;
 
 	/* "key" document, cannot be NULL */
@@ -168,6 +168,9 @@ typedef struct IndexCmdRequest
 
 	/* Denotes the user who has triggered CreateIndexes*/
 	Oid userOid;
+
+	/* The cmdType for this request */
+	char cmdType;
 } IndexCmdRequest;
 
 /* Return value of GetIndexBuildJobOpId */
@@ -187,7 +190,7 @@ typedef struct
  */
 typedef enum MongoIndexKind
 {
-	/* Unknow / invalid index plugin */
+	/* Unrecognized or unsupported index plugin */
 	MongoIndexKind_Unknown = 0x0,
 
 	/* Regular asc/desc index */
@@ -308,12 +311,11 @@ void MarkIndexRequestStatus(int indexId, char cmdType, IndexCmdStatus status,
 							pgbson *comment,
 							IndexJobOpId *opId, int16 attemptCount);
 IndexCmdStatus GetIndexBuildStatusFromIndexQueue(int indexId);
-IndexCmdRequest * GetRequestFromIndexQueue(char cmdType, uint64 collectionId,
+IndexCmdRequest * GetRequestFromIndexQueue(uint64 collectionId,
 										   MemoryContext mcxt);
-IndexCmdRequest * GetSkippableRequestFromIndexQueue(char cmdType, int
-													expireTimeInSeconds,
+IndexCmdRequest * GetSkippableRequestFromIndexQueue(int expireTimeInSeconds,
 													List *skipCollections);
-uint64 * GetCollectionIdsForIndexBuild(char cmdType, List *excludeCollectionIds);
+uint64 * GetCollectionIdsForIndexBuild(List *excludeCollectionIds);
 void AddRequestInIndexQueue(char *createIndexCmd, int indexId, uint64 collectionId, char
 							cmd_type, Oid userOid);
 char * GetIndexQueueName(void);

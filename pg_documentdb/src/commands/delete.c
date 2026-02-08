@@ -85,7 +85,7 @@ typedef struct
 	/* response status (seems to always be 1?) */
 	double ok;
 
-	/* number of rows deleted */
+	/* Count of deleted rows */
 	uint64 rowsDeleted;
 
 	/* list of write errors for each deletion, or NIL */
@@ -165,7 +165,7 @@ command_delete(PG_FUNCTION_ARGS)
 {
 	if (PG_ARGISNULL(0))
 	{
-		ereport(ERROR, (errmsg("database name cannot be NULL")));
+		ereport(ERROR, (errmsg("Database name must not be NULL value")));
 	}
 
 	if (PG_ARGISNULL(1))
@@ -297,7 +297,7 @@ BuildBatchDeletionSpec(bson_iter_t *deleteCommandIter, pgbsonsequence *deleteDoc
 			if (!BSON_ITER_HOLDS_UTF8(deleteCommandIter))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("collection name has invalid type %s",
+								errmsg("Collection name contains an invalid data type %s",
 									   BsonIterTypeName(deleteCommandIter))));
 			}
 
@@ -310,7 +310,7 @@ BuildBatchDeletionSpec(bson_iter_t *deleteCommandIter, pgbsonsequence *deleteDoc
 			if (deleteDocs != NULL)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-								errmsg("Unexpected additional deletes")));
+								errmsg("Unexpected extra delete operations")));
 			}
 
 			deletions = *bson_iter_value(deleteCommandIter);
@@ -350,7 +350,7 @@ BuildBatchDeletionSpec(bson_iter_t *deleteCommandIter, pgbsonsequence *deleteDoc
 		}
 		else if (IsCommonSpecIgnoredField(field))
 		{
-			elog(DEBUG1, "Unrecognized command field: delete.%s", field);
+			elog(DEBUG1, "Command field not recognized: delete.%s", field);
 
 			/*
 			 *  Silently ignore now, so that clients don't break
@@ -361,16 +361,17 @@ BuildBatchDeletionSpec(bson_iter_t *deleteCommandIter, pgbsonsequence *deleteDoc
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
-							errmsg("BSON field 'delete.%s' is an unknown field",
-								   field)));
+							errmsg(
+								"The BSON field 'delete.%s' is not recognized as a valid field name.",
+								field)));
 		}
 	}
 
 	if (collectionName == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40414),
-						errmsg("BSON field 'delete.delete' is missing but "
-							   "a required field")));
+						errmsg(
+							"The required BSON field 'delete.delete' is not present in the data.")));
 	}
 
 	if (deleteDocs != NULL)
@@ -381,8 +382,8 @@ BuildBatchDeletionSpec(bson_iter_t *deleteCommandIter, pgbsonsequence *deleteDoc
 	if (!hasDeletes)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40414),
-						errmsg("BSON field 'delete.deletes' is missing but "
-							   "a required field")));
+						errmsg(
+							"The required BSON field 'delete.deletes' is not present in the data.")));
 	}
 
 	BatchDeletionSpec *batchSpec = palloc0(sizeof(BatchDeletionSpec));
@@ -459,8 +460,9 @@ PostProcessDeleteBatchSpec(BatchDeletionSpec *spec)
 	if (deletionCount == 0 || deletionCount > MaxWriteBatchSize)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDLENGTH),
-						errmsg("Write batch sizes must be between 1 and %d. "
-							   "Got %d operations.", MaxWriteBatchSize, deletionCount)));
+						errmsg(
+							"Write batch size must fall within the range of 1 to %d, but %d operations were provided.",
+							MaxWriteBatchSize, deletionCount)));
 	}
 }
 
@@ -564,23 +566,24 @@ BuildDeletionSpec(bson_iter_t *deletionIter, const bson_value_t *variableSpec)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
-							errmsg("BSON field 'delete.deletes.%s' is an unknown field",
-								   field)));
+							errmsg(
+								"The BSON field 'delete.deletes.%s' is not recognized as a valid field.",
+								field)));
 		}
 	}
 
 	if (query == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40414),
-						errmsg("BSON field 'delete.deletes.q' is missing but "
-							   "a required field")));
+						errmsg(
+							"The BSON field 'delete.deletes.q' is not present, but it is required")));
 	}
 
 	if (limit == -1)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40414),
-						errmsg("BSON field 'delete.deletes.limit' is missing but "
-							   "a required field")));
+						errmsg(
+							"The BSON field 'delete.deletes.limit' is not present, but it is required")));
 	}
 
 	DeletionSpec *deletionSpec = palloc0(sizeof(DeletionSpec));
@@ -659,7 +662,7 @@ ProcessBatchDeletion(MongoCollection *collection, BatchDeletionSpec *batchSpec,
 			MemoryContextSwitchTo(oldContext);
 			ErrorData *errorData = CopyErrorDataAndFlush();
 
-			/* Abort the inner transaction */
+			/* Abort inner transaction */
 			RollbackAndReleaseCurrentSubTransaction();
 			MemoryContextSwitchTo(oldContext);
 			CurrentResourceOwner = oldOwner;
@@ -733,15 +736,6 @@ ProcessDeletion(MongoCollection *collection, DeletionSpec *deletionSpec,
 	bson_iter_t queryDocIter;
 	PgbsonInitIterator(query, &queryDocIter);
 
-	bson_value_t idFromQueryDocument = { 0 };
-	bool errorOnConflict = false;
-	bool queryHasNonIdFilters = false;
-	bool isIdFilterCollationAware = false;
-	bool hasObjectIdFilter =
-		TraverseQueryDocumentAndGetId(&queryDocIter, &idFromQueryDocument,
-									  errorOnConflict, &queryHasNonIdFilters,
-									  &isIdFilterCollationAware);
-
 	uint64_t result = 0;
 	const char *collationString = deletionSpec->deleteOneParams.collationString;
 	bool applyCollationToShardKeyValue = IsCollationApplicable(collationString) &&
@@ -763,50 +757,59 @@ ProcessDeletion(MongoCollection *collection, DeletionSpec *deletionSpec,
 											deletionSpec->deleteOneParams.variableSpec,
 											collationString, hasShardKeyValueFilter,
 											shardKeyHash);
+		pfree(query);
+		return result;
+	}
+
+	bson_value_t idFromQueryDocument = { 0 };
+	bool errorOnConflict = false;
+	bool queryHasNonIdFilters = false;
+	bool isIdFilterCollationAware = false;
+	bool hasObjectIdFilter =
+		TraverseQueryDocumentAndGetId(&queryDocIter, &idFromQueryDocument,
+									  errorOnConflict, &queryHasNonIdFilters,
+									  &isIdFilterCollationAware);
+	DeleteOneResult deleteOneResult = { 0 };
+
+	/* With limit = 1, we currently target only one shard for the deletion. */
+	/* If the shard key value is collation-sensitive, we cannot target a single */
+	/* shard with it.*/
+	/* We then fall on any _id value filter. If none is provided, we fail. */
+	bool useShardKeyValueFilter = hasShardKeyValueFilter &&
+								  !applyCollationToShardKeyValue;
+	if (useShardKeyValueFilter)
+	{
+		/*
+		 * Delete at most 1 document that matches the query on a single shard.
+		 *
+		 * For unsharded collection, this is the shard that contains all the
+		 * data.
+		 */
+		CallDeleteOne(collection, &deletionSpec->deleteOneParams, shardKeyHash,
+					  transactionId, forceInlineWrites, &deleteOneResult);
+	}
+	else if (hasObjectIdFilter)
+	{
+		/*
+		 * Delete at most 1 document that matches an _id equality filter from
+		 * a sharded collection without specifying a a shard key filter.
+		 */
+		DeleteOneObjectId(collection, &deletionSpec->deleteOneParams,
+						  &idFromQueryDocument, isIdFilterCollationAware,
+						  queryHasNonIdFilters, forceInlineWrites,
+						  transactionId, &deleteOneResult);
 	}
 	else
 	{
-		DeleteOneResult deleteOneResult = { 0 };
-
-		/* With limit = 1, we currently target only one shard for the deletion. */
-		/* If the shard key value is collation-sensitive, we cannot target a single */
-		/* shard with it.*/
-		/* We then fall on any _id value filter. If none is provided, we fail. */
-		bool useShardKeyValueFilter = hasShardKeyValueFilter &&
-									  !applyCollationToShardKeyValue;
-		if (useShardKeyValueFilter)
-		{
-			/*
-			 * Delete at most 1 document that matches the query on a single shard.
-			 *
-			 * For unsharded collection, this is the shard that contains all the
-			 * data.
-			 */
-			CallDeleteOne(collection, &deletionSpec->deleteOneParams, shardKeyHash,
-						  transactionId, forceInlineWrites, &deleteOneResult);
-		}
-		else if (hasObjectIdFilter)
-		{
-			/*
-			 * Delete at most 1 document that matches an _id equality filter from
-			 * a sharded collection without specifying a a shard key filter.
-			 */
-			DeleteOneObjectId(collection, &deletionSpec->deleteOneParams,
-							  &idFromQueryDocument, isIdFilterCollationAware,
-							  queryHasNonIdFilters, forceInlineWrites,
-							  transactionId, &deleteOneResult);
-		}
-		else
-		{
-			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							errmsg("delete query with limit 1 must include either "
-								   "_id or%s shard key filter",
-								   isShardKeyValueCollationAware ?
-								   " collation-insensitive" : "")));
-		}
-
-		result = deleteOneResult.isRowDeleted ? 1 : 0;
+		ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+						errmsg("delete query with limit 1 must include either "
+							   "_id or%s shard key filter",
+							   isShardKeyValueCollationAware ?
+							   " collation-insensitive" : "")));
 	}
+
+	result = deleteOneResult.isRowDeleted ? 1 : 0;
+
 
 	pfree(query);
 	return result;
@@ -939,7 +942,7 @@ DeleteAllMatchingDocuments(MongoCollection *collection, pgbson *queryDoc,
 	Oid *argTypes = palloc0(sizeof(Oid) * argCount);
 	char *argNulls = palloc0(sizeof(char) * argCount);
 
-	/* set query value */
+	/* assign query value */
 	Oid bsonTypeId = BsonTypeId();
 	argTypes[0] = bsonTypeId;
 	argValues[0] = PointerGetDatum(queryDoc);
@@ -1224,7 +1227,7 @@ command_delete_worker(PG_FUNCTION_ARGS)
 /*
  * DeleteOneInternal deletes a single row with a specific shard key value filter.
  *
- * Returns 1 if a row was deleted, and 0 if no row matched the query.
+ * Returns 1 if a row was deleted, and 0 if No rows were found matching the provided query.
  */
 static void
 DeleteOneInternal(MongoCollection *collection, DeleteOneParams *deleteOneParams,
@@ -1239,12 +1242,12 @@ DeleteOneInternal(MongoCollection *collection, DeleteOneParams *deleteOneParams,
 
 	int argCount = sortFieldDocumentsLength;
 
-	pgbson *query = PgbsonInitFromDocumentBsonValue(deleteOneParams->query);
 	bool queryHasNonIdFilters = false;
 	bool isIdFilterCollationAware = false;
-	pgbson *objectIdFilter = GetObjectIdFilterFromQueryDocument(query,
-																&queryHasNonIdFilters,
-																&isIdFilterCollationAware);
+	pgbson *objectIdFilter =
+		GetObjectIdFilterFromQueryDocumentValue(deleteOneParams->query,
+												&queryHasNonIdFilters,
+												&isIdFilterCollationAware);
 
 	bool applyObjectIdFilter = objectIdFilter != NULL;
 	if (applyObjectIdFilter && applyCollation)
@@ -1355,7 +1358,8 @@ DeleteOneInternal(MongoCollection *collection, DeleteOneParams *deleteOneParams,
 	argValues[0] = Int64GetDatum(shardKeyHash);
 	argNulls[0] = ' ';
 
-	/* set query value*/
+	/* assign query value*/
+	pgbson *query = PgbsonInitFromDocumentBsonValue(deleteOneParams->query);
 	Oid bsonTypeId = BsonTypeId();
 	argTypes[1] = bsonTypeId;
 	argValues[1] = PointerGetDatum(query);
@@ -1382,7 +1386,7 @@ DeleteOneInternal(MongoCollection *collection, DeleteOneParams *deleteOneParams,
 		argNulls[objectIdArgIndex] = ' ';
 	}
 
-	/* set sort values */
+	/* assign sorting values */
 	if (sortFieldDocumentsLength > 0)
 	{
 		appendStringInfoString(&selectQuery, " ORDER BY");
@@ -1486,7 +1490,7 @@ DeleteOneInternal(MongoCollection *collection, DeleteOneParams *deleteOneParams,
 	}
 	else
 	{
-		/* no row matched the query */
+		/* No rows were found matching the provided query */
 		result->isRowDeleted = false;
 		result->objectId = NULL;
 	}
@@ -1785,13 +1789,14 @@ DeleteOneObjectId(MongoCollection *collection, DeleteOneParams *deleteOneParams,
 
 		if (result->isRowDeleted)
 		{
-			/* deleted the document */
+			/* Document has been successfully removed */
 			return;
 		}
 	}
 
 	ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
-					errmsg("failed to delete document after %d tries", maxTries)));
+					errmsg("Unable to remove document even after %d attempts",
+						   maxTries)));
 }
 
 

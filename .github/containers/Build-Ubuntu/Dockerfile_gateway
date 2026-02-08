@@ -11,15 +11,6 @@ RUN sudo apt-get update && \
     jq curl sudo git make build-essential openssl pkg-config libssl-dev \
     && sudo rm -rf /var/lib/apt/lists/*
 
-# Install rustup (which includes rustc and cargo) in user directory
-ENV RUSTUP_HOME=/home/documentdb/.rustup \
-    CARGO_HOME=/home/documentdb/.cargo \
-    PATH=/home/documentdb/.cargo/bin:$PATH
-
-RUN curl https://sh.rustup.rs -sSf | sh -s -- -y --no-modify-path --default-toolchain stable
-
-RUN rustc --version && cargo --version
-
 USER documentdb
 WORKDIR /home/documentdb/code
 
@@ -27,10 +18,19 @@ COPY . /home/documentdb/code
 
 RUN sudo chown -R documentdb:documentdb /home/documentdb/code
 
+# Install rustup (which includes rustc and cargo) in user directory
+ENV RUSTUP_HOME=/home/documentdb/.rustup \
+    CARGO_HOME=/home/documentdb/.cargo \
+    PATH=/home/documentdb/.cargo/bin:$PATH
+
+RUN . /home/documentdb/code/scripts/install_rustup.sh
+
+RUN rustc --version && cargo --version
+
 WORKDIR /home/documentdb/code/pg_documentdb_gw
 
 # Compile the code
-RUN cargo build
+RUN cargo build --profile=release-with-symbols
 
 #------------------------------------------------------------------------------------------------
 
@@ -51,8 +51,7 @@ RUN sudo apt-get update && \
 ENV LANGUAGE=en_US.UTF-8 \
     TERM=xterm-256color
 
-ENV ENFORCE_SSL="true" \
-    CERT_PATH="" \
+ENV CERT_PATH="" \
     KEY_FILE="" \
     DATA_PATH="/data" \
     DOCUMENTDB_PORT="10260" \
@@ -68,8 +67,9 @@ ENV ENFORCE_SSL="true" \
 
 RUN sudo mkdir /home/documentdb/gateway
 
-COPY --from=stage /home/documentdb/code/pg_documentdb_gw/target/debug/documentdb_gateway /home/documentdb/gateway/documentdb_gateway
-COPY --from=stage /home/documentdb/code/pg_documentdb_gw/SetupConfiguration.json /home/documentdb/gateway/SetupConfiguration.json
+COPY --from=stage /home/documentdb/code/pg_documentdb_gw/target/release-with-symbols/documentdb_gateway \
+                  /home/documentdb/gateway/pg_documentdb_gw/target/release-with-symbols/documentdb_gateway
+COPY --from=stage /home/documentdb/code/pg_documentdb_gw/SetupConfiguration.json /home/documentdb/gateway/pg_documentdb_gw/SetupConfiguration.json
 COPY --from=stage /home/documentdb/code/scripts/start_oss_server.sh /home/documentdb/gateway/scripts/start_oss_server.sh
 COPY --from=stage /home/documentdb/code/scripts/build_and_start_gateway.sh /home/documentdb/gateway/scripts/build_and_start_gateway.sh
 COPY --from=stage /home/documentdb/code/scripts/emulator_entrypoint.sh /home/documentdb/gateway/scripts/emulator_entrypoint.sh

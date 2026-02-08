@@ -7,16 +7,17 @@
  */
 
 use crate::{
-    context::ConnectionContext,
+    context::{ConnectionContext, RequestContext},
     error::{DocumentDBError, Result},
-    requests::Request,
     responses::Response,
 };
 
 pub async fn end_sessions(
-    request: &Request<'_>,
+    request_context: &mut RequestContext<'_>,
     context: &mut ConnectionContext,
 ) -> Result<Response> {
+    let request = request_context.payload;
+
     let store = context.service_context.transaction_store();
     for value in request
         .document()

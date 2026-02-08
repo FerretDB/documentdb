@@ -3,7 +3,6 @@ SET citus.next_shard_id TO 562000;
 SET documentdb.next_collection_id TO 5620;
 SET documentdb.next_collection_index_id TO 5620;
 SET documentdb.enable_large_unique_index_keys TO false;
-set documentdb.enableNewCompositeIndexOpClass to on;
 -- insert a document
 SELECT documentdb_api.insert_one('db','queryuniquecomposite','{"_id":"1", "a": { "b": 1 } }', NULL);
 NOTICE:  creating collection
@@ -95,7 +94,6 @@ BEGIN;
 set local documentdb.forceUseIndexIfAvailable to on;
 set local enable_seqscan TO off;
 set local documentdb.forceRumIndexScantoBitmapHeapScan TO OFF;
-set local documentdb.enableNewCompositeIndexOpClass to on;
 EXPLAIN (COSTS OFF) SELECT document FROM documentdb_api.collection('db', 'queryuniquecomposite') WHERE document @@ '{ "a.b": { "$gt": 5 } }';
                                                              QUERY PLAN                                                              
 ---------------------------------------------------------------------
@@ -166,8 +164,8 @@ SELECT documentdb_api.insert_one('db','queryuniquecomposite','{"_id":"10", "a": 
 -- create an index when the collection violates unique. Should fail.
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "queryuniquecomposite", "indexes": [ { "key" : { "a.b": 1 }, "name": "rumConstraint1", "unique": 1, "sparse": 1, "enableCompositeTerm": true }] }', true);
 ERROR:  could not create exclusion constraint "documents_rum_index_5622_562002"
-DETAIL:  Key (document, generate_unique_shard_document(document, shard_key_value, '{ "a.b" : { "$numberInt" : "1" } }'::bson, true))=({ "_id" : "1", "a" : { "b" : { "$numberInt" : "1" } } }, { "$shard_key_value" : { "$numberLong" : "5620" }, "$numTerms" : { "$numberInt" : "1" }, "$numPaths" : { "$numberInt" : "1" }, "a.b" : [ { "$numberInt" : "1" } ] }) conflicts with key (document, generate_unique_shard_document(document, shard_key_value, '{ "a.b" : { "$numberInt" : "1" } }'::bson, true))=({ "_id" : "9", "a" : { "b" : { "$numberInt" : "1" } } }, { "$shard_key_value" : { "$numberLong" : "5620" }, "$numTerms" : { "$numberInt" : "1" }, "$numPaths" : { "$numberInt" : "1" }, "a.b" : [ { "$numberInt" : "1" } ] }).
-CONTEXT:  SQL statement "ALTER TABLE documentdb_data.documents_5620 ADD CONSTRAINT documents_rum_index_5622 EXCLUDE USING documentdb_rum ( document documentdb_api_internal.bson_rum_composite_path_ops(pathspec='[ "a.b" ]',tl=2691) WITH OPERATOR(documentdb_api_catalog.=?=),documentdb_api_internal.generate_unique_shard_document(document, shard_key_value, 'BSONHEX0e00000010612e62000100000000'::documentdb_core.bson, true) documentdb_api_internal.bson_rum_unique_shard_path_ops WITH OPERATOR(documentdb_api_internal.=#=)) "
+DETAIL:  Key (document, documentdb_api_internal.generate_unique_shard_document(document, shard_key_value, '{ "a.b" : { "$numberInt" : "1" } }'::documentdb_core.bson, true))=({ "_id" : "1", "a" : { "b" : { "$numberInt" : "1" } } }, { "$shard_key_value" : { "$numberLong" : "5620" }, "$numTerms" : { "$numberInt" : "1" }, "$numPaths" : { "$numberInt" : "1" }, "a.b" : [ { "$numberInt" : "1" } ] }) conflicts with key (document, documentdb_api_internal.generate_unique_shard_document(document, shard_key_value, '{ "a.b" : { "$numberInt" : "1" } }'::documentdb_core.bson, true))=({ "_id" : "9", "a" : { "b" : { "$numberInt" : "1" } } }, { "$shard_key_value" : { "$numberLong" : "5620" }, "$numTerms" : { "$numberInt" : "1" }, "$numPaths" : { "$numberInt" : "1" }, "a.b" : [ { "$numberInt" : "1" } ] }).
+CONTEXT:  SQL statement "ALTER TABLE documentdb_data.documents_5620 ADD CONSTRAINT documents_rum_index_5622 EXCLUDE USING documentdb_rum ( document documentdb_api_internal.bson_rum_composite_path_ops(pathspec='[ "a.b" ]',tl=2691) WITH OPERATOR(documentdb_api_catalog.=?=),documentdb_api_internal.generate_unique_shard_document(document, shard_key_value, 'BSONHEX0e00000010612e62000100000000'::documentdb_core.bson, true) documentdb_api_internal.bson_rum_unique_shard_path_ops  WITH OPERATOR(documentdb_api_internal.=#=)) "
 -- create a unique index with the same name ( should be fine since we dropped it )
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "queryuniquecomposite", "indexes": [ { "key" : { "c": 1 }, "name": "rumConstraint1", "unique": 1, "sparse": 1 , "enableCompositeTerm": true}] }', true);
                                                                                                    create_indexes_non_concurrently                                                                                                    
@@ -225,9 +223,9 @@ SELECT * FROM documentdb_distributed_test_helpers.get_collection_indexes('db', '
 
 -- create unique index fails for wildcard.
 SELECT documentdb_api_internal.create_indexes_non_concurrently('uniquedb', '{"createIndexes": "collection1", "indexes": [{"key": {"f.$**": 1}, "name": "my_idx3", "unique": 1.0 }]}', true);
-ERROR:  Error in specification { "key" : { "f.$**" : 1 }, "name" : "my_idx3", "unique" : 1.0 } :: caused by :: Index type 'wildcard' does not support the unique option
+ERROR:  Error in specification { "key" : { "f.$**" : 1 }, "name" : "my_idx3", "unique" : 1.0 }:Index type 'wildcard' does not support the unique option
 SELECT documentdb_api_internal.create_indexes_non_concurrently('uniquedb', '{"createIndexes": "collection1", "indexes": [{"key": {"$**": 1}, "wildcardProjection": { "f.g": 0 }, "name": "my_idx3", "unique": 1.0}]}', true);
-ERROR:  Error in specification { "key" : { "$**" : 1 }, "wildcardProjection" : { "f.g" : 0 }, "name" : "my_idx3", "unique" : 1.0 } :: caused by :: Index type 'wildcard' does not support the unique option
+ERROR:  Error in specification { "key" : { "$**" : 1 }, "wildcardProjection" : { "f.g" : 0 }, "name" : "my_idx3", "unique" : 1.0 }:Index type 'wildcard' does not support the unique option
 -- test for sharded
 SELECT documentdb_api.insert_one('db','queryuniqueshardedcomposite','{"_id":"1", "a": { "b": 1 }, "d": 1 }', NULL);
 NOTICE:  creating collection
@@ -311,7 +309,6 @@ SELECT documentdb_api.insert_one('db','queryuniqueshardedcomposite','{"_id":"9",
 BEGIN;
 set local documentdb.forceUseIndexIfAvailable to on;
 set local enable_seqscan TO off;
-set local documentdb.enableNewCompositeIndexOpClass to on;
 EXPLAIN (COSTS OFF) SELECT document FROM documentdb_api.collection('db', 'queryuniqueshardedcomposite') WHERE document @@ '{ "a.b": { "$gt": 5 } }';
                                                                 QUERY PLAN                                                                 
 ---------------------------------------------------------------------

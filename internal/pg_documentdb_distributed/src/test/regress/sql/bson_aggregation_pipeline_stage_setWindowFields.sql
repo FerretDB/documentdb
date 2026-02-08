@@ -1660,3 +1660,14 @@ SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db',
 -- "CURRENT ROW" in a range frame does not always refer to the current physical row; it refers to the first peer with the same sort key value.
 SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db',
     '{ "aggregate": "setWindowFields", "pipeline":  [{"$setWindowFields": {"partitionBy": "$a", "sortBy": { "date": 1 }, "output": {"totalInGroup": { "$max": "$quantity", "window": {"range": ["current", "current"], "unit": "day"}}}}}]}');
+
+
+-- Tests for $last
+
+SELECT documentdb_api.insert_one('db','lastSetWindowFields','{ "_id": 1, "storeId": 1, "area": "Delhi", "company": "ABC Cares", "lastUpdated": { "$date" : { "$numberLong" : "1756720800000" } }, "status": "open" }', NULL);
+SELECT documentdb_api.insert_one('db','lastSetWindowFields','{ "_id": 2, "storeId": 2, "area": "Mumbai", "company": "ABC Cares", "lastUpdated": { "$date" : { "$numberLong" : "1756902000000" } }, "status": "closed" }', NULL);
+SELECT documentdb_api.insert_one('db','lastSetWindowFields','{ "_id": 3, "storeId": 3, "area": "Kolkata", "company": "ABC Cares", "lastUpdated": { "$date" : { "$numberLong" : "1757086200000" } }, "status": "open" }', NULL);
+SELECT documentdb_api.insert_one('db','lastSetWindowFields','{ "_id": 4, "storeId": 4, "area": "Chennai", "company": "ABC Cares", "lastUpdated": { "$date" : { "$numberLong" : "1757235600000" } }, "status": "open" }', NULL);
+
+SELECT document FROM documentdb_api_catalog.bson_aggregation_pipeline('db',
+    '{ "aggregate": "lastSetWindowFields", "pipeline":[{"$match":{"company":{"$in":["ABC Cares"]}}}, {"$setWindowFields": {"partitionBy":"$company","sortBy": {"lastUpdated": {"$numberInt" : "1" } }, "output" : { "lastUpdatedDateForStore" : { "$last" : "$lastUpdated", "window" : { "documents" : [ "current", "unbounded" ] } } } } } ]}');

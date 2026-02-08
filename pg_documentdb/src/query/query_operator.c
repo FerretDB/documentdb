@@ -220,8 +220,10 @@ pg_attribute_noreturn()
 ThrowInvalidRegexOptions(char c)
 {
 	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51108), errmsg(
-						"invalid flag in regex options %c", c),
-					errdetail_log("invalid flag in regex options %c", c)));
+						"Invalid flag detected within the specified regex options %c", c),
+					errdetail_log(
+						"Invalid flag detected within the specified regex options %c",
+						c)));
 }
 
 /* --------------------------------------------------------- */
@@ -501,7 +503,7 @@ CreateQualForBsonValueArrayExpression(const bson_value_t *expression)
 	if (expression->value_type != BSON_TYPE_ARRAY)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"expression should be an array")));
+							"Expression must be an array type")));
 	}
 
 	Var *var = makeVar(1, 1, INTERNALOID, -1, DEFAULT_COLLATION_OID, 0);
@@ -846,7 +848,7 @@ ReplaceBsonQueryOperatorsMutator(Node *node, ReplaceBsonQueryOperatorsContext *c
 					}
 				}
 
-				Const *variableSpecConst = variableSpecConst = (Const *) variableSpecNode;
+				Const *variableSpecConst = (Const *) variableSpecNode;
 
 				char *collationString = NULL;
 				Const *collationConst = (Const *) collationStringNode;
@@ -1015,7 +1017,7 @@ ExpandBsonQueryOperator(OpExpr *queryOpExpr, Node *queryNode,
 			bool hasShardKeyFilters = false;
 			if (collection->shardKey != NULL)
 			{
-				/* extract the shard_key_value filter for the given collection */
+				/* Retrieve the shard_key_value filter applicable to the specified collection */
 				bson_value_t queryDocValue = ConvertPgbsonToBsonValue(queryDocument);
 				bool areShardKeysCollationAware = false;
 				Expr *shardKeyFilters =
@@ -1348,7 +1350,7 @@ CreateBoolExprFromLogicalExpression(bson_iter_t *queryDocIterator,
 		if (!BsonValueIsNumberOrBool(value) || BsonValueAsInt32(value) != 1)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("%s must be an integer value of 1",
+							errmsg("%s must always be an integer value of exactly 1",
 								   operatorType == QUERY_OPERATOR_ALWAYS_TRUE ?
 								   "$alwaysTrue" : "$alwaysFalse")));
 		}
@@ -1366,7 +1368,7 @@ CreateBoolExprFromLogicalExpression(bson_iter_t *queryDocIterator,
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 							errmsg(
-								"argument to $sampleRate must be a numeric type"),
+								"The operator $sampleRate requires an argument of numeric data type."),
 							errdetail_log("argument to $sampleRate is: %s",
 										  BsonValueToJsonForLogging(sampleRate))));
 		}
@@ -1438,7 +1440,7 @@ CreateBoolExprFromLogicalExpression(bson_iter_t *queryDocIterator,
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 							errmsg(
-								"$text is not allowed in this context")));
+								"$text cannot be used in this specific context")));
 		}
 
 		if (context->inputType != MongoQueryOperatorInputType_Bson)
@@ -1448,7 +1450,7 @@ CreateBoolExprFromLogicalExpression(bson_iter_t *queryDocIterator,
 								"$text can only be applied to the top-level document")));
 		}
 
-		/* Special case for $text */
+		/* Special handling required for operator text */
 		const char *path = "";
 		BsonValidateTextQuery(bson_iter_value(queryDocIterator));
 		return CreateFuncExprForQueryOperator(context,
@@ -1487,7 +1489,7 @@ CreateBoolExprFromLogicalExpression(bson_iter_t *queryDocIterator,
 	if (bson_iter_type(queryDocIterator) != BSON_TYPE_ARRAY)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"%s must be an array",
+							"Expected 'array' type for %s",
 							mongoOperatorName)));
 	}
 
@@ -1588,7 +1590,7 @@ CreateBoolExprFromLogicalExpression(bson_iter_t *queryDocIterator,
 		TargetListContainsGeonearOp(context->targetEntries))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"geo $near must be top-level expr")));
+							"$geoNear must appear at the top level of the expression")));
 	}
 
 	return (Expr *) logicalExpr;
@@ -1656,7 +1658,7 @@ ValidateIfIteratorValueUndefined(bson_iter_t *iter, bool isInMatchExpression)
 								"InMatchExpression equality cannot be undefined")));
 		}
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"cannot compare to undefined")));
+							"Comparison with undefined value is not allowed")));
 	}
 }
 
@@ -1804,7 +1806,7 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 										bool *regexFound,
 										bson_value_t **options)
 {
-	/* get query operator type */
+	/* Retrieve query operator category */
 	const char *mongoOperatorName = bson_iter_key(operatorDocIterator);
 	const MongoQueryOperator *operator =
 		GetMongoQueryOperatorByMongoOpName(mongoOperatorName, context->inputType);
@@ -1827,7 +1829,8 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 			if (!BSON_ITER_HOLDS_ARRAY(operatorDocIterator))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("%s needs an array", mongoOperatorName)));
+								errmsg("Expected 'array' type for %s",
+									   mongoOperatorName)));
 			}
 
 			bson_iter_t arrayIterator;
@@ -1944,7 +1947,8 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 			if (!BSON_ITER_HOLDS_ARRAY(operatorDocIterator))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("%s needs an array", mongoOperatorName)));
+								errmsg("Expected 'array' type for %s",
+									   mongoOperatorName)));
 			}
 
 			bson_iter_t arrayIterator;
@@ -2003,7 +2007,7 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 				else if (doubleValue < 0)
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-										"Failed to parse $size. Expected a non-negative number in: $size: %s",
+										"Parsing of operator $size failed. A non-negative value was expected in operator $size: %s",
 										BsonValueToJsonForLogging(value))));
 				}
 			}
@@ -2040,8 +2044,9 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 				if (!IsDoubleAFixedInteger(doubleValue))
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-									errmsg("Invalid numerical type code %s",
-										   BsonValueToJsonForLogging(typeIdValue))));
+									errmsg(
+										"Unsupported or invalid numerical type code %s",
+										BsonValueToJsonForLogging(typeIdValue))));
 				}
 
 				/* try to resolve the type */
@@ -2070,9 +2075,10 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 						if (!IsDoubleAFixedInteger(doubleValue))
 						{
 							ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-											errmsg("Invalid numerical type code %s",
-												   BsonValueToJsonForLogging(
-													   typeIdArrayValue))));
+											errmsg(
+												"Unsupported or invalid numerical type code %s",
+												BsonValueToJsonForLogging(
+													typeIdArrayValue))));
 						}
 
 						/* try to resolve the type */
@@ -2083,13 +2089,18 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 					{
 						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 										errmsg(
-											"type must be represented as a number or a string")));
+											"The specified type must be expressed either in numerical form or as a textual string.")));
 					}
 				}
 
 				if (!typeArrayHasElements)
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
+
+					                /* Compatibility Notice: The text in this error string is copied verbatim
+					                 * from MongoDB output to maintain compatibility with
+					                 * existing tools and scripts that rely on specific error message formats.
+					                 * Modifying this text may cause unexpected behavior in dependent systems. */
 									errmsg("%s must match at least one type", path)));
 				}
 			}
@@ -2097,7 +2108,7 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"type must be represented as a number or a string")));
+									"The specified type must be expressed either in numerical form or as a textual string.")));
 			}
 
 			return CreateFuncExprForSimpleQueryOperator(operatorDocIterator,
@@ -2205,7 +2216,7 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 				if (!bson_iter_next(&checkIterator))
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-										"$not cannot be empty")));
+										"Operator $not must not be left empty")));
 				}
 
 				/*
@@ -2272,7 +2283,7 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 		case QUERY_OPERATOR_TEXT:
 		{
 			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg(
-								"$text operator is not yet implemented")));
+								"$text operator functionality not implemented yet")));
 		}
 
 		case QUERY_OPERATOR_WITHIN:
@@ -2281,7 +2292,10 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 			if (!BSON_ITER_HOLDS_DOCUMENT(operatorDocIterator))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("geometry must be an object")));
+								errmsg(
+									"Expected 'document' type for Geometry but found '%s' instead",
+									BsonTypeName(
+										bson_iter_type(operatorDocIterator)))));
 			}
 
 			const bson_value_t *value = bson_iter_value(operatorDocIterator);
@@ -2307,7 +2321,10 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 			if (!BSON_ITER_HOLDS_DOCUMENT(operatorDocIterator))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("geometry must be an object")));
+								errmsg(
+									"Expected 'document' type for Geometry but found '%s' instead",
+									BsonTypeName(
+										bson_iter_type(operatorDocIterator)))));
 			}
 
 			const bson_value_t *value = bson_iter_value(operatorDocIterator);
@@ -2324,10 +2341,10 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 				ereport(ERROR, (
 							errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 							errmsg(
-								"$geoIntersect not supported with provided geometry: %s",
+								"$geoIntersect is not supported with the given geometry input: %s",
 								BsonValueToJsonForLogging(value)),
 							errdetail_log(
-								"$geoIntersect not supported with provided geometry.")));
+								"$geoIntersect is not supported with the given geometry input.")));
 			}
 
 			ShapeOperatorInfo *opInfo = palloc0(sizeof(ShapeOperatorInfo));
@@ -2351,7 +2368,7 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"$%s is not allowed in this context",
+									"%s cannot be used in this particular context",
 									mongoOperatorName)));
 			}
 
@@ -2402,13 +2419,12 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 				if (!bson_iter_next(&refIterator))
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-										"unknown operator: %s",
+										"Unrecognized operator specified: %s",
 										mongoOperatorName),
-									errdetail_log("unknown operator: %s",
+									errdetail_log("Unrecognized operator specified: %s",
 												  mongoOperatorName)));
 				}
 
-				/*a special case for DBRef */
 				/*If queryDoc is a string like {'$id': '', '$ref': ''}, treat it as a DBRef as well */
 				if ((isRef && strcmp(bson_iter_key(&refIterator), "$id") == 0) ||
 					(!isRef && strcmp(bson_iter_key(&refIterator), "$ref") == 0))
@@ -2422,22 +2438,24 @@ CreateOpExprFromOperatorDocIteratorCore(bson_iter_t *operatorDocIterator,
 							&refIterator)[0] != '$')
 					{
 						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION55), errmsg(
-											"The DBRef $ref field must be followed by a $id field")));
+											"The $ref field should always be directly followed by $id field.")));
 					}
 					else
 					{
 						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-											"unknown operator: %s", mongoOperatorName),
-										errdetail_log("unknown operator: %s",
-													  mongoOperatorName)));
+											"Unrecognized operator specified: %s",
+											mongoOperatorName),
+										errdetail_log(
+											"Unrecognized operator specified: %s",
+											mongoOperatorName)));
 					}
 				}
 			}
 
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-								"unknown operator: %s",
+								"Unrecognized operator specified: %s",
 								mongoOperatorName),
-							errdetail_log("unknown operator: %s",
+							errdetail_log("Unrecognized operator specified: %s",
 										  mongoOperatorName)));
 		}
 	}
@@ -2510,7 +2528,7 @@ CreateExprForBitwiseQueryOperators(bson_iter_t *operatorDocIterator,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 								errmsg(
-									"Cannot represent as a 32-bit integer: %s: %s.0",
+									"Unable to store as a 32-bit integer: %s: %s.0",
 									operator->mongoOperatorName,
 									BsonValueToJsonForLogging(
 										operatorDocValue)),
@@ -2532,7 +2550,7 @@ CreateExprForBitwiseQueryOperators(bson_iter_t *operatorDocIterator,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 								errmsg(
-									"Cannot represent as a 32-bit integer: %s: %s.0",
+									"Unable to store as a 32-bit integer: %s: %s.0",
 									operator->mongoOperatorName,
 									BsonValueToJsonForLogging(
 										operatorDocValue)),
@@ -2547,11 +2565,11 @@ CreateExprForBitwiseQueryOperators(bson_iter_t *operatorDocIterator,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 								errmsg(
-									"Expected a positive number in: %s: %d.0",
+									"A positive number was expected in the following context: %s: %d.0",
 									operator->mongoOperatorName,
 									intVal),
 								errdetail_log(
-									"Expected a positive number in: %s: %d.0",
+									"A positive number was expected in the following context: %s: %d.0",
 									operator->mongoOperatorName,
 									intVal)));
 			}
@@ -2569,12 +2587,12 @@ CreateExprForBitwiseQueryOperators(bson_iter_t *operatorDocIterator,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 								errmsg(
-									"Expected an integer: %s: %s",
+									"Expected value of integer type: %s: %s",
 									operator->mongoOperatorName,
 									BsonValueToJsonForLogging(
 										operatorDocValue)),
 								errdetail_log(
-									"Expected an integer: %s: %s",
+									"Expected value of integer type: %s: %s",
 									operator->mongoOperatorName,
 									BsonTypeName(operatorDocValue->value_type))));
 			}
@@ -2584,7 +2602,7 @@ CreateExprForBitwiseQueryOperators(bson_iter_t *operatorDocIterator,
 			if (intVal < 0)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE), errmsg(
-									"Expected a positive number in: %s: %d.0",
+									"A positive number was expected in the following context: %s: %d.0",
 									operator->mongoOperatorName,
 									intVal)));
 			}
@@ -2602,7 +2620,7 @@ CreateExprForBitwiseQueryOperators(bson_iter_t *operatorDocIterator,
 			if (intVal < 0)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE), errmsg(
-									"Expected a positive number in: %s: %d.0",
+									"A positive number was expected in the following context: %s: %d.0",
 									operator->mongoOperatorName,
 									intVal)));
 			}
@@ -2925,7 +2943,7 @@ ExpandExprForDollarAll(const char *path,
 
 	if (list_length(allElements) == 1)
 	{
-		/* If there is only one element, return it directly */
+		/* If there is a single element remaining, return it immediately without further processing */
 		return (Expr *) linitial(allElements);
 	}
 
@@ -3486,7 +3504,7 @@ ValidateOrderbyExpressionAndGetIsAscending(pgbson *orderby)
 	if (!BsonValueIsNumber(&orderingElement.bsonValue))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("Invalid sort direction %s",
+						errmsg("Sort direction value %s is not valid",
 							   BsonValueToJsonForLogging(
 								   &orderingElement.bsonValue))));
 	}
@@ -3495,7 +3513,7 @@ ValidateOrderbyExpressionAndGetIsAscending(pgbson *orderby)
 	if (sortOrder != 1 && sortOrder != -1)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("Invalid sort direction %s",
+						errmsg("Sort direction value %s is not valid",
 							   BsonValueToJsonForLogging(
 								   &orderingElement.bsonValue))));
 	}
@@ -3563,7 +3581,7 @@ CreateExprForDollarRegex(bson_iter_t *currIter, bson_value_t **options,
 			strlen(regexBsonValue->value.v_regex.options) != 0)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51074), errmsg(
-								"options set in both $regex and $options")));
+								"Options are specified in both the $regex operator and the $options operator")));
 		}
 
 		Expr *qual = CreateFuncExprForRegexOperator(*options, regexBsonValue, context,
@@ -3590,7 +3608,7 @@ CreateExprForDollarRegex(bson_iter_t *currIter, bson_value_t **options,
 				strlen(regexBsonValue->value.v_regex.options) != 0)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION51075), errmsg(
-									"options set in both $regex and $options")));
+									"Options are specified in both the $regex and the $options")));
 			}
 
 			bson_value_t *optionsBsonVal = (bson_value_t *) bson_iter_value(&optionsIter);
@@ -3680,7 +3698,7 @@ CreateExprForDollarMod(bson_iter_t *operatorDocIterator,
 			if (divisor == 0)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-									"divisor cannot be 0")));
+									"divide by 0 is not allowed")));
 			}
 		}
 	}
@@ -3770,10 +3788,10 @@ SortAndWriteInt32BsonTypeArray(const bson_value_t *bsonArray, pgbson_writer *wri
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 									errmsg(
-										"Expected an integer: %s: %s", opName,
+										"Expected value of integer type: %s: %s", opName,
 										BsonValueToJsonForLogging(element)),
 									errdetail_log(
-										"Expected an integer in operator: %s, found:%s",
+										"Expected value of integer type in operator: %s, found:%s",
 										opName,
 										BsonTypeName(element->value_type))));
 					break;
@@ -3784,10 +3802,11 @@ SortAndWriteInt32BsonTypeArray(const bson_value_t *bsonArray, pgbson_writer *wri
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 									errmsg(
-										"bit positions cannot be represented as a 32-bit signed integer: %s.0",
+										"Expected an integer but got '%s' type for element %s.0",
+										BsonTypeName(element->value_type),
 										BsonValueToJsonForLogging(element)),
 									errdetail_log(
-										"bit positions of type %s cannot be represented as a 32-bit signed integer",
+										"Expected an integer but got '%s' type",
 										BsonTypeName(element->value_type))));
 					break;
 				}
@@ -3866,7 +3885,7 @@ ValidateOptionsArgument(const bson_value_t *argBsonValue)
 	if (argBsonValue->value_type != BSON_TYPE_UTF8)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"$options has to be a string")));
+							"Expected 'string' type for $options parameter")));
 	}
 
 	/* Only options which mongo supports are i, m, x, s, u*/
@@ -3897,7 +3916,7 @@ ValidateRegexArgument(const bson_value_t *argBsonValue)
 		argBsonValue->value_type != BSON_TYPE_REGEX)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"$regex has to be a string")));
+							"$regex must be provided with a string value")));
 	}
 
 	/* Validate options when input type is BSON_TYPE_REGEX. */
@@ -3924,7 +3943,7 @@ ValidateRegexArgument(const bson_value_t *argBsonValue)
 		strlen(argBsonValue->value.v_utf8.str) < argBsonValue->value.v_utf8.len)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"Regular expression cannot contain an embedded null byte")));
+							"A regular expression is not allowed to include an embedded null byte")));
 	}
 }
 
@@ -4210,7 +4229,7 @@ TryOptimizeDollarOrExpr(BsonQueryOperatorContext *context,
 
 	if (!StringViewEquals(&singlePathExistsFalse, &singlePathEqualsNull))
 	{
-		/* Not the same path */
+		/* Paths do not match */
 		return NULL;
 	}
 
@@ -4415,7 +4434,7 @@ ParseBsonValueForNearAndCreateOpExpr(bson_iter_t *operatorDocIterator,
 		if (isGeonear)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("Too many geoNear expressions")));
+							errmsg("Excessive number of geoNear query expressions")));
 		}
 	}
 
@@ -4429,9 +4448,7 @@ ParseBsonValueForNearAndCreateOpExpr(bson_iter_t *operatorDocIterator,
 		ereport(ERROR,
 				(errcode(ERRCODE_DOCUMENTDB_LOCATION5626500),
 				 errmsg(
-					 "$geoNear, $near, and $nearSphere are not allowed in this context, "
-					 "as these operators require sorting geospatial data. If you do not need sort, "
-					 "consider using $geoWithin instead.")));
+					 "$near, $nearSphere and $geoNear cannot be used here. Use $geoWithin instead.")));
 	}
 
 	GeonearRequest *request = ParseGeonearRequest(queryDoc);

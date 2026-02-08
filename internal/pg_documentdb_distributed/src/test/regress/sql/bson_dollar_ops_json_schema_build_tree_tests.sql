@@ -21,6 +21,32 @@ SELECT bson_dollar_json_schema('{ "name":"pazu" }','{ "$jsonSchema": { "properti
 -- Valid Schema
 SELECT bson_dollar_json_schema('{ "name":"pazu" }','{ "$jsonSchema": { "properties": { "name" : { } } } }');
 
+------------------------ required ---------------------------------------------
+-- Must be an array
+SELECT bson_dollar_json_schema('{ "name":"pazu" }','{ "$jsonSchema": { "required": "name" } }');
+
+-- duplicated fields
+SELECT bson_dollar_json_schema('{ "name":"pazu", "name":"tst" }','{ "$jsonSchema": { "required": ["name", "age" ] } }');
+
+-- Must be unique
+SELECT bson_dollar_json_schema('{ "name":"pazu" }','{ "$jsonSchema": { "required": [ "name", "name" ] } }');
+
+-- Each element must be a string
+SELECT bson_dollar_json_schema('{ "name":"pazu" }','{ "$jsonSchema": { "required": [ 1 ] } }');
+SELECT bson_dollar_json_schema('{ "name":"pazu", "age":10 }','{ "$jsonSchema": { "required": [ "name",1,"age" ] } }');
+SELECT bson_dollar_json_schema('{ "name":"pazu" }','{ "$jsonSchema": { "required": ["name", ["a","b","c"], "age" ] } }');
+
+-- Valid Schema
+SELECT bson_dollar_json_schema('{ "name":"pazu" }','{ "$jsonSchema": { "required": [ "name" ] } }');
+SELECT bson_dollar_json_schema('{ "name":"pazu", "age":10 }','{ "$jsonSchema": { "required": [ "name" ] } }');
+SELECT bson_dollar_json_schema('{ "name":"pazu" }','{ "$jsonSchema": { "required": [ "name","age" ] } }');
+SELECT bson_dollar_json_schema('{ "name":"pazu", "age":10 }','{ "$jsonSchema": { "required": [ "name","age" ] } }');
+
+SELECT bson_dollar_json_schema('{ "":1 }','{ "$jsonSchema": { "required": [ "" ] } }');
+SELECT bson_dollar_json_schema('{ "a":1 }','{ "$jsonSchema": { "required": [ "" ] } }');
+SELECT bson_dollar_json_schema('{ "":1, "name":"pazu","age":10 }','{ "$jsonSchema": { "required": [ "","name","age" ] } }');
+SELECT bson_dollar_json_schema('{ "":1, "age":10 }','{ "$jsonSchema": { "required": [ "","name","age" ] } }');
+
 
 -------------------------------------------------------------------------------
 --                          Common Validators                                --

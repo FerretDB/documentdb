@@ -45,8 +45,8 @@ typedef struct
 {
 	char *db;
 	int64 collections;              /* total number of collections in db */
-	int64 views;                    /* total number of views in db */
-	int64 objects;                  /* total number of documents in db */
+	int64 views;                    /* Total count of views stored in database */
+	int64 objects;                  /* Total count of documents present in the database */
 	double avgObjSize;              /* "dataSize" divided by "objects" */
 	double dataSize;                /* Total size of the uncompressed data held in the database */
 	double storageSize;             /* does not include index size */
@@ -83,7 +83,7 @@ command_db_stats(PG_FUNCTION_ARGS)
 {
 	if (PG_ARGISNULL(0))
 	{
-		ereport(ERROR, (errmsg("db name cannot be NULL")));
+		ereport(ERROR, (errmsg("Database name must not be NULL")));
 	}
 	Datum databaseName = PG_GETARG_DATUM(0);
 
@@ -166,7 +166,7 @@ command_list_databases(PG_FUNCTION_ARGS)
 		else if (!IsCommonSpecIgnoredField(key))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("%s is an unknown field", key)));
+							errmsg("%s is an unrecognized field name", key)));
 		}
 	}
 

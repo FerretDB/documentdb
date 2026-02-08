@@ -141,7 +141,7 @@ SELECT documentdb_api.users_info('{"usersInfo":"adminUser", "showPrivileges":tru
 SELECT documentdb_api.users_info('{"usersInfo":"adminUser", "showPrivileges":false}');
 
 -- Test usersInfo command with enableUserInfoPrivileges set to false
-SET documentdb_api.enableUsersInfoPrivileges TO OFF;
+SET documentdb.enableUsersInfoPrivileges TO OFF;
 SELECT documentdb_api.users_info('{"usersInfo":1, "showPrivileges":true}');
 SELECT documentdb_api.users_info('{"usersInfo":"test_user", "showPrivileges":true}');
 SELECT documentdb_api.users_info('{"usersInfo":"adminUser", "showPrivileges":true}');

@@ -126,7 +126,7 @@ ThrowIdPathModifiedError(void)
 {
 	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_IMMUTABLEFIELD),
 					errmsg(
-						"After applying the update, the (immutable) field '_id' was found to have been altered")));
+						"Cannot modify '_id' field as part of the operation")));
 }
 
 
@@ -140,8 +140,7 @@ ValidateIdForUpdateTypeReplacement(const bson_value_t *idValue)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_NOTSINGLEVALUEFIELD),
 						errmsg(
-							"After applying the update to the document, the (immutable) field"
-							" '_id' was found to be an array or array descendant.")));
+							"Cannot modify '_id' field to an array or array descendent as part of the operation.")));
 	}
 	ValidateIdField(idValue);
 }
@@ -202,7 +201,7 @@ bson_update_document(PG_FUNCTION_ARGS)
 		arrayFilters = &arrayFiltersBase.bsonValue;
 	}
 
-	/* an empty document is treated as an upsert. */
+	/* An empty document will be processed as an upsert operation. */
 	bool buildSourceDocOnUpsert = IsPgbsonEmptyDocument(sourceDocument);
 
 	/* Build any cacheable state for processing updates */
@@ -218,12 +217,6 @@ bson_update_document(PG_FUNCTION_ARGS)
 		&updateSpecElement.bsonValue, &querySpec, arrayFilters,
 		&variableSpec, buildSourceDocOnUpsert);
 
-	if (metadata == NULL)
-	{
-		ereport(ERROR, (errmsg(
-							"bson update should only be called with consts or params")));
-	}
-
 	/* Returns (newDocument bson, updateDesc bson) */
 	Datum values[2];
 	bool nulls[2];
@@ -238,11 +231,23 @@ bson_update_document(PG_FUNCTION_ARGS)
 
 	if (tupleDescriptor->natts != 2)
 	{
-		elog(ERROR, "incorrect number of output arguments");
+		elog(ERROR, "The number of output arguments provided is not correct.");
 	}
 
-	pgbson *document = BsonUpdateDocumentCore(sourceDocument,
-											  &updateSpecElement.bsonValue, metadata);
+	pgbson *document;
+	if (metadata == NULL)
+	{
+		BsonUpdateMetadata localMetadata = { 0 };
+		BuildBsonUpdateMetadata(&localMetadata, &updateSpecElement.bsonValue, &querySpec,
+								arrayFilters, &variableSpec, buildSourceDocOnUpsert);
+		document = BsonUpdateDocumentCore(sourceDocument, &updateSpecElement.bsonValue,
+										  &localMetadata);
+	}
+	else
+	{
+		document = BsonUpdateDocumentCore(sourceDocument,
+										  &updateSpecElement.bsonValue, metadata);
+	}
 
 	if (document != NULL)
 	{
@@ -303,7 +308,7 @@ BsonUpdateDocument(pgbson *sourceDocument, const bson_value_t *updateSpec,
 {
 	BsonUpdateMetadata metadata = { 0 };
 
-	/* an empty document is treated as an upsert. */
+	/* An empty document will be processed as an upsert operation. */
 	bool buildSourceDocOnUpsert = IsPgbsonEmptyDocument(sourceDocument);
 
 	BuildBsonUpdateMetadata(&metadata, updateSpec, querySpec, arrayFilters,
@@ -329,7 +334,7 @@ BsonUpdateDocumentCore(pgbson *sourceDocument, const bson_value_t *updateSpec,
 	bson_iter_t sourceDocumentIterator;
 	PgbsonInitIterator(sourceDocument, &sourceDocumentIterator);
 
-	/* an empty document is treated as an upsert. */
+	/* An empty document will be processed as an upsert operation. */
 	bool isUpsert = !bson_iter_next(&sourceDocumentIterator);
 
 	if (isUpsert)
@@ -396,7 +401,7 @@ BsonUpdateDocumentCore(pgbson *sourceDocument, const bson_value_t *updateSpec,
 		default:
 		{
 			ereport(ERROR, (errcode(ERRCODE_CHECK_VIOLATION), errmsg(
-								"Unrecognized update type %d",
+								"Update type %d not recognized",
 								updateMetadata->updateType)));
 			break;
 		}
@@ -450,7 +455,7 @@ BuildBsonUpdateMetadata(BsonUpdateMetadata *metadata, const bson_value_t *update
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 									errmsg(
-										"arrayFilters may not be specified for pipeline-style updates")));
+										"Specifying arrayFilters is not allowed when performing pipeline-style updates")));
 				}
 			}
 
@@ -473,7 +478,8 @@ BuildBsonUpdateMetadata(BsonUpdateMetadata *metadata, const bson_value_t *update
 			if (updateSpec->value_type != BSON_TYPE_DOCUMENT)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-									"Replace should be a document")));
+									"Expected value to contain 'document' type but found '%s' type",
+									BsonTypeName(updateSpec->value_type))));
 			}
 			break;
 		}
@@ -511,7 +517,6 @@ DetermineUpdateType(const bson_value_t *updateSpec)
 			const char *path = bson_iter_key(&updateDocumentIterator);
 			uint32_t pathLength = bson_iter_key_len(&updateDocumentIterator);
 
-			/* found an operator. */
 			if (pathLength > 1 && path[0] == '$')
 			{
 				if (!isUpdateTypeReplacement)
@@ -522,8 +527,8 @@ DetermineUpdateType(const bson_value_t *updateSpec)
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARPREFIXEDFIELDNAME),
 									errmsg(
-										"The dollar ($) prefixed field '%s' in '%s' is not allowed in the context of an update's"
-										" replacement document. Consider using an aggregation pipeline with $replaceWith.",
+										"Field '%s' in path '%s' is not allowed when doing a replace operation. "
+										"Use $replaceWith aggregation stage instead",
 										path, path)));
 				}
 			}
@@ -560,7 +565,8 @@ ProcessReplaceDocument(pgbson *sourceDoc, const bson_value_t *updateSpec,
 	if (updateSpec->value_type != BSON_TYPE_DOCUMENT)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"Replace should be a document")));
+							"Expected value to contain 'document' type but found '%s' type",
+							BsonTypeName(updateSpec->value_type))));
 	}
 
 	uint32_t documentLength = updateSpec->value.v_doc.data_len;
@@ -745,7 +751,7 @@ ProcessQueryProjectionValue(void *context, const char *path, const bson_value_t 
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_NOTEXACTVALUEFIELD),
 						errmsg(
-							"field at '_id' must be exactly specified, field at sub-path '%s'found",
+							"Invalid path '%s'. Please specify the full '_id' field value instead of a sub-path",
 							path)));
 	}
 
@@ -753,7 +759,7 @@ ProcessQueryProjectionValue(void *context, const char *path, const bson_value_t 
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_NOTSINGLEVALUEFIELD),
 						errmsg(
-							"cannot infer query fields to set, path '%s' is matched twice",
+							"Unable to determine which query fields to set, as the path '%s' has been matched twice",
 							path)));
 	}
 }

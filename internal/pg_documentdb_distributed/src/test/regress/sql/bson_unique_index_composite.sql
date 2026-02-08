@@ -5,7 +5,6 @@ SET citus.next_shard_id TO 562000;
 SET documentdb.next_collection_id TO 5620;
 SET documentdb.next_collection_index_id TO 5620;
 SET documentdb.enable_large_unique_index_keys TO false;
-set documentdb.enableNewCompositeIndexOpClass to on;
 
 -- insert a document
 SELECT documentdb_api.insert_one('db','queryuniquecomposite','{"_id":"1", "a": { "b": 1 } }', NULL);
@@ -37,7 +36,6 @@ BEGIN;
 set local documentdb.forceUseIndexIfAvailable to on;
 set local enable_seqscan TO off;
 set local documentdb.forceRumIndexScantoBitmapHeapScan TO OFF;
-set local documentdb.enableNewCompositeIndexOpClass to on;
 EXPLAIN (COSTS OFF) SELECT document FROM documentdb_api.collection('db', 'queryuniquecomposite') WHERE document @@ '{ "a.b": { "$gt": 5 } }';
 ROLLBACK;
 
@@ -114,7 +112,6 @@ SELECT documentdb_api.insert_one('db','queryuniqueshardedcomposite','{"_id":"9",
 BEGIN;
 set local documentdb.forceUseIndexIfAvailable to on;
 set local enable_seqscan TO off;
-set local documentdb.enableNewCompositeIndexOpClass to on;
 EXPLAIN (COSTS OFF) SELECT document FROM documentdb_api.collection('db', 'queryuniqueshardedcomposite') WHERE document @@ '{ "a.b": { "$gt": 5 } }';
 ROLLBACK;
 

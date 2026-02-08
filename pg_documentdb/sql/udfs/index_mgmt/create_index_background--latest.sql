@@ -58,3 +58,23 @@ LANGUAGE C
 AS 'MODULE_PATHNAME', $$schedule_background_index_build_jobs$$;
 COMMENT ON FUNCTION __API_SCHEMA_INTERNAL__.schedule_background_index_build_jobs(boolean)
     IS 'Schedules the background index build cron job.';
+
+CREATE OR REPLACE FUNCTION __API_SCHEMA_INTERNAL__.reindex_index_background(
+    p_database_name text, 
+    p_reindex_spec __CORE_SCHEMA__.bson, 
+    OUT retval __CORE_SCHEMA__.bson,
+    OUT ok boolean,
+    OUT requests __CORE_SCHEMA__.bson)
+RETURNS record
+ LANGUAGE C
+ VOLATILE
+AS 'MODULE_PATHNAME', $$command_reindex_index_background$$;
+
+DROP FUNCTION IF EXISTS __API_SCHEMA_INTERNAL__.reindex_indexes_background_internal CASCADE;
+CREATE OR REPLACE FUNCTION __API_SCHEMA_INTERNAL__.reindex_indexes_background_internal(
+    IN p_database_name text,
+    IN p_arg __CORE_SCHEMA__.bson)
+ RETURNS __CORE_SCHEMA__.bson
+ LANGUAGE C
+ VOLATILE
+AS 'MODULE_PATHNAME', $$command_reindex_index_background_internal$$;

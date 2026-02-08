@@ -120,8 +120,8 @@ void UpdateRunDataForVariableBounds(CompositeQueryRunData *runData,
 									VariableIndexBounds *variableBounds,
 									int32_t permutation);
 
-void MergeSingleVariableBounds(VariableIndexBounds *variableBounds,
-							   CompositeQueryRunData *runData);
+List * MergeSingleVariableBounds(List *variableBounds,
+								 CompositeIndexBounds *mergedBounds);
 
 void PickVariableBoundsForOrderedScan(VariableIndexBounds *variableBounds,
 									  CompositeQueryRunData *runData);

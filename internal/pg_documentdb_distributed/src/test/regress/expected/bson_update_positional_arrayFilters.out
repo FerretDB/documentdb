@@ -19,7 +19,7 @@ SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_upd
 
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{"_id": 1 }','{ "": [ { "$addFields": { "fieldA.fieldB": 10 } }]}', '{}', '{ "": [ { "filterX": 30 }]}');
-ERROR:  arrayFilters may not be specified for pipeline-style updates
+ERROR:  Specifying arrayFilters is not allowed when performing pipeline-style updates
 -- arrayFilters ignored on replace
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{"_id": 1 }','{ "": { "fieldC": 40 } }', '{}', '{ "": [ { "filterX": 50 }]}');
@@ -31,7 +31,7 @@ SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_upd
 -- arrayFilters with update fails - missing array filter
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{"_id": 1 }','{ "": { "$set": { "arrayA.$[itemA]": 60 }}}', '{}', '{ "": [] }');
-ERROR:  No array filter found for identifier itemA
+ERROR:  array filter identifier itemA must match an entry in arrayFilters (no match found)
 -- arrayFilters with update fails - invalid array filters
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{"_id": 1 }','{ "": { "$set": { "arrayA.$[itemA]": 70 }}}', '{}', '{ "": [ 2 ] }');
@@ -47,7 +47,7 @@ SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_upd
 ERROR:  Error parsing array filter :: caused by :: Expected a single top-level field name, found itemA and itemB
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{"_id": 1 }','{ "": { "$set": { "arrayA.$[itemA]": 70 }}}', '{}', '{ "": [ { "itemA": 6 }, { "itemA": 7 } ] }');
-ERROR:  Found multiple array filters with the same top-level field name itemA
+ERROR:  Multiple array filters detected using identical top-level field name itemA
 -- simple array update on equality
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{"_id": 1, "numbers": [ 100, 200 ] }','{ "": { "$set": { "numbers.$[numElem]": 300 }}}', '{}', '{ "": [{ "numElem": 100 }] }');
@@ -65,7 +65,7 @@ SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_upd
 
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{"_id": 1 }','{ "": { "$set": { "numbers.$[numElem]": 300 }}}', '{}', '{ "": [{ "numElem": 100 }] }');
-ERROR:  The path 'numbers' must exist in the document in order to apply array updates.
+ERROR:  The specified path 'numbers' does not exist within the document. Cannot apply array update operations.
 -- updates on $gte condition
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{ "_id" : 1, "scores" : [ 150, 120, 110 ], "age": 15 }','{ "": { "$set": { "scores.$[scoreElem]": 200 }}}', '{}', '{ "": [{ "scoreElem": { "$gte": 200 } }] }');
@@ -186,7 +186,7 @@ SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_upd
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{ "_id" : 1, "matrix" : [ [0], [1] ] }',
     '{ "": { "$inc": { "matrix.$[row]": 10 }} }', '{}', '{ "": [{ "row": 0 }] }');
-ERROR:  Cannot apply $inc to a value of non-numeric type. { _id: 1 } has the field '0' of non-numeric type array
+ERROR:  Operation $inc cannot be performed because the target value is not numeric. Document { _id: 1 } contains the field '0' which is of non-numeric type array.
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{ "_id" : 1, "matrix" : [ [0], [1] ] }',
     '{ "": { "$min": { "matrix.$[row]": 10 }} }', '{}', '{ "": [{ "row": 0 }] }');
@@ -206,7 +206,7 @@ SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_upd
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{ "_id" : 1, "matrix" : [ [0], [1] ] }',
     '{ "": { "$mul": { "matrix.$[row]": 2 }} }', '{}', '{ "": [{ "row": 0 }] }');
-ERROR:  Cannot apply $mul to a value of non-numeric type. { _id: 1 } has the field '0' of non-numeric type array
+ERROR:  Unable to use the $mul operator on values that are not numeric. The document { _id: 1 } contains the field '0', which has a non-numeric type array.
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{ "_id" : 1, "matrix" : [ [0], [1] ] }',
     '{ "": { "$rename": { "matrix.$[row]": "arrayA.3" }} }', '{}', '{ "": [{ "row": 0 }] }');
@@ -223,7 +223,7 @@ SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_upd
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{ "_id" : 1, "matrix" : [ [0], [1] ] }',
     '{ "": { "$bit": { "matrix.$[row]": {"or": 5} }} }', '{}', '{ "": [{ "row": 0 }] }');
-ERROR:  Cannot apply $bit to a value of non-integral type.{ "_id" : 1 } has the field 0 of non-integer type array
+ERROR:  $bit cannot be used on a value that is not of an integral type. The document with _id = 1 contains the field 0, which has a non-integer type array.
 -- Check array value should also match in arrayFilters
 SELECT newDocument as bson_update_document FROM documentdb_api_internal.bson_update_document(
     '{ "_id" : 1, "matrix" : [ [11,12,13], [14,15,16] ] }',

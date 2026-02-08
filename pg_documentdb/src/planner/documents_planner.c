@@ -79,7 +79,7 @@ typedef struct ReplaceDocumentDbCollectionContext
 	/* whether or not the collection is non-existent function */
 	bool isNonExistentCollection;
 
-	/* the bound parameters associated with the request */
+	/* the bound parameters for the given request context */
 	ParamListInfo boundParams;
 
 	/* The query associated with this context */
@@ -879,7 +879,7 @@ ExtensionRelPathlistHookCoreNew(PlannerInfo *root, RelOptInfo *rel, Index rti,
 	 * the restriction paths.
 	 */
 	WalkPathsForIndexOperations(rel->pathlist, &indexContext);
-	WalkRestrictionPathsForIndexOperations(rel->baserestrictinfo,
+	WalkRestrictionPathsForIndexOperations(rel->baserestrictinfo, rel->joininfo,
 										   &indexContext);
 
 	/* Before we *replace* function operators in restriction paths, we should apply the force pushdown
@@ -1749,7 +1749,7 @@ HasUnresolvedExternParamsWalker(Node *expression, ParamListInfo boundParams)
 			return false;
 		}
 
-		/* check whether parameter is available */
+		/* Verify if the parameter is valid */
 		if (boundParams && paramId > 0 && paramId <= boundParams->numParams)
 		{
 			return false;
@@ -1898,7 +1898,8 @@ ProcessWorkerWriteQueryPath(PlannerInfo *root, RelOptInfo *rel, Index rti,
 
 	if (!(funcExpr->funcid == UpdateWorkerFunctionOid() ||
 		  funcExpr->funcid == InsertWorkerFunctionOid() ||
-		  funcExpr->funcid == DeleteWorkerFunctionOid()))
+		  funcExpr->funcid == DeleteWorkerFunctionOid() ||
+		  funcExpr->funcid == CommandNodeWorkerFunctionOid()))
 	{
 		return false;
 	}

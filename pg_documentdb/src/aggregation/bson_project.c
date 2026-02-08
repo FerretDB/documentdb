@@ -849,7 +849,7 @@ ProjectReplaceRootDocument(pgbson *document,
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40228),
 							errmsg(
-								"'newRoot' expression must evaluate to an object, but resulting value was: : MISSING. Type of resulting value: 'missing'")));
+								"The expression 'newRoot' must result in an object, however the computed value was missing, with type identified as 'missing'.")));
 		}
 
 		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
@@ -861,7 +861,7 @@ ProjectReplaceRootDocument(pgbson *document,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40228),
 						errmsg(
-							"'newRoot' expression must evaluate to an object, but resulting value was: %s. Type of resulting value: '%s'.",
+							"The expression 'newRoot' must produce an object value, but instead it yielded: %s. The type of this resulting value is: '%s'.",
 							BsonValueToJsonForLogging(&resultElement.bsonValue),
 							BsonTypeName(resultElement.bsonValue.value_type)),
 						errdetail_log(
@@ -945,7 +945,7 @@ GetBsonValueForReplaceRoot(bson_iter_t *replaceRootIterator, bson_value_t *value
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
 							errmsg(
-								"BSON fields '$replaceRoot.%s' is an unknown field",
+								"The BSON field '$replaceRoot.%s' is not recognized as a valid or supported field name.",
 								path)));
 		}
 
@@ -957,7 +957,7 @@ GetBsonValueForReplaceRoot(bson_iter_t *replaceRootIterator, bson_value_t *value
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40414),
 						errmsg(
-							"BSON field '$replaceRoot.newRoot' is missing but a required field")));
+							"The required BSON field '$replaceRoot.newRoot' is not present in the data.")));
 	}
 }
 
@@ -1324,7 +1324,7 @@ EvaluateRedactDocument(pgbson *document, const BsonReplaceRootRedactState *state
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION17053),
 								errmsg(
-									"$redact's expression should not return anything aside from the variables $$KEEP, $$DESCEND, and $$PRUNE, but returned '%s'.",
+									"The $redact stage must evaluate to one of the variables $$KEEP, $$DESCEND, or $$PRUNE, but instead it produced '%s'.",
 									BsonValueToJsonForLogging(
 										&(state->expressionData->value)))));
 				break;
@@ -1422,7 +1422,7 @@ EvaluateRedactDocument(pgbson *document, const BsonReplaceRootRedactState *state
 	pfree(parsedValue);
 	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION17053),
 					errmsg(
-						"$redact's expression should not return anything aside from the variables $$KEEP, $$DESCEND, and $$PRUNE, but returned '%s'.",
+						"The $redact stage must evaluate to one of the variables $$KEEP, $$DESCEND, or $$PRUNE, but instead it produced '%s'.",
 						BsonValueToJsonForLogging(&evaluatedResultElement.bsonValue))));
 }
 
@@ -1566,7 +1566,7 @@ TryInlineProjection(Node *currentExprNode, Oid functionOid, const
 		BsonProjectionQueryState projectionState = { 0 };
 		BuildBsonPathTreeForDollarProject(&projectionState, &projectContext);
 
-		/* TODO: Handle inclusion projection */
+		/* TODO: Need to address inclusion projection handling */
 		if (!projectionState.hasExclusion || projectionState.hasInclusion)
 		{
 			return false;
@@ -1833,7 +1833,7 @@ BuildBsonPathTreeForDollarUnset(BsonProjectionQueryState *state,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"$unset specification must have at least one field.")));
+							"Unset operator specification requires at least one field.")));
 	}
 
 	/* by default we do path based projections if there's ANY inclusions/exclusions */
@@ -1880,7 +1880,7 @@ BsonLookUpGetFilterExpression(pgbson *sourceDocument,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"$lookup argument 'localField' must be a string, found localField: %s",
+							"The operator $lookup requires the 'localField' argument to be a string, but instead received: %s",
 							BsonTypeName(localFieldPath.value_type))));
 	}
 
@@ -1891,7 +1891,7 @@ BsonLookUpGetFilterExpression(pgbson *sourceDocument,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"FieldPath field names may not start with '$'")));
+							"FieldPath field names cannot begin with the operators symbol '$'.")));
 	}
 
 	/* Start the iterator at the provided path */
@@ -2204,14 +2204,15 @@ BuildBsonUnsetPathTree(const bson_value_t *pathSpecification)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION31120),
 								errmsg(
-									"$unset specification must be a string or an array containing only string values")));
+									"$unset require a string or an array containing exclusively string values")));
 			}
 		}
 	}
 	else
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION31002),
-						errmsg("$unset specification must be a string or an array")));
+						errmsg(
+							"$unset requires specification as either a string or an array")));
 	}
 
 	return tree;
@@ -2448,7 +2449,7 @@ ProjectCurrentIteratorFieldToWriter(bson_iter_t *documentIterator,
 
 			default:
 			{
-				ereport(ERROR, (errmsg("Unexpected node type %d",
+				ereport(ERROR, (errmsg("Node type %d is not recognized",
 									   child->nodeType)));
 			}
 		}
@@ -2778,7 +2779,7 @@ ProjectGeonearDocument(const GeonearDistanceState *state, pgbson *document)
 			&parseContext);
 	}
 
-	/* Add distance field */
+	/* Insert distance field value */
 	TraverseDottedPathAndGetOrAddField(
 		&state->distanceField,
 		&distanceValue,

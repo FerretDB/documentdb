@@ -283,7 +283,10 @@ impl PgResponse {
             },
             SqlState::T_R_DEADLOCK_DETECTED => {
                 Some((ErrorCode::WriteConflict as i32, Some("Could not acquire lock for operation due to deadlock".to_string()), msg))
-            }
+            },
+            SqlState::UNDEFINED_OBJECT => {
+                Some((ErrorCode::UserNotFound as i32, Some("UserNotFound".to_string()), msg))
+            },
             _ => None,
         }
     }

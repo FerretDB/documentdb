@@ -58,7 +58,6 @@ typedef enum IndexTermMetadata
 } IndexTermMetadata;
 
 extern int IndexTermCompressionThreshold;
-extern bool EnableDescendingCompositeIndex;
 
 /* --------------------------------------------------------- */
 /* Forward Declaration */
@@ -178,7 +177,7 @@ CompareCompositeIndexTerms(bytea *left, bytea *right)
 			return compareTerm;
 		}
 
-		/* Move to the next term */
+		/* Proceed to the subsequent term */
 		leftBuffer += leftSize;
 		rightBuffer += rightSize;
 		leftIndexTermSize -= leftSize;
@@ -297,7 +296,7 @@ IsSerializedIndexTermComposite(bytea *indexTermSerialized)
 
 
 /*
- * Returns true if the serialized index term is truncated.
+ * Indicates true when the serialized index term has been truncated.
  */
 bool
 IsSerializedIndexTermTruncated(bytea *indexTermSerialized)
@@ -425,7 +424,7 @@ InitializeSerializedCompositeIndexTerm(bytea *indexTermSerialized,
 		termValues[index] = bytes;
 		uint32_t leftSize = VARSIZE(bytes);
 
-		/* Move to the next term */
+		/* Proceed to the subsequent term */
 		index++;
 		buffer += leftSize;
 		termSize -= leftSize;
@@ -475,7 +474,7 @@ InitializeCompositeIndexTerm(bytea *indexTermSerialized, BsonIndexTerm
 
 		InitializeBsonIndexTerm(bytes, &indexTerm[index]);
 
-		/* Move to the next term */
+		/* Proceed to the subsequent term */
 		index++;
 		buffer += leftSize;
 		termSize -= leftSize;
@@ -731,7 +730,7 @@ TruncateArrayTerm(int32_t dataSize, int32_t indexTermSoftLimit, int32_t
 	PgbsonInitArrayElementWriter(arrayWriter, &elementWriter);
 	while (bson_iter_next(arrayIterator))
 	{
-		/* Get the current size */
+		/* Get the current size  */
 		currentLength = (int32_t) PgbsonArrayWriterGetSize(arrayWriter);
 
 		/* We stop writing if we are over the soft limit. */
@@ -796,7 +795,7 @@ TruncateDocumentTerm(int32_t existingTermSize, int32_t softLimit, int32_t hardLi
 	pgbson_element_writer elementWriter;
 	while (bson_iter_next(documentIterator))
 	{
-		/* Get the current size */
+		/* Get the current size  */
 		currentLength = (int32_t) PgbsonWriterGetSize(documentWriter);
 		if (currentLength + existingTermSize > softLimit)
 		{

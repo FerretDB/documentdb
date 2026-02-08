@@ -61,14 +61,15 @@ typedef struct
 	bool showPrivileges;
 } GetUserSpec;
 
-/* GUC that controls the blocked role prefix list */
-extern char *BlockedRolePrefixList;
-
-/* Method to validate and obtain user role */
-char * ValidateAndObtainUserRole(const bson_value_t *rolesDocument);
-
-/* Method to verify if username is valid */
-bool IsUserNameInvalid(const char *userName);
+/*
+ * Hash entry structure for user roles.
+ */
+typedef struct UserRoleHashEntry
+{
+	char *user;
+	HTAB *roles;
+	bool isExternal;
+} UserRoleHashEntry;
 
 /* Method to call Connection Status command */
 Datum connection_status(pgbson *showPrivilegesSpec);

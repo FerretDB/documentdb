@@ -26,45 +26,9 @@
 #include "miscadmin.h"
 #include "utils/list_utils.h"
 #include "utils/string_view.h"
+#include "utils/role_utils.h"
 
 #define SCRAM_MAX_SALT_LEN 64
-
-/* --------------------------------------------------------- */
-/* Type definitions */
-/* --------------------------------------------------------- */
-
-/*
- * UserPrivilege stores a single user privilege and its actions.
- */
-typedef struct
-{
-	const char *db;
-	const char *collection;
-	bool isCluster;
-	size_t numActions;
-	const StringView *actions;
-} UserPrivilege;
-
-/*
- * ConsolidateUserPrivilege consolidates the actions of a user privilege.
- */
-typedef struct
-{
-	const char *db;
-	const char *collection;
-	bool isCluster;
-	HTAB *actions;
-} ConsolidatedUserPrivilege;
-
-/*
- * Hash entry structure for user roles.
- */
-typedef struct UserRoleHashEntry
-{
-	char *user;
-	HTAB *roles;
-	bool isExternal;
-} UserRoleHashEntry;
 
 /* GUC to enable user crud operations */
 extern bool EnableUserCrud;
@@ -94,270 +58,31 @@ PG_FUNCTION_INFO_V1(documentdb_extension_get_users);
 PG_FUNCTION_INFO_V1(command_connection_status);
 
 static void ParseCreateUserSpec(pgbson *createUserSpec, CreateUserSpec *spec);
+static void CreateNativeUser(const CreateUserSpec *createUserSpec);
 static char * ParseDropUserSpec(pgbson *dropSpec);
+static void DropNativeUser(const char *dropUser);
 static void ParseUpdateUserSpec(pgbson *updateSpec, UpdateUserSpec *spec);
 static Datum UpdateNativeUser(UpdateUserSpec *spec);
 static void ParseGetUserSpec(pgbson *getSpec, GetUserSpec *spec);
-static void CreateNativeUser(const CreateUserSpec *createUserSpec);
-static void DropNativeUser(const char *dropUser);
-static void ParseUsersInfoDocument(const bson_value_t *usersInfoBson, GetUserSpec *spec);
-static char * PrehashPassword(const char *password);
-static bool IsCallingUserExternal(void);
-static bool IsPasswordInvalid(const char *username, const char *password);
-static void WriteSinglePrivilegeDocument(const ConsolidatedUserPrivilege *privilege,
-										 pgbson_array_writer *privilegesArrayWriter);
-
-static void ConsolidatePrivileges(List **consolidatedPrivileges,
-								  const UserPrivilege *sourcePrivileges,
-								  size_t sourcePrivilegeCount);
-static void ConsolidatePrivilege(List **consolidatedPrivileges,
-								 const UserPrivilege *sourcePrivilege);
-static void ConsolidatePrivilegesForRole(const char *roleName,
-										 List **consolidatedPrivileges);
-static bool ComparePrivileges(const ConsolidatedUserPrivilege *privilege1,
-							  const UserPrivilege *privilege2);
-static void DeepFreePrivileges(List *consolidatedPrivileges);
-static void WriteSingleRolePrivileges(const char *roleName,
-									  pgbson_array_writer *privilegesArrayWriter);
-static void WriteMultipleRolePrivileges(HTAB *rolesTable,
-										pgbson_array_writer *privilegesArrayWriter);
-static void WritePrivilegeListToArray(List *consolidatedPrivileges,
-									  pgbson_array_writer *privilegesArrayWriter);
 static bool ParseConnectionStatusSpec(pgbson *connectionStatusSpec);
+
+static bool IsCallingUserExternal(void);
+static char * PrehashPassword(const char *password);
+static char * ValidateAndObtainUserRole(const bson_value_t *rolesDocument);
 static Datum GetSingleUserInfo(const char *userName, bool returnDocuments);
 static Datum GetAllUsersInfo(void);
+static void ParseUsersInfoDocument(const bson_value_t *usersInfoBson, GetUserSpec *spec);
 static void WriteSingleUserDocument(UserRoleHashEntry *userEntry, bool showPrivileges,
 									pgbson_array_writer *userArrayWriter);
+static void WriteMultipleRoles(HTAB *rolesTable, pgbson_array_writer *roleArrayWriter);
 static void WriteRoles(const char *parentRole,
 					   pgbson_array_writer *roleArrayWriter);
-static void WriteMultipleRoles(HTAB *rolesTable, pgbson_array_writer *roleArrayWriter);
-static bool IsSupportedBuiltInRole(const char *roleName);
-static HTAB * CreateUserEntryHashSet(void);
 static HTAB * BuildUserRoleEntryTable(Datum *userDatums, int userCount);
+static void FreeUserRoleEntryTable(HTAB *userRolesTable);
+static HTAB * CreateUserEntryHashSet(void);
 static uint32 UserHashEntryHashFunc(const void *obj, size_t objsize);
 static int UserHashEntryCompareFunc(const void *obj1, const void *obj2,
 									Size objsize);
-static void FreeUserRoleEntryTable(HTAB *userRolesTable);
-static const char * GetAllUsersQuery(void);
-static const char * GetSingleUserQuery(void);
-static const char * GetSingleUserNameQuery(void);
-static const char * GetAllUsersQuery(void);
-const char *GetAllUsersQueryString = NULL;
-const char *GetSingleUserQueryString = NULL;
-const char *GetSingleUserNameQueryString = NULL;
-
-/*
- * Static definitions for user privileges and roles
- * These are used to define the privileges associated with each role
- */
-static const UserPrivilege readOnlyPrivileges[] = {
-	{
-		.db = "",
-		.collection = "",
-		.isCluster = false,
-		.numActions = 7,
-		.actions = (const StringView[]) {
-			{ .string = "changeStream", .length = 12 },
-			{ .string = "collStats", .length = 9 },
-			{ .string = "dbStats", .length = 7 },
-			{ .string = "find", .length = 4 },
-			{ .string = "killCursors", .length = 11 },
-			{ .string = "listCollections", .length = 15 },
-			{ .string = "listIndexes", .length = 11 }
-		}
-	},
-	{
-		.db = "",
-		.collection = "",
-		.isCluster = true,
-		.numActions = 1,
-		.actions = (const StringView[]) {
-			{ .string = "listDatabases", .length = 13 }
-		}
-	}
-};
-
-static const UserPrivilege readWritePrivileges[] = {
-	{
-		.db = "",
-		.collection = "",
-		.isCluster = false,
-		.numActions = 14,
-		.actions = (const StringView[]) {
-			{ .string = "changeStream", .length = 12 },
-			{ .string = "collStats", .length = 9 },
-			{ .string = "createCollection", .length = 16 },
-			{ .string = "createIndex", .length = 11 },
-			{ .string = "dbStats", .length = 7 },
-			{ .string = "dropCollection", .length = 14 },
-			{ .string = "dropIndex", .length = 9 },
-			{ .string = "find", .length = 4 },
-			{ .string = "insert", .length = 6 },
-			{ .string = "killCursors", .length = 11 },
-			{ .string = "listCollections", .length = 15 },
-			{ .string = "listIndexes", .length = 11 },
-			{ .string = "remove", .length = 6 },
-			{ .string = "update", .length = 6 }
-		}
-	},
-	{
-		.db = "",
-		.collection = "",
-		.isCluster = true,
-		.numActions = 1,
-		.actions = (const StringView[]) {
-			{ .string = "listDatabases", .length = 13 }
-		}
-	}
-};
-
-
-static const UserPrivilege dbAdminPrivileges[] = {
-	{
-		.db = "admin",
-		.collection = "",
-		.isCluster = false,
-		.numActions = 15,
-		.actions = (const StringView[]) {
-			{ .string = "analyze", .length = 7 },
-			{ .string = "bypassDocumentValidation", .length = 24 },
-			{ .string = "collMod", .length = 7 },
-			{ .string = "collStats", .length = 9 },
-			{ .string = "compact", .length = 7 },
-			{ .string = "createCollection", .length = 16 },
-			{ .string = "createIndex", .length = 11 },
-			{ .string = "dbStats", .length = 7 },
-			{ .string = "dropCollection", .length = 14 },
-			{ .string = "dropDatabase", .length = 12 },
-			{ .string = "dropIndex", .length = 9 },
-			{ .string = "listCollections", .length = 15 },
-			{ .string = "listIndexes", .length = 11 },
-			{ .string = "reIndex", .length = 7 },
-			{ .string = "validate", .length = 8 }
-		}
-	}
-};
-
-static const UserPrivilege userAdminPrivileges[] = {
-	{
-		.db = "admin",
-		.collection = "",
-		.isCluster = false,
-		.numActions = 8,
-		.actions = (const StringView[]) {
-			{ .string = "createRole", .length = 11 },
-			{ .string = "createUser", .length = 11 },
-			{ .string = "dropRole", .length = 8 },
-			{ .string = "dropUser", .length = 8 },
-			{ .string = "grantRole", .length = 9 },
-			{ .string = "revokeRole", .length = 10 },
-			{ .string = "viewRole", .length = 8 },
-			{ .string = "viewUser", .length = 8 }
-		}
-	}
-};
-
-static const UserPrivilege clusterMonitorPrivileges[] = {
-	{
-		.db = "",
-		.collection = "",
-		.isCluster = true,
-		.numActions = 11,
-		.actions = (const StringView[]) {
-			{ .string = "connPoolStats", .length = 13 },
-			{ .string = "getDefaultRWConcern", .length = 19 },
-			{ .string = "getCmdLineOpts", .length = 14 },
-			{ .string = "getLog", .length = 6 },
-			{ .string = "getParameter", .length = 12 },
-			{ .string = "getShardMap", .length = 11 },
-			{ .string = "hostInfo", .length = 8 },
-			{ .string = "listDatabases", .length = 13 },
-			{ .string = "listSessions", .length = 12 },
-			{ .string = "listShards", .length = 10 },
-			{ .string = "serverStatus", .length = 12 }
-		}
-	},
-	{
-		.db = "",
-		.collection = "",
-		.isCluster = false,
-		.numActions = 5,
-		.actions = (const StringView[]) {
-			{ .string = "collStats", .length = 9 },
-			{ .string = "dbStats", .length = 7 },
-			{ .string = "getDatabaseVersion", .length = 18 },
-			{ .string = "getShardVersion", .length = 15 },
-			{ .string = "indexStats", .length = 10 }
-		}
-	}
-};
-
-static const UserPrivilege clusterManagerPrivileges[] = {
-	{
-		.db = "",
-		.collection = "",
-		.isCluster = true,
-		.numActions = 6,
-		.actions = (const StringView[]) {
-			{ .string = "getClusterParameter", .length = 19 },
-			{ .string = "getDefaultRWConcern", .length = 19 },
-			{ .string = "listSessions", .length = 12 },
-			{ .string = "listShards", .length = 10 },
-			{ .string = "setChangeStreamState", .length = 20 },
-			{ .string = "getChangeStreamState", .length = 20 }
-		}
-	},
-	{
-		.db = "",
-		.collection = "",
-		.isCluster = false,
-		.numActions = 5,
-		.actions = (const StringView[]) {
-			{ .string = "analyzeShardKey", .length = 15 },
-			{ .string = "enableSharding", .length = 14 },
-			{ .string = "reshardCollection", .length = 17 },
-			{ .string = "splitVector", .length = 11 },
-			{ .string = "unshardCollection", .length = 17 }
-		}
-	},
-};
-
-static const UserPrivilege hostManagerPrivileges[] = {
-	{
-		.db = "",
-		.collection = "",
-		.isCluster = true,
-		.numActions = 5,
-		.actions = (const StringView[]) {
-			{ .string = "compact", .length = 7 },
-			{ .string = "dropConnections", .length = 15 },
-			{ .string = "killAnyCursor", .length = 13 },
-			{ .string = "killAnySession", .length = 14 },
-			{ .string = "killop", .length = 6 }
-		}
-	},
-	{
-		.db = "",
-		.collection = "",
-		.isCluster = false,
-		.numActions = 1,
-		.actions = (const StringView[]) {
-			{ .string = "killCursors", .length = 11 }
-		}
-	}
-};
-
-static const UserPrivilege dropDatabasePrivileges[] = {
-	{
-		.db = "",
-		.collection = "",
-		.isCluster = false,
-		.numActions = 1,
-		.actions = (const StringView[]) {
-			{ .string = "dropDatabase", .length = 12 }
-		}
-	}
-};
 
 /*
  * Parses a connectionStatus spec, executes the connectionStatus command, and returns the result.
@@ -383,8 +108,9 @@ documentdb_extension_create_user(PG_FUNCTION_ARGS)
 	if (!EnableUserCrud)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
-						errmsg("CreateUser command is not supported."),
-						errdetail_log("CreateUser command is not supported.")));
+						errmsg("The CreateUser operation is currently unsupported."),
+						errdetail_log(
+							"The CreateUser operation is currently unsupported.")));
 	}
 
 	if (PG_ARGISNULL(0))
@@ -471,7 +197,7 @@ documentdb_extension_create_user(PG_FUNCTION_ARGS)
 			PgbsonWriterInit(&finalWriter);
 			PgbsonWriterAppendInt32(&finalWriter, "ok", 2, 0);
 			PgbsonWriterAppendUtf8(&finalWriter, "errmsg", 6,
-								   "External identity providers are not supported");
+								   "External identity providers are currently unsupported");
 			PgbsonWriterAppendInt32(&finalWriter, "code", 4, 115);
 			PgbsonWriterAppendUtf8(&finalWriter, "codeName", 8,
 								   "CommandNotSupported");
@@ -543,7 +269,8 @@ ParseCreateUserSpec(pgbson *createSpec, CreateUserSpec *spec)
 									"'createUser' is a required field.")));
 			}
 
-			if (IsUserNameInvalid(spec->createUser))
+			if (ContainsReservedPgRoleNamePrefix(spec->createUser) ||
+				(EnableUsernamePasswordConstraints && !IsUsernameValid(spec->createUser)))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg("Invalid username, use a different username.")));
@@ -560,7 +287,7 @@ ParseCreateUserSpec(pgbson *createSpec, CreateUserSpec *spec)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"Password cannot be empty.")));
+									"The password field must not be left empty.")));
 			}
 
 			has_pwd = true;
@@ -571,7 +298,7 @@ ParseCreateUserSpec(pgbson *createSpec, CreateUserSpec *spec)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"'roles' field must be an array")));
+									"The 'roles' attribute is required to be in an array format")));
 			}
 
 			spec->roles = *bson_iter_value(&createIter);
@@ -580,10 +307,10 @@ ParseCreateUserSpec(pgbson *createSpec, CreateUserSpec *spec)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"'roles' is a required field.")));
+									"The 'roles' field is mandatory.")));
 			}
 
-			/* Validate that it is of the right format */
+			/* Check if it's in the right format */
 			spec->pgRole = ValidateAndObtainUserRole(&spec->roles);
 			has_roles = true;
 		}
@@ -594,7 +321,8 @@ ParseCreateUserSpec(pgbson *createSpec, CreateUserSpec *spec)
 			{
 				ereport(ERROR,
 						(errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						 errmsg("'customData' must be a BSON document.")));
+						 errmsg(
+							 "The 'customData' parameter is required to be provided as a BSON document.")));
 			}
 
 			if (!IsBsonValueEmptyDocument(customDataDocument))
@@ -615,7 +343,7 @@ ParseCreateUserSpec(pgbson *createSpec, CreateUserSpec *spec)
 					{
 						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 										errmsg(
-											"Unsupported field specified in custom data: '%s'.",
+											"The specified field in the custom data is not supported: '%s'.",
 											customDataKey)));
 					}
 				}
@@ -650,7 +378,8 @@ ParseCreateUserSpec(pgbson *createSpec, CreateUserSpec *spec)
 								"'createUser', 'roles' and 'pwd' are required fields.")));
 		}
 
-		if (IsPasswordInvalid(spec->createUser, spec->pwd))
+		if (EnableUsernamePasswordConstraints && !IsPasswordValid(spec->createUser,
+																  spec->pwd))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 							errmsg("Invalid password, use a different password.")));
@@ -660,110 +389,7 @@ ParseCreateUserSpec(pgbson *createSpec, CreateUserSpec *spec)
 
 
 /*
- *  At the moment we only allow ApiAdminRole and ApiReadOnlyRole
- *  1. ApiAdminRole corresponds to
- *      roles: [
- *          { role: "clusterAdmin", db: "admin" },
- *          { role: "readWriteAnyDatabase", db: "admin" }
- *      ]
- *
- *  2. ApiReadOnlyRole corresponds to
- *      roles: [
- *          { role: "readAnyDatabase", db: "admin" }
- *      ]
- *
- *  Reject all other combinations.
- */
-char *
-ValidateAndObtainUserRole(const bson_value_t *rolesDocument)
-{
-	bson_iter_t rolesIterator;
-	BsonValueInitIterator(rolesDocument, &rolesIterator);
-	int userRoles = 0;
-
-	while (bson_iter_next(&rolesIterator))
-	{
-		bson_iter_t roleIterator;
-
-		BsonValueInitIterator(bson_iter_value(&rolesIterator), &roleIterator);
-		while (bson_iter_next(&roleIterator))
-		{
-			const char *key = bson_iter_key(&roleIterator);
-
-			if (strcmp(key, "role") == 0)
-			{
-				EnsureTopLevelFieldType(key, &roleIterator, BSON_TYPE_UTF8);
-				uint32_t strLength = 0;
-				const char *role = bson_iter_utf8(&roleIterator, &strLength);
-				if (strcmp(role, "readAnyDatabase") == 0)
-				{
-					/*This would indicate the ApiReadOnlyRole provided the db is "admin" */
-					userRoles |= DocumentDB_Role_Read_AnyDatabase;
-				}
-				else if (strcmp(role, "readWriteAnyDatabase") == 0)
-				{
-					/*This would indicate the ApiAdminRole provided the db is "admin" and there is another role "clusterAdmin" */
-					userRoles |= DocumentDB_Role_ReadWrite_AnyDatabase;
-				}
-				else if (strcmp(role, "clusterAdmin") == 0)
-				{
-					/*This would indicate the ApiAdminRole provided the db is "admin" and there is another role "readWriteAnyDatabase" */
-					userRoles |= DocumentDB_Role_Cluster_Admin;
-				}
-				else
-				{
-					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_ROLENOTFOUND),
-									errmsg("Invalid value specified for role: '%s'.",
-										   role),
-									errdetail_log(
-										"Invalid value specified for role: '%s'.",
-										role)));
-				}
-			}
-			else if (strcmp(key, "db") == 0 || strcmp(key, "$db") == 0)
-			{
-				EnsureTopLevelFieldType(key, &roleIterator, BSON_TYPE_UTF8);
-				uint32_t strLength = 0;
-				const char *db = bson_iter_utf8(&roleIterator, &strLength);
-				if (strcmp(db, "admin") != 0)
-				{
-					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-										"Unsupported value specified for db. Only 'admin' is allowed.")));
-				}
-			}
-			else
-			{
-				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("Unsupported field specified: '%s'.",
-									   key),
-								errdetail_log(
-									"Unsupported field specified: '%s'.",
-									key)));
-			}
-		}
-	}
-
-	if ((userRoles & DocumentDB_Role_ReadWrite_AnyDatabase) != 0 &&
-		(userRoles & DocumentDB_Role_Cluster_Admin) != 0)
-	{
-		return ApiAdminRoleV2;
-	}
-
-	if ((userRoles & DocumentDB_Role_Read_AnyDatabase) != 0)
-	{
-		return ApiReadOnlyRole;
-	}
-
-	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_ROLENOTFOUND),
-					errmsg(
-						"Roles specified are invalid. Only [{role: \"readAnyDatabase\", db: \"admin\"}] or [{role: \"clusterAdmin\", db: \"admin\"}, {role: \"readWriteAnyDatabase\", db: \"admin\"}] are allowed."),
-					errdetail_log(
-						"Roles specified are invalid. Only [{role: \"readAnyDatabase\", db: \"admin\"}] or [{role: \"clusterAdmin\", db: \"admin\"}, {role: \"readWriteAnyDatabase\", db: \"admin\"}] are allowed.")));
-}
-
-
-/*
- * CreateNativeUser creates a native PostgreSQL role for the user
+ * CreateNativeUser creates a native PostgreSQL login role for the user
  */
 static void
 CreateNativeUser(const CreateUserSpec *createUserSpec)
@@ -809,14 +435,15 @@ documentdb_extension_drop_user(PG_FUNCTION_ARGS)
 	if (!EnableUserCrud)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
-						errmsg("DropUser command is not supported."),
-						errdetail_log("DropUser command is not supported.")));
+						errmsg("The DropUser operation is currently unsupported."),
+						errdetail_log(
+							"The DropUser operation is currently unsupported.")));
 	}
 
 	if (PG_ARGISNULL(0))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("'dropUser' is a required field.")));
+						errmsg("The field 'dropUser' is mandatory.")));
 	}
 
 	if (!IsMetadataCoordinator())
@@ -859,7 +486,7 @@ documentdb_extension_drop_user(PG_FUNCTION_ARGS)
 			PgbsonWriterInit(&finalWriter);
 			PgbsonWriterAppendInt32(&finalWriter, "ok", 2, 0);
 			PgbsonWriterAppendUtf8(&finalWriter, "errmsg", 6,
-								   "External identity providers are not supported");
+								   "External identity providers are currently unsupported");
 			PgbsonWriterAppendInt32(&finalWriter, "code", 4, 115);
 			PgbsonWriterAppendUtf8(&finalWriter, "codeName", 8,
 								   "CommandNotSupported");
@@ -901,10 +528,12 @@ ParseDropUserSpec(pgbson *dropSpec)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"'dropUser' is a required field.")));
+									"The field 'dropUser' is mandatory.")));
 			}
 
-			if (IsUserNameInvalid(dropUser))
+			if (ContainsReservedPgRoleNamePrefix(dropUser) ||
+				(EnableUsernamePasswordConstraints &&
+				 !IsUsernameValid(dropUser)))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg("Invalid username.")));
@@ -917,14 +546,14 @@ ParseDropUserSpec(pgbson *dropSpec)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("Unsupported field specified: '%s'.", key)));
+							errmsg("The specified field '%s' is not supported.", key)));
 		}
 	}
 
 	if (dropUser == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("'dropUser' is a required field.")));
+						errmsg("The field 'dropUser' is mandatory.")));
 	}
 
 	return dropUser;
@@ -979,8 +608,9 @@ documentdb_extension_update_user(PG_FUNCTION_ARGS)
 	if (!EnableUserCrud)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
-						errmsg("UpdateUser command is not supported."),
-						errdetail_log("UpdateUser command is not supported.")));
+						errmsg("The UpdateUser command is currently unsupported."),
+						errdetail_log(
+							"The UpdateUser command is currently unsupported.")));
 	}
 
 	if (PG_ARGISNULL(0))
@@ -1077,7 +707,7 @@ ParseUpdateUserSpec(pgbson *updateSpec, UpdateUserSpec *spec)
 		else if (strcmp(key, "roles") == 0)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("Updating roles is not supported.")));
+							errmsg("Role updates are currently unsupported.")));
 		}
 		else
 		{
@@ -1121,11 +751,12 @@ UpdateNativeUser(UpdateUserSpec *spec)
 	if (spec->pwd == NULL || spec->pwd[0] == '\0')
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("Password cannot be empty.")));
+						errmsg("The password field must not be left empty.")));
 	}
 
 	/* Verify password meets complexity requirements */
-	if (IsPasswordInvalid(spec->updateUser, spec->pwd))
+	if (EnableUsernamePasswordConstraints && !IsPasswordValid(spec->updateUser,
+															  spec->pwd))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg("Invalid password, use a different password.")));
@@ -1258,7 +889,8 @@ ParseGetUserSpec(pgbson *getSpec, GetUserSpec *spec)
 				if (bson_iter_as_int64(&getIter) != 1)
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-									errmsg("Unsupported value for 'usersInfo' field.")));
+									errmsg(
+										"The 'usersInfo' field contains an unsupported value.")));
 				}
 			}
 			else if (bson_iter_type(&getIter) == BSON_TYPE_UTF8)
@@ -1330,7 +962,7 @@ ParseGetUserSpec(pgbson *getSpec, GetUserSpec *spec)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("Unsupported field specified: '%s'.", key)));
+							errmsg("The specified field '%s' is not supported.", key)));
 		}
 	}
 
@@ -1367,7 +999,8 @@ connection_status(pgbson *showPrivilegesSpec)
 	if (parentRole == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INTERNALERROR),
-						errmsg("Could not find role for user")));
+						errmsg(
+							"Unable to locate appropriate role for the specified user")));
 	}
 
 	/*
@@ -1475,7 +1108,7 @@ ParseConnectionStatusSpec(pgbson *connectionStatusSpec)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("Unsupported field specified: '%s'.", key)));
+							errmsg("The specified field '%s' is not supported.", key)));
 		}
 	}
 
@@ -1499,7 +1132,7 @@ PrehashPassword(const char *password)
 {
 	char *prep_password;
 	pg_saslprep_rc rc;
-	char saltbuf[SCRAM_MAX_SALT_LEN];
+	char_uint8_compat saltbuf[SCRAM_MAX_SALT_LEN];
 	char *result;
 	const char *errstr = NULL;
 
@@ -1509,7 +1142,7 @@ PrehashPassword(const char *password)
 	if (ScramDefaultSaltLen > SCRAM_MAX_SALT_LEN)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("Invalid value for salt length.")));
+						errmsg("Salt length value is invalid.")));
 	}
 
 	/*
@@ -1531,16 +1164,16 @@ PrehashPassword(const char *password)
 				 errmsg("Could not generate random salt.")));
 	}
 
-#if PG_VERSION_NUM >= 160000  /* PostgreSQL 16.0 or higher */
+	#if PG_VERSION_NUM >= 160000  /* PostgreSQL 16.0 or higher */
 	result = scram_build_secret(PG_SHA256, SCRAM_SHA_256_KEY_LEN,
 								saltbuf, ScramDefaultSaltLen,
 								scram_sha_256_iterations, password,
 								&errstr);
-#else
+	#else
 	result = scram_build_secret(saltbuf, ScramDefaultSaltLen,
 								SCRAM_DEFAULT_ITERATIONS, password,
 								&errstr);
-#endif
+	#endif
 
 	if (prep_password)
 	{
@@ -1548,54 +1181,6 @@ PrehashPassword(const char *password)
 	}
 
 	return result;
-}
-
-
-/*
- * Method calls the IsUsernameValid hook to validate the username.
- * This validation logic must be in sync with control plane username validation.
- */
-bool
-IsUserNameInvalid(const char *userName)
-{
-	/* Split the blocked role prefix list */
-	char *blockedRolePrefixList = pstrdup(BlockedRolePrefixList);
-	bool containsBlockedPrefix = false;
-	char *token = strtok(blockedRolePrefixList, ",");
-	while (token != NULL)
-	{
-		if (strncmp(userName, token, strlen(token)) == 0)
-		{
-			containsBlockedPrefix = true;
-			break;
-		}
-		token = strtok(NULL, ",");
-	}
-	pfree(blockedRolePrefixList);
-
-
-	bool is_valid = !containsBlockedPrefix;
-	if (EnableUsernamePasswordConstraints)
-	{
-		is_valid = IsUsernameValid(userName) && is_valid;
-	}
-	return !is_valid;
-}
-
-
-/*
- * Method calls the IsPasswordValid hook to validate the password.
- * This validation logic must be in sync with control plane password validation.
- */
-static bool
-IsPasswordInvalid(const char *username, const char *password)
-{
-	bool is_valid = true;
-	if (EnableUsernamePasswordConstraints)
-	{
-		is_valid = IsPasswordValid(username, password);
-	}
-	return !is_valid;
 }
 
 
@@ -1657,390 +1242,106 @@ WriteSingleUserDocument(UserRoleHashEntry *userEntry, bool showPrivileges,
 
 
 /*
- * Consolidates privileges for all roles in the provided HTAB and
- * writes them to the provided BSON array writer.
- * The rolesTable should contain StringView entries representing role names.
+ *  At the moment we only allow ApiAdminRole and ApiReadOnlyRole
+ *  1. ApiAdminRole corresponds to
+ *      roles: [
+ *          { role: "clusterAdmin", db: "admin" },
+ *          { role: "readWriteAnyDatabase", db: "admin" }
+ *      ]
+ *
+ *  2. ApiReadOnlyRole corresponds to
+ *      roles: [
+ *          { role: "readAnyDatabase", db: "admin" }
+ *      ]
+ *
+ *  Reject all other combinations.
  */
-static void
-WriteMultipleRolePrivileges(HTAB *rolesTable, pgbson_array_writer *privilegesArrayWriter)
+static char *
+ValidateAndObtainUserRole(const bson_value_t *rolesDocument)
 {
-	if (rolesTable == NULL)
+	bson_iter_t rolesIterator;
+	BsonValueInitIterator(rolesDocument, &rolesIterator);
+	int userRoles = 0;
+
+	while (bson_iter_next(&rolesIterator))
 	{
-		return;
-	}
+		bson_iter_t roleIterator;
 
-	List *consolidatedPrivileges = NIL;
-	HASH_SEQ_STATUS status;
-	StringView *roleEntry;
-
-	hash_seq_init(&status, rolesTable);
-	while ((roleEntry = hash_seq_search(&status)) != NULL)
-	{
-		/* Convert StringView to null-terminated string */
-		char *roleName = palloc(roleEntry->length + 1);
-		memcpy(roleName, roleEntry->string, roleEntry->length);
-		roleName[roleEntry->length] = '\0';
-
-		ConsolidatePrivilegesForRole(roleName, &consolidatedPrivileges);
-
-		pfree(roleName);
-	}
-
-	WritePrivilegeListToArray(consolidatedPrivileges, privilegesArrayWriter);
-	DeepFreePrivileges(consolidatedPrivileges);
-}
-
-
-/*
- * Consolidates privileges for a role and
- * writes them to the provided BSON array writer.
- */
-static void
-WriteSingleRolePrivileges(const char *roleName,
-						  pgbson_array_writer *privilegesArrayWriter)
-{
-	if (roleName == NULL)
-	{
-		ereport(ERROR, (errcode(ERRCODE_INTERNAL_ERROR),
-						errmsg("Role name cannot be NULL.")));
-	}
-
-	List *consolidatedPrivileges = NIL;
-
-	ConsolidatePrivilegesForRole(roleName, &consolidatedPrivileges);
-
-	WritePrivilegeListToArray(consolidatedPrivileges, privilegesArrayWriter);
-	DeepFreePrivileges(consolidatedPrivileges);
-}
-
-
-/*
- * Consolidates privileges for a given role name into the provided list.
- * Ignores unknown roles silently.
- */
-static void
-ConsolidatePrivilegesForRole(const char *roleName, List **consolidatedPrivileges)
-{
-	if (roleName == NULL || consolidatedPrivileges == NULL)
-	{
-		return;
-	}
-
-	size_t sourcePrivilegeCount;
-
-	if (strcmp(roleName, ApiReadOnlyRole) == 0)
-	{
-		sourcePrivilegeCount = sizeof(readOnlyPrivileges) / sizeof(readOnlyPrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, readOnlyPrivileges,
-							  sourcePrivilegeCount);
-	}
-	else if (strcmp(roleName, ApiReadWriteRole) == 0)
-	{
-		sourcePrivilegeCount = sizeof(readWritePrivileges) /
-							   sizeof(readWritePrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, readWritePrivileges,
-							  sourcePrivilegeCount);
-	}
-	else if (strcmp(roleName, ApiAdminRoleV2) == 0)
-	{
-		sourcePrivilegeCount = sizeof(readWritePrivileges) /
-							   sizeof(readWritePrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, readWritePrivileges,
-							  sourcePrivilegeCount);
-
-		sourcePrivilegeCount = sizeof(clusterManagerPrivileges) /
-							   sizeof(clusterManagerPrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, clusterManagerPrivileges,
-							  sourcePrivilegeCount);
-
-		sourcePrivilegeCount = sizeof(clusterMonitorPrivileges) /
-							   sizeof(clusterMonitorPrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, clusterMonitorPrivileges,
-							  sourcePrivilegeCount);
-
-		sourcePrivilegeCount = sizeof(hostManagerPrivileges) /
-							   sizeof(hostManagerPrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, hostManagerPrivileges,
-							  sourcePrivilegeCount);
-
-		sourcePrivilegeCount = sizeof(dropDatabasePrivileges) /
-							   sizeof(dropDatabasePrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, dropDatabasePrivileges,
-							  sourcePrivilegeCount);
-	}
-	else if (strcmp(roleName, ApiUserAdminRole) == 0)
-	{
-		sourcePrivilegeCount = sizeof(userAdminPrivileges) /
-							   sizeof(userAdminPrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, userAdminPrivileges,
-							  sourcePrivilegeCount);
-	}
-	else if (strcmp(roleName, ApiRootRole) == 0)
-	{
-		sourcePrivilegeCount = sizeof(readWritePrivileges) /
-							   sizeof(readWritePrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, readWritePrivileges,
-							  sourcePrivilegeCount);
-
-		sourcePrivilegeCount = sizeof(dbAdminPrivileges) /
-							   sizeof(dbAdminPrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, dbAdminPrivileges,
-							  sourcePrivilegeCount);
-
-		sourcePrivilegeCount = sizeof(userAdminPrivileges) /
-							   sizeof(userAdminPrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, userAdminPrivileges,
-							  sourcePrivilegeCount);
-
-		sourcePrivilegeCount = sizeof(clusterMonitorPrivileges) /
-							   sizeof(clusterMonitorPrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, clusterMonitorPrivileges,
-							  sourcePrivilegeCount);
-
-		sourcePrivilegeCount = sizeof(clusterManagerPrivileges) /
-							   sizeof(clusterManagerPrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, clusterManagerPrivileges,
-							  sourcePrivilegeCount);
-
-		sourcePrivilegeCount = sizeof(hostManagerPrivileges) /
-							   sizeof(hostManagerPrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, hostManagerPrivileges,
-							  sourcePrivilegeCount);
-
-		sourcePrivilegeCount = sizeof(dropDatabasePrivileges) /
-							   sizeof(dropDatabasePrivileges[0]);
-		ConsolidatePrivileges(consolidatedPrivileges, dropDatabasePrivileges,
-							  sourcePrivilegeCount);
-	}
-
-	/* Unknown roles are silently ignored */
-}
-
-
-/*
- * Takes a list of source privileges and consolidates them into the
- * provided list of consolidated privileges, merging any duplicate privileges and combining their actions.
- */
-static void
-ConsolidatePrivileges(List **consolidatedPrivileges,
-					  const UserPrivilege *sourcePrivileges,
-					  size_t sourcePrivilegeCount)
-{
-	if (sourcePrivileges == NULL)
-	{
-		return;
-	}
-
-	for (size_t i = 0; i < sourcePrivilegeCount; i++)
-	{
-		ConsolidatePrivilege(consolidatedPrivileges, &sourcePrivileges[i]);
-	}
-}
-
-
-/*
- * Consolidates a single source privilege into the list of consolidated privileges.
- * If a privilege with the same resource target already exists, its actions are merged with the source privilege.
- * Otherwise, a new privilege is created and added to the list.
- */
-static void
-ConsolidatePrivilege(List **consolidatedPrivileges, const UserPrivilege *sourcePrivilege)
-{
-	if (sourcePrivilege == NULL || sourcePrivilege->numActions == 0)
-	{
-		return;
-	}
-
-	ListCell *privilege;
-	ConsolidatedUserPrivilege *existingPrivilege = NULL;
-
-	foreach(privilege, *consolidatedPrivileges)
-	{
-		ConsolidatedUserPrivilege *currentPrivilege =
-			(ConsolidatedUserPrivilege *) lfirst(privilege);
-
-		if (ComparePrivileges(currentPrivilege, sourcePrivilege))
+		BsonValueInitIterator(bson_iter_value(&rolesIterator), &roleIterator);
+		while (bson_iter_next(&roleIterator))
 		{
-			existingPrivilege = currentPrivilege;
-			break;
-		}
-	}
+			const char *key = bson_iter_key(&roleIterator);
 
-	if (existingPrivilege != NULL)
-	{
-		for (size_t i = 0; i < sourcePrivilege->numActions; i++)
-		{
-			bool actionFound;
-
-			/* The consolidated privilege does not free the actual char* in the action HTAB;
-			 * therefore it is safe to pass actions[i]. */
-			hash_search(existingPrivilege->actions,
-						&sourcePrivilege->actions[i], HASH_ENTER,
-						&actionFound);
-		}
-	}
-	else
-	{
-		ConsolidatedUserPrivilege *newPrivilege = palloc0(
-			sizeof(ConsolidatedUserPrivilege));
-		newPrivilege->isCluster = sourcePrivilege->isCluster;
-		newPrivilege->db = pstrdup(sourcePrivilege->db);
-		newPrivilege->collection = pstrdup(sourcePrivilege->collection);
-		newPrivilege->actions = CreateStringViewHashSet();
-
-		for (size_t i = 0; i < sourcePrivilege->numActions; i++)
-		{
-			bool actionFound;
-
-			hash_search(newPrivilege->actions,
-						&sourcePrivilege->actions[i],
-						HASH_ENTER, &actionFound);
-		}
-
-		*consolidatedPrivileges = lappend(*consolidatedPrivileges, newPrivilege);
-	}
-}
-
-
-/*
- * Checks if two privileges have the same resource (same cluster status and db/collection).
- */
-static bool
-ComparePrivileges(const ConsolidatedUserPrivilege *privilege1,
-				  const UserPrivilege *privilege2)
-{
-	if (privilege1->isCluster != privilege2->isCluster)
-	{
-		return false;
-	}
-
-	if (privilege1->isCluster)
-	{
-		return true;
-	}
-
-	return (strcmp(privilege1->db, privilege2->db) == 0 &&
-			strcmp(privilege1->collection, privilege2->collection) == 0);
-}
-
-
-/*
- * Helper function to write a single privilege document.
- */
-static void
-WriteSinglePrivilegeDocument(const ConsolidatedUserPrivilege *privilege,
-							 pgbson_array_writer *privilegesArrayWriter)
-{
-	pgbson_writer privilegeWriter;
-	PgbsonArrayWriterStartDocument(privilegesArrayWriter, &privilegeWriter);
-
-	pgbson_writer resourceWriter;
-	PgbsonWriterStartDocument(&privilegeWriter, "resource", 8,
-							  &resourceWriter);
-	if (privilege->isCluster)
-	{
-		PgbsonWriterAppendBool(&resourceWriter, "cluster", 7,
-							   true);
-	}
-	else
-	{
-		PgbsonWriterAppendUtf8(&resourceWriter, "db", 2,
-							   privilege->db);
-		PgbsonWriterAppendUtf8(&resourceWriter, "collection", 10,
-							   privilege->collection);
-	}
-	PgbsonWriterEndDocument(&privilegeWriter, &resourceWriter);
-
-	pgbson_array_writer actionsArrayWriter;
-	PgbsonWriterStartArray(&privilegeWriter, "actions", 7,
-						   &actionsArrayWriter);
-
-	if (privilege->actions != NULL)
-	{
-		HASH_SEQ_STATUS status;
-		StringView *privilegeEntry;
-		List *actionList = NIL;
-
-		hash_seq_init(&status, privilege->actions);
-		while ((privilegeEntry = hash_seq_search(&status)) != NULL)
-		{
-			char *actionString = palloc(privilegeEntry->length + 1);
-			memcpy(actionString, privilegeEntry->string, privilegeEntry->length);
-			actionString[privilegeEntry->length] = '\0';
-			actionList = lappend(actionList, actionString);
-		}
-
-		if (actionList != NIL)
-		{
-			SortStringList(actionList);
-			ListCell *cell;
-			foreach(cell, actionList)
+			if (strcmp(key, "role") == 0)
 			{
-				PgbsonArrayWriterWriteUtf8(&actionsArrayWriter, (const char *) lfirst(
-											   cell));
+				EnsureTopLevelFieldType(key, &roleIterator, BSON_TYPE_UTF8);
+				uint32_t strLength = 0;
+				const char *role = bson_iter_utf8(&roleIterator, &strLength);
+				if (strcmp(role, "readAnyDatabase") == 0)
+				{
+					/*This would indicate the ApiReadOnlyRole provided the db is "admin" */
+					userRoles |= DocumentDB_Role_Read_AnyDatabase;
+				}
+				else if (strcmp(role, "readWriteAnyDatabase") == 0)
+				{
+					/*This would indicate the ApiAdminRole provided the db is "admin" and there is another role "clusterAdmin" */
+					userRoles |= DocumentDB_Role_ReadWrite_AnyDatabase;
+				}
+				else if (strcmp(role, "clusterAdmin") == 0)
+				{
+					/*This would indicate the ApiAdminRole provided the db is "admin" and there is another role "readWriteAnyDatabase" */
+					userRoles |= DocumentDB_Role_Cluster_Admin;
+				}
+				else
+				{
+					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_ROLENOTFOUND),
+									errmsg(
+										"The specified value for the role is invalid: '%s'.",
+										role),
+									errdetail_log(
+										"The specified value for the role is invalid: '%s'.",
+										role)));
+				}
 			}
-			list_free_deep(actionList);
+			else if (strcmp(key, "db") == 0 || strcmp(key, "$db") == 0)
+			{
+				EnsureTopLevelFieldType(key, &roleIterator, BSON_TYPE_UTF8);
+				uint32_t strLength = 0;
+				const char *db = bson_iter_utf8(&roleIterator, &strLength);
+				if (strcmp(db, "admin") != 0)
+				{
+					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
+										"Unsupported value specified for db. Only 'admin' is allowed.")));
+				}
+			}
+			else
+			{
+				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
+								errmsg("The specified field '%s' is not supported.",
+									   key),
+								errdetail_log(
+									"The specified field '%s' is not supported.",
+									key)));
+			}
 		}
 	}
 
-	PgbsonWriterEndArray(&privilegeWriter, &actionsArrayWriter);
-
-	PgbsonArrayWriterEndDocument(privilegesArrayWriter, &privilegeWriter);
-}
-
-
-/*
- * Writes the consolidated privileges list to a BSON array.
- */
-static void
-WritePrivilegeListToArray(List *consolidatedPrivileges,
-						  pgbson_array_writer *privilegesArrayWriter)
-{
-	ListCell *privilege;
-	foreach(privilege, consolidatedPrivileges)
+	if ((userRoles & DocumentDB_Role_ReadWrite_AnyDatabase) != 0 &&
+		(userRoles & DocumentDB_Role_Cluster_Admin) != 0)
 	{
-		ConsolidatedUserPrivilege *currentPrivilege =
-			(ConsolidatedUserPrivilege *) lfirst(privilege);
-		WriteSinglePrivilegeDocument(currentPrivilege, privilegesArrayWriter);
+		return ApiAdminRoleV2;
 	}
-}
 
-
-/*
- * Frees all memory allocated for the consolidated privileges list,
- * including strings and hash table entries.
- */
-static void
-DeepFreePrivileges(List *consolidatedPrivileges)
-{
-	if (consolidatedPrivileges == NIL)
+	if ((userRoles & DocumentDB_Role_Read_AnyDatabase) != 0)
 	{
-		return;
+		return ApiReadOnlyRole;
 	}
 
-	ListCell *privilege;
-	foreach(privilege, consolidatedPrivileges)
-	{
-		ConsolidatedUserPrivilege *currentPrivilege =
-			(ConsolidatedUserPrivilege *) lfirst(privilege);
-
-		if (currentPrivilege->db)
-		{
-			pfree((char *) currentPrivilege->db);
-		}
-
-		if (currentPrivilege->collection)
-		{
-			pfree((char *) currentPrivilege->collection);
-		}
-
-		if (currentPrivilege->actions)
-		{
-			hash_destroy(currentPrivilege->actions);
-		}
-	}
-
-	list_free_deep(consolidatedPrivileges);
+	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_ROLENOTFOUND),
+					errmsg(
+						"Roles specified are invalid. Only [{role: \"readAnyDatabase\", db: \"admin\"}] or [{role: \"clusterAdmin\", db: \"admin\"}, {role: \"readWriteAnyDatabase\", db: \"admin\"}] are allowed."),
+					errdetail_log(
+						"Roles specified are invalid. Only [{role: \"readAnyDatabase\", db: \"admin\"}] or [{role: \"clusterAdmin\", db: \"admin\"}, {role: \"readWriteAnyDatabase\", db: \"admin\"}] are allowed.")));
 }
 
 
@@ -2086,12 +1387,29 @@ ParseUsersInfoDocument(const bson_value_t *usersInfoBson, GetUserSpec *spec)
 
 /*
  * GetAllUsersInfo queries and returns all users information, including their id, name, and roles.
+ * We need to exclude system pg login roles.
  * Returns the user info datum containing the query result.
  */
 static Datum
 GetAllUsersInfo(void)
 {
-	const char *cmdStr = GetAllUsersQuery();
+	const char *cmdStr = FormatSqlQuery(
+		"WITH r AS ("
+		"  SELECT child.rolname::text AS child_role, "
+		"         CASE WHEN parent.rolname = '%s' "
+		"              THEN '%s' "
+		"              ELSE parent.rolname::text "
+		"         END AS parent_role "
+		"  FROM pg_roles parent "
+		"  JOIN pg_auth_members am ON parent.oid = am.roleid "
+		"  JOIN pg_roles child ON am.member = child.oid "
+		"  WHERE child.rolcanlogin = true "
+		"    AND child.rolname NOT IN ('%s', '%s')"
+		") "
+		"SELECT ARRAY_AGG(%s.row_get_bson(r) ORDER BY r.child_role, r.parent_role) "
+		"FROM r;",
+		ApiRootInternalRole, ApiRootRole,
+		ApiAdminRole, ApiAdminRoleV2, CoreSchemaName);
 
 	bool readOnly = true;
 	bool isNull = false;
@@ -2117,11 +1435,38 @@ GetSingleUserInfo(const char *userName, bool returnDocuments)
 
 	if (returnDocuments)
 	{
-		cmdStr = GetSingleUserQuery();
+		cmdStr = FormatSqlQuery(
+			"WITH r AS ("
+			"  SELECT child.rolname::text AS child_role, "
+			"         CASE WHEN parent.rolname = '%s' "
+			"              THEN '%s' "
+			"              ELSE parent.rolname::text "
+			"         END AS parent_role "
+			"  FROM pg_roles parent "
+			"  JOIN pg_auth_members am ON parent.oid = am.roleid "
+			"  JOIN pg_roles child ON am.member = child.oid "
+			"  WHERE child.rolcanlogin = true "
+			"    AND child.rolname = $1"
+			") "
+			"SELECT ARRAY_AGG(%s.row_get_bson(r) ORDER BY r.parent_role) "
+			"FROM r;",
+			ApiRootInternalRole, ApiRootRole, CoreSchemaName);
 	}
 	else
 	{
-		cmdStr = GetSingleUserNameQuery();
+		cmdStr = FormatSqlQuery(
+			"SELECT CASE WHEN parent.rolname = '%s' "
+			"            THEN '%s' "
+			"            ELSE parent.rolname::text "
+			"       END "
+			"FROM pg_roles parent "
+			"JOIN pg_auth_members am ON parent.oid = am.roleid "
+			"JOIN pg_roles child ON am.member = child.oid "
+			"WHERE child.rolcanlogin = true "
+			"  AND child.rolname = $1 "
+			"ORDER BY parent.rolname "
+			"LIMIT 1;",
+			ApiRootInternalRole, ApiRootRole);
 	}
 
 	int argCount = 1;
@@ -2137,84 +1482,6 @@ GetSingleUserInfo(const char *userName, bool returnDocuments)
 											   argTypes, argValues, NULL,
 											   readOnly, SPI_OK_SELECT,
 											   &isNull);
-}
-
-
-/*
- * GetAllUsersQuery returns the SQL query string to fetch all users information, including their id, name, and roles.
- * Returns the user info datum containing the query result.
- */
-static const char *
-GetAllUsersQuery()
-{
-	if (GetAllUsersQueryString == NULL)
-	{
-		return FormatSqlQuery(
-			"WITH r AS ("
-			"  SELECT child.rolname::text AS child_role, "
-			"         parent.rolname::text AS parent_role "
-			"  FROM pg_roles parent "
-			"  JOIN pg_auth_members am ON parent.oid = am.roleid "
-			"  JOIN pg_roles child ON am.member = child.oid "
-			"  WHERE child.rolcanlogin = true"
-			") "
-			"SELECT ARRAY_AGG(%s.row_get_bson(r) ORDER BY child_role) "
-			"FROM r;",
-			CoreSchemaName);
-	}
-
-	return GetAllUsersQueryString;
-}
-
-
-/*
- * GetSingleUserQuery returns the SQL query string to fetch a user's information, including their id, name, and roles.
- * Returns the user info datum containing the query result.
- */
-static const char *
-GetSingleUserQuery()
-{
-	if (GetSingleUserQueryString == NULL)
-	{
-		return FormatSqlQuery(
-			"WITH r AS ("
-			"  SELECT child.rolname::text AS child_role, "
-			"         parent.rolname::text AS parent_role "
-			"  FROM pg_roles parent "
-			"  JOIN pg_auth_members am ON parent.oid = am.roleid "
-			"  JOIN pg_roles child ON am.member = child.oid "
-			"  WHERE child.rolcanlogin = true "
-			"    AND child.rolname = $1"
-			") "
-			"SELECT ARRAY_AGG(%s.row_get_bson(r) ORDER BY r.parent_role) "
-			"FROM r;",
-			CoreSchemaName);
-	}
-
-	return GetSingleUserQueryString;
-}
-
-
-/*
- * GetSingleUserNameQuery returns the SQL query string to fetch a user's name.
- * Returns the user info datum containing the query result.
- */
-static const char *
-GetSingleUserNameQuery()
-{
-	if (GetSingleUserNameQueryString == NULL)
-	{
-		return FormatSqlQuery(
-			"SELECT parent.rolname::text "
-			"FROM pg_roles parent "
-			"JOIN pg_auth_members am ON parent.oid = am.roleid "
-			"JOIN pg_roles child ON am.member = child.oid "
-			"WHERE child.rolcanlogin = true "
-			"  AND child.rolname = $1 "
-			"ORDER BY parent.rolname;");
-	}
-
-	return GetSingleUserNameQueryString;
 }
 
 
@@ -2365,7 +1632,7 @@ BuildUserRoleEntryTable(Datum *userDatums, int userCount)
 			{
 				const char *parentRole = bson_iter_utf8(&getIter, NULL);
 
-				if (!IsSupportedBuiltInRole(parentRole))
+				if (!IS_BUILTIN_ROLE(parentRole))
 				{
 					continue;
 				}
@@ -2467,16 +1734,4 @@ FreeUserRoleEntryTable(HTAB *userRolesTable)
 
 		hash_destroy(userRolesTable);
 	}
-}
-
-
-/*
- * Returns true if role is supported, and false otherwise.
- */
-static bool
-IsSupportedBuiltInRole(const char *roleName)
-{
-	return strcmp(roleName, ApiAdminRoleV2) == 0 || strcmp(roleName, ApiReadOnlyRole) ==
-		   0 || strcmp(roleName, ApiReadWriteRole) == 0 ||
-		   strcmp(roleName, ApiRootRole) == 0 || strcmp(roleName, ApiUserAdminRole) == 0;
 }

@@ -189,7 +189,7 @@ command_bson_document_add_score_field(PG_FUNCTION_ARGS)
 	PgbsonWriterStartDocument(&finalDocWriter, VECTOR_METADATA_FIELD_NAME,
 							  VECTOR_METADATA_FIELD_NAME_STR_LEN, &nestedWriter);
 
-	/* Add the score field */
+	/* Include the score field */
 	PgbsonWriterAppendDouble(&nestedWriter,
 							 VECTOR_METADATA_SCORE_FIELD_NAME,
 							 VECTOR_METADATA_SCORE_FIELD_NAME_STR_LEN,
@@ -227,7 +227,8 @@ HandleSearch(const bson_value_t *existingValue, Query *query,
 	{
 		/* This is incompatible.vector search needs the base relation. */
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("$search must be the first stage in the pipeline")));
+						errmsg(
+							"$search must appear as the initial stage in the pipeline sequence.")));
 	}
 
 	ReportFeatureUsage(FEATURE_STAGE_SEARCH);
@@ -329,7 +330,8 @@ HandleNativeVectorSearch(const bson_value_t *existingValue, Query *query,
 	{
 		/* This is incompatible.vector search needs the base relation. */
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("$vectorSearch must be the first stage in the pipeline")));
+						errmsg(
+							"The $vectorSearch needs to appear as the initial stage in the processing pipeline.")));
 	}
 	ReportFeatureUsage(FEATURE_STAGE_VECTOR_SEARCH_NATIVE);
 
@@ -774,7 +776,7 @@ AddScoreFieldToDocumentEntry(TargetEntry *documentEntry, Expr *vectorSortExpr,
 		}
 	}
 
-	/* Add the score field to the document */
+	/* Include the field 'score' to the document */
 	Expr *scoreExpr = GenerateScoreExpr((Expr *) sortExprInput, distanceMetric);
 
 	List *args = list_make2(documentEntry->expr, scoreExpr);
@@ -1143,7 +1145,7 @@ GeneratePrefilteringVectorSearchQuery(Query *searchQuery,
 																  leftCtidEntry,
 																  rightCtidEntry);
 
-		/* Add the limit to the sub-query */
+		/* Include a limit clause within the sub-query */
 		joinedQuery->limitCount = limitCount;
 
 		if (VectorPreFilterIterativeScanMode == VectorIterativeScan_RELAXED_ORDER &&
@@ -1294,10 +1296,10 @@ ParseAndValidateNativeVectorSearchSpec(const bson_value_t *nativeVectorSearchSpe
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"$vectorSearch.numCandidates must be greater than or equal to %d.",
+									"The vectorSearch.numCandidates should have a value that is not less than %d.",
 									HNSW_MIN_EF_SEARCH),
 								errdetail_log(
-									"$vectorSearch.numCandidates must be greater than or equal to %d.",
+									"The vectorSearch.numCandidates should have a value that is not less than %d.",
 									HNSW_MIN_EF_SEARCH)));
 			}
 
@@ -1336,7 +1338,7 @@ ParseAndValidateNativeVectorSearchSpec(const bson_value_t *nativeVectorSearchSpe
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"$vectorSearch.limit must be a positive integer.")));
+									"$vectorSearch.limit must be provided as a positive integer value.")));
 			}
 			PgbsonWriterAppendInt32(&writer, "k", 1,
 									value->value.v_int32);
@@ -1439,7 +1441,7 @@ CheckVectorIndexAndGenerateSortExpr(Query *query,
 			if (vectorSearchOptions->vectorIndexDef == NULL)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INTERNALERROR),
-								errmsg("Unsupported vector index type")));
+								errmsg("Vector index type not supported")));
 			}
 
 			/* Set the vector compression type */
@@ -1599,7 +1601,7 @@ HandleVectorSearchCore(Query *query, VectorSearchOptions *vectorSearchOptions,
 	{
 		ReportFeatureUsage(FEATURE_STAGE_SEARCH_VECTOR_PRE_FILTER);
 
-		/* check if the collection is unsharded */
+		/* Validate whether the collection is sharded or not */
 		if (context->mongoCollection != NULL &&
 			context->mongoCollection->shardKey != NULL)
 		{
@@ -1637,7 +1639,7 @@ HandleVectorSearchCore(Query *query, VectorSearchOptions *vectorSearchOptions,
 	{
 		ReportFeatureUsage(FEATURE_STAGE_SEARCH_VECTOR_PRE_FILTER);
 
-		/* check if the collection is unsharded */
+		/* Validate whether the collection is sharded or not */
 		if (context->mongoCollection != NULL &&
 			context->mongoCollection->shardKey != NULL)
 		{
@@ -1652,7 +1654,7 @@ HandleVectorSearchCore(Query *query, VectorSearchOptions *vectorSearchOptions,
 													  processedSortExpr,
 													  limitCount);
 
-		/* Add the score field */
+		/* Include the field 'score' */
 		TargetEntry *documentEntry = linitial(query->targetList);
 		sortExpr = AddScoreFieldToDocumentEntry(documentEntry, sortEntry->expr,
 												vectorSearchOptions->distanceMetric);
@@ -1665,7 +1667,7 @@ HandleVectorSearchCore(Query *query, VectorSearchOptions *vectorSearchOptions,
 		/* After the limit is applied, push to a subquery */
 		query = MigrateQueryToSubQuery(query, context);
 
-		/* Add the score field */
+		/* Include the field 'score' */
 		TargetEntry *documentEntry = linitial(query->targetList);
 		sortExpr = AddScoreFieldToDocumentEntry(documentEntry, sortEntry->expr,
 												vectorSearchOptions->distanceMetric);
@@ -1730,7 +1732,7 @@ ParseAndValidateVectorQuerySpecCore(const pgbson *vectorSearchSpecPgbson,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"$path cannot be empty.")));
+									"The parameter $path must not be left empty.")));
 			}
 		}
 		else if (strcmp(key, "vector") == 0)
@@ -1765,7 +1767,7 @@ ParseAndValidateVectorQuerySpecCore(const pgbson *vectorSearchSpecPgbson,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"$k must be an integer value.")));
+									"The parameter $k should always hold a valid integer value.")));
 			}
 
 			vectorSearchOptions->resultCount = BsonValueAsInt32(value);
@@ -1774,7 +1776,7 @@ ParseAndValidateVectorQuerySpecCore(const pgbson *vectorSearchSpecPgbson,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"$k must be a positive integer.")));
+									"The $k should always be a positive integer value.")));
 			}
 		}
 		else if (strcmp(key, "filter") == 0)
@@ -1803,7 +1805,7 @@ ParseAndValidateVectorQuerySpecCore(const pgbson *vectorSearchSpecPgbson,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"$exact must be a boolean value.")));
+									"$exact must represent a valid boolean value.")));
 			}
 
 			vectorSearchOptions->exactSearch = BsonValueAsBool(value);
@@ -1823,7 +1825,7 @@ ParseAndValidateVectorQuerySpecCore(const pgbson *vectorSearchSpecPgbson,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 								errmsg(
-									"$oversampling should be greater than or equal to 1.")));
+									"$oversampling must be set to a value that is greater or equal to 1.")));
 			}
 		}
 		else if (strcmp(key, "score") == 0)

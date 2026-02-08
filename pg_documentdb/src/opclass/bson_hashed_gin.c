@@ -339,7 +339,7 @@ GenerateTermsForDollarIn(pgbsonelement *queryElement, int *nentries)
 	if (queryElement->bsonValue.value_type != BSON_TYPE_ARRAY)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"$in expects an array")));
+							"$in operator requires an array")));
 	}
 
 	bson_iter_t queryInIterator;
@@ -348,7 +348,7 @@ GenerateTermsForDollarIn(pgbsonelement *queryElement, int *nentries)
 								  queryElement->bsonValue.value.v_doc.data_len))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("Unable to read array for $in")));
+						errmsg("Failed to read array for operators $in")));
 	}
 
 	bool arrayHasNull = false;
@@ -411,7 +411,7 @@ ThrowErrorArraysNotSupported(const char * path, int pathLength)
 	errorPath = (char *) palloc0(sizeof(char) * (pathLength + 1));
 	memcpy(errorPath, path, pathLength);
 	ereport(ERROR, errcode(ERRCODE_DOCUMENTDB_HASHEDINDEXDONOTSUPPORTARRAYVALUES), errmsg(
-				"hashed indexes do not currently support array values. Found array at path: %s",
+				"Index type 'hashed' does not support array values. Array was detected at path: %s",
 				errorPath));
 }
 
@@ -470,7 +470,7 @@ ValidateHashedPathSpec(const char *prefix)
 	if (stringLength == 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"Hashed index path must not be empty")));
+							"The hashed index path cannot be left empty")));
 	}
 
 	if (prefix[stringLength - 1] == '.')

@@ -66,9 +66,7 @@ typedef struct BsonOrderAggState
 } BsonOrderAggState;
 
 /* Handles serialization of state */
-bytea * SerializeOrderState(MemoryContext aggregateContext,
-							BsonOrderAggState *state,
-							bytea *bytes);
+bytea * SerializeOrderState(BsonOrderAggState *state);
 void DeserializeOrderState(bytea *bytes,
 						   BsonOrderAggState *state);
 

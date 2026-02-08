@@ -30,23 +30,6 @@ select documentdb_api.insert('db', '{
  ("{ ""n"" : { ""$numberInt"" : ""1"" }, ""ok"" : { ""$numberDouble"" : ""1.0"" } }",t)
 (1 row)
 
--- delete tests
-select documentdb_api.delete('db', '{
-	"delete":"ignoreCommonSpec", 
-	"deletes":[{"q":{},"limit":0}], 
-	"let": { "a": 1}, 
-	"writeConcern": { "w": "majority", "wtimeout": 5000 },
-	"apiVersion": 1
-	}');
-ERROR:  'delete.let' is not yet supported
--- query 
-SELECT bson_dollar_project(document, '{ "a" : 1 }') FROM documentdb_api.collection('db', 'ignoreCommonSpec') ORDER BY object_id;
-                        bson_dollar_project                         
----------------------------------------------------------------------
- { "_id" : { "$numberInt" : "21" }, "a" : { "$numberInt" : "99" } }
- { "_id" : { "$numberInt" : "99" }, "a" : { "$numberInt" : "99" } }
-(2 rows)
-
 -- insert again
 select documentdb_api.insert('db', '{
 	"insert":"ignoreCommonSpec", 
@@ -72,15 +55,6 @@ select documentdb_api.insert('db', '{
  ("{ ""n"" : { ""$numberInt"" : ""1"" }, ""ok"" : { ""$numberDouble"" : ""1.0"" } }",t)
 (1 row)
 
--- update tests
-select documentdb_api.update('db', '{
-	"update":"ignoreCommonSpec",
-	"updates":[{"q":{"_id":10,"b":{"$ne":0}},"u":{"$set":{"b":0}},"multi":false}],
-	"let": {"a" : 1},
-	"writeConcern": { "w": "majority", "wtimeout": 5000 },
-	"apiVersion": 1
-	}');
-ERROR:  update.let is not yet supported
 -- create index tests
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{
 	"createIndexes": "ignoreCommonSpec", 

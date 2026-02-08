@@ -196,11 +196,10 @@ bson_in_range_interval(PG_FUNCTION_ARGS)
 									  valElement.bsonValue.value_type;
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION5429513),
 						errmsg(
-							"PlanExecutor error during aggregation :: caused by :: Invalid range: "
-							"Expected the sortBy field to be a Date, but it was %s",
+							"Aggregation PlanExecutor encountered an - Invalid range - error: The specified sortBy field should be of type Date, but a different type (%s) was provided.",
 							BsonTypeName(conflictingType)),
 						errdetail_log(
-							"Invalid range for sortBy: field should be a Date, but it was %s",
+							"Aggregation PlanExecutor encountered an - Invalid range - error: The specified sortBy field should be of type Date, but a different type (%s) was provided.",
 							BsonTypeName(conflictingType))));
 	}
 
@@ -250,11 +249,11 @@ bson_in_range_numeric(PG_FUNCTION_ARGS)
 									  valElement.bsonValue.value_type;
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION5429414),
 						errmsg(
-							"PlanExecutor error during aggregation :: caused by :: Invalid range: "
-							"Expected the sortBy field to be a number, but it was %s",
+							"SortBy range is invalid: "
+							"expected a Number type field, but received %s instead",
 							BsonTypeName(conflictingType)),
 						errdetail_log(
-							"Invalid range for bson_in_range_numeric: sortBy field to be a number, but it was %s",
+							"Illegal range passed to bson_in_range_numeric: The sortBy field must contain a numeric value, but received %s instead.",
 							BsonTypeName(conflictingType))));
 	}
 
@@ -577,7 +576,7 @@ BsonValueAsInt64WithRoundingMode(const bson_value_t *value,
 		if (!BsonValueIsNumber(value))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION16004), errmsg(
-								"can't convert from BSON type %s to long",
+								"Unable to convert from BSON type %s into a long value",
 								BsonTypeName(value->value_type))));
 		}
 
@@ -585,7 +584,7 @@ BsonValueAsInt64WithRoundingMode(const bson_value_t *value,
 		if (!IsBsonValue64BitInteger(value, checkFixedInteger))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION31109), errmsg(
-								"Can't coerce out of range value %s to long",
+								"Unable to convert out-of-range value %s into a long type",
 								BsonValueToJsonForLogging(value))));
 		}
 	}
@@ -776,6 +775,11 @@ BsonValueAsDateTime(const bson_value_t *value)
 
 		default:
 		{
+			/*
+			 * Compatibility Notice: The text in this error string is copied verbatim from MongoDB output
+			 * to maintain compatibility with existing tools and scripts that rely on specific error message formats.
+			 * Modifying this text may cause unexpected behavior in dependent systems.
+			 */
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION16006), errmsg(
 								"can't convert from BSON type %s to Date",
 								BsonTypeName(value->value_type))));
@@ -1142,7 +1146,7 @@ CompareBsonValue(const bson_value_t *left, const bson_value_t *right,
 
 		case BSON_TYPE_TIMESTAMP:
 		{
-			/* compare the time value first */
+			/* First, compare the time value */
 			int64_t leftVal = left->value.v_timestamp.timestamp;
 			int64_t rightVal = right->value.v_timestamp.timestamp;
 			if (leftVal != rightVal)
@@ -1465,7 +1469,9 @@ CompareStrings(const char *left, uint32_t leftLength, const char *right, uint32_
 
 	int32_t cmp;
 
-	if (collationString == NULL)
+	/* simple collation also uses binary comparison */
+	if (!IsCollationApplicable(collationString) ||
+		IsSimpleCollation(collationString))
 	{
 		cmp = memcmp(left, right, minLength);
 	}

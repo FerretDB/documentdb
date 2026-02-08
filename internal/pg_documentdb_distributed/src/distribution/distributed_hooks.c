@@ -29,6 +29,8 @@
 #include "shard_colocation.h"
 #include "distributed_hooks.h"
 
+#include "node_distributed_operations.h"
+
 extern bool UseLocalExecutionShardQueries;
 extern char *ApiDistributedSchemaName;
 
@@ -502,22 +504,15 @@ TryGetExtendedVersionRefreshQueryCore(void)
 }
 
 
-static void
-GetShardIdsAndNamesForCollectionCore(Oid relationOid, const char *tableName,
-									 Datum **shardOidArray, Datum **shardNameArray,
-									 int32_t *shardCount)
+static List *
+GetShardIdsForCollection(Oid relationOid)
 {
-	*shardOidArray = NULL;
-	*shardNameArray = NULL;
-	*shardCount = 0;
 	const char *query =
-		"SELECT array_agg($2 || '_' || shardid) FROM pg_dist_shard WHERE logicalrelid = $1";
+		"SELECT array_agg(shardid) FROM pg_dist_shard WHERE logicalrelid = $1";
 
-	int nargs = 2;
-	Oid argTypes[2] = { OIDOID, TEXTOID };
-	Datum argValues[2] = {
-		ObjectIdGetDatum(relationOid), CStringGetTextDatum(tableName)
-	};
+	int nargs = 1;
+	Oid argTypes[1] = { OIDOID };
+	Datum argValues[1] = { ObjectIdGetDatum(relationOid) };
 	bool isReadOnly = true;
 	bool isNull = true;
 	Datum shardIds = ExtensionExecuteQueryWithArgsViaSPI(query, nargs, argTypes,
@@ -527,45 +522,70 @@ GetShardIdsAndNamesForCollectionCore(Oid relationOid, const char *tableName,
 
 	if (isNull)
 	{
-		return;
+		return NIL;
 	}
 
 	ArrayType *arrayType = DatumGetArrayTypeP(shardIds);
 
 	/* Need to build the result */
-	int numItems = ArrayGetNItems(ARR_NDIM(arrayType), ARR_DIMS(arrayType));
-	Datum *resultDatums = palloc0(sizeof(Datum) * numItems);
-	Datum *resultNameDatums = palloc0(sizeof(Datum) * numItems);
-	int resultCount = 0;
-
 	const int slice_ndim = 0;
 	ArrayMetaState *mState = NULL;
 	ArrayIterator shardIterator = array_create_iterator(arrayType,
 														slice_ndim, mState);
 
-	Datum shardName = 0;
-	while (array_iterate(shardIterator, &shardName, &isNull))
+	List *shardIdList = NIL;
+	Datum shardIdDatum;
+	while (array_iterate(shardIterator, &shardIdDatum, &isNull))
 	{
 		if (isNull)
 		{
 			continue;
 		}
 
-		RangeVar *rangeVar = makeRangeVar(ApiDataSchemaName, TextDatumGetCString(
-											  shardName), -1);
+		uint64_t *shardIdPointer = palloc(sizeof(uint64_t));
+		*shardIdPointer = DatumGetInt64(shardIdDatum);
+		shardIdList = lappend(shardIdList, shardIdPointer);
+	}
+
+	array_free_iterator(shardIterator);
+	return shardIdList;
+}
+
+
+static void
+GetShardIdsAndNamesForCollectionCore(Oid relationOid, const char *tableName,
+									 Datum **shardOidArray, Datum **shardNameArray,
+									 int32_t *shardCount)
+{
+	*shardOidArray = NULL;
+	*shardNameArray = NULL;
+	*shardCount = 0;
+
+	ListCell *shardCell;
+	List *shardIdList = GetShardIdsForCollection(relationOid);
+
+	/* Need to build the result */
+	int numItems = list_length(shardIdList);
+	Datum *resultDatums = palloc0(sizeof(Datum) * numItems);
+	Datum *resultNameDatums = palloc0(sizeof(Datum) * numItems);
+	int resultCount = 0;
+	foreach(shardCell, shardIdList)
+	{
+		uint64_t *shardIdPointer = (uint64_t *) lfirst(shardCell);
+		char shardName[NAMEDATALEN] = { 0 };
+		pg_sprintf(shardName, "%s_%lu", tableName, *shardIdPointer);
+
+		RangeVar *rangeVar = makeRangeVar(ApiDataSchemaName, shardName, -1);
 		bool missingOk = true;
 		Oid shardRelationId = RangeVarGetRelid(rangeVar, AccessShareLock, missingOk);
 		if (shardRelationId != InvalidOid)
 		{
 			Assert(resultCount < numItems);
 			resultDatums[resultCount] = shardRelationId;
-			resultNameDatums[resultCount] = PointerGetDatum(DatumGetTextPCopy(
-																shardName));
+			resultNameDatums[resultCount] = CStringGetTextDatum(shardName);
 			resultCount++;
 		}
 	}
-
-	array_free_iterator(shardIterator);
 
 	/* Now that we have the shard list as a Datum*, create an array type */
 	if (resultCount > 0)
@@ -580,7 +600,7 @@ GetShardIdsAndNamesForCollectionCore(Oid relationOid, const char *tableName,
 		pfree(resultNameDatums);
 	}
 
-	pfree(arrayType);
+	list_free_deep(shardIdList);
 }
 
 
@@ -613,8 +633,8 @@ TryGetCancelIndexBuildQueryCore(int32_t indexId, char cmdType)
 	appendStringInfo(cmdStr,
 					 "SELECT citus_pid_for_gpid(iq.global_pid) AS pid, iq.start_time AS timestamp");
 	appendStringInfo(cmdStr,
-					 " FROM %s iq WHERE index_id = %d AND cmd_type = '%c'",
-					 GetIndexQueueName(), indexId, CREATE_INDEX_COMMAND_TYPE);
+					 " FROM %s iq WHERE index_id = %d",
+					 GetIndexQueueName(), indexId);
 
 	return cmdStr->data;
 }
@@ -624,6 +644,45 @@ static bool
 ShouldScheduleIndexBuildsCore()
 {
 	return false;
+}
+
+
+static List *
+GetDistributedShardIndexOidsCore(uint64_t collectionId, int indexId, bool ignoreMissing)
+{
+	/* First for the given collection, get the shard ids associated with it */
+	char tableName[NAMEDATALEN] = { 0 };
+	pg_sprintf(tableName, DOCUMENT_DATA_TABLE_NAME_FORMAT, collectionId);
+
+	Oid relationOid = get_relname_relid(tableName, ApiDataNamespaceOid());
+	List *shardIdList = GetShardIdsForCollection(relationOid);
+
+	AllowNestedDistributionInCurrentTransactionCore();
+
+	List *indexShardList = NIL;
+	ListCell *shardCell;
+	foreach(shardCell, shardIdList)
+	{
+		uint64_t *shardIdPointer = (uint64_t *) lfirst(shardCell);
+		char shardIndexName[NAMEDATALEN] = { 0 };
+		pg_sprintf(shardIndexName, DOCUMENT_DATA_TABLE_INDEX_NAME_FORMAT "_%lu", indexId,
+				   *shardIdPointer);
+
+
+		Oid indexOid = get_relname_relid(shardIndexName, ApiDataNamespaceOid());
+		if (indexOid != InvalidOid)
+		{
+			indexShardList = lappend_oid(indexShardList, indexOid);
+		}
+		else if (!ignoreMissing)
+		{
+			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
+							errmsg("failed to find index to get index metadata."
+								   " This can happen if it's a multi-node cluster and is not yet supported")));
+		}
+	}
+
+	return indexShardList;
 }
 
 
@@ -661,6 +720,10 @@ InitializeDocumentDBDistributedHooks(void)
 	try_get_cancel_index_build_query_hook = TryGetCancelIndexBuildQueryCore;
 
 	should_schedule_index_builds_hook = ShouldScheduleIndexBuildsCore;
+
+	get_shard_index_oids_hook = GetDistributedShardIndexOidsCore;
+
+	update_postgres_index_hook = UpdateDistributedPostgresIndex;
 
 	DistributedOperationsQuery =
 		"SELECT * FROM pg_stat_activity LEFT JOIN pg_catalog.get_all_active_transactions() ON process_id = pid JOIN pg_catalog.pg_dist_local_group ON TRUE";

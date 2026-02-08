@@ -313,7 +313,7 @@ EXPLAIN (COSTS OFF, VERBOSE ON ) SELECT document FROM bson_aggregation_pipeline(
 (5 rows)
 
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "aggregation_pipeline", "pipeline": [ { "$project": { "a": 0, "boolean": 1 } }, { "$addFields": { "a": 1, "xyz": "$_id" } } ], "cursor": {} }');
-ERROR:  Cannot do exclusion on field boolean in inclusion projection.
+ERROR:  exclusion cannot be applied to field boolean within the inclusion projection.
 -- replaceRoot
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "aggregation_pipeline", "pipeline": [ { "$addFields": { "e": {  "f": "$a.b" } } }, { "$replaceRoot": { "newRoot": "$e" } } ], "cursor": {} }');
                                    document                                   
@@ -648,13 +648,13 @@ SELECT document FROM bson_aggregation_find('db', '{ "find": "targetView", "proje
 
 -- $natural negative 
 SELECT document FROM bson_aggregation_find('db', '{ "find": "aggregation_pipeline", "projection": { "a.b": 1 }, "sort": { "$natural": "string" }}');
-ERROR:  Invalid sort direction "string"
+ERROR:  Sort direction value "string" is not valid
 SELECT document FROM bson_aggregation_find('db', '{ "find": "aggregation_pipeline", "projection": { "a.b": 1 }, "sort": { "$natural": 2.12 }}');
 ERROR:  $natural sort cannot be set to a value other than -1 or 1.
 SELECT document FROM bson_aggregation_find('db', '{ "find": "aggregation_pipeline", "projection": { "a.b": 1 }, "sort": { "$natural": 3 }}');
 ERROR:  $natural sort cannot be set to a value other than -1 or 1.
 SELECT document FROM bson_aggregation_find('db', '{ "find": "aggregation_pipeline", "projection": { "a.b": 1 }, "sort": { "$natural": true }}');
-ERROR:  Invalid sort direction true
+ERROR:  Sort direction value true is not valid
 SELECT document FROM bson_aggregation_find('db', '{ "find": "aggregation_pipeline", "projection": { "a.b": 1 }, "sort": { "$size":1, "$natural": 1 }}');
 ERROR:  $natural sort cannot be set to a value other than -1 or 1.
 -- $natural EXPLAIN
@@ -704,9 +704,9 @@ SELECT document FROM bson_aggregation_count('db', '{ "count": "aggregation_pipel
 (1 row)
 
 SELECT document FROM bson_aggregation_count('db', '{ "count": "aggregation_pipeline", "query": {}, "skip": -3.14159 }');
-ERROR:  BSON field 'skip' value must be >=0, actual value '-3'
+ERROR:  The BSON field 'skip' requires a value greater than or equal to 0, but the given value is '-3'.
 SELECT document FROM bson_aggregation_count('db', '{ "count": "aggregation_pipeline", "query": {}, "skip": -9223372036854775808 }');
-ERROR:  BSON field 'skip' value must be >=0, actual value '-9223372036854775808'
+ERROR:  The BSON field 'skip' requires a value greater than or equal to 0, but the given value is '-9223372036854775808'.
 SELECT document FROM bson_aggregation_count('db', '{ "count": "non_existent_coll" }');
                                document                               
 ----------------------------------------------------------------------
@@ -732,9 +732,9 @@ SELECT document FROM documentdb_api.count_query('db', '{ "count": "aggregation_p
 (1 row)
 
 SELECT document FROM documentdb_api.count_query('db', '{ "count": "aggregation_pipeline", "query": {}, "skip": -3.14159 }');
-ERROR:  BSON field 'skip' value must be >=0, actual value '-3'
+ERROR:  The BSON field 'skip' requires a value greater than or equal to 0, but the given value is '-3'.
 SELECT document FROM documentdb_api.count_query('db', '{ "count": "aggregation_pipeline", "query": {}, "skip": -9223372036854775808 }');
-ERROR:  BSON field 'skip' value must be >=0, actual value '-9223372036854775808'
+ERROR:  The BSON field 'skip' requires a value greater than or equal to 0, but the given value is '-9223372036854775808'.
 -- handling of skip as an aggregation stage; this is different from skip in a count query
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "aggregation_pipeline", "pipeline": [{ "$match": {}}, { "$skip": 0 }], "cursor": {}}');
                                                                document                                                               
@@ -752,11 +752,11 @@ SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "aggregatio
 (2 rows)
 
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "aggregation_pipeline", "pipeline": [{ "$match": {}}, { "$skip": null }], "cursor": {}}');
-ERROR:  Argument to $skip must be a number
+ERROR:  $skip requires a numeric argument
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "aggregation_pipeline", "pipeline": [{ "$match": {}}, { "$skip": -3.14159 }], "cursor": {}}');
-ERROR:  invalid argument to $skip stage: Cannot represent as a 64-bit integer $skip: -3.141590
+ERROR:  Invalid parameter provided to $skip stage: value cannot be expressed as a 64-bit integer $skip: -3.141590
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "aggregation_pipeline", "pipeline": [{ "$match": {}}, { "$skip": -9223372036854775808 }], "cursor": {}}');
-ERROR:  invalid argument to $skip stage: Expected a non-negative number in $skip: -9223372036854775808
+ERROR:  Invalid argument provided to $skip stage: A non-negative numerical value was expected in $skip, but received -9223372036854775808.
 -- EXPLAIN the counts
 EXPLAIN (COSTS OFF) SELECT document FROM bson_aggregation_count('db', '{ "count": "aggregation_pipeline" }');
                      QUERY PLAN                     
@@ -888,11 +888,11 @@ SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "aggregatio
 
 COMMIT;
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "aggregation_pipeline", "pipeline": [ { "$search": { "cosmosSearch": { "vector": [ 3.0, 4.9, 1.0 ], "k": 2, "path": "v", "nProbes": 10000000 }  } } ], "cursor": {} }');
-ERROR:  $nProbes must be less than or equal to 32768.
+ERROR:  The value of $nProbes must not exceed 32768.
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "aggregation_pipeline", "pipeline": [ { "$search": { "cosmosSearch": { "vector": [ 3.0, 4.9, 1.0 ], "k": 2, "path": "v", "nProbes": -5 }  } } ], "cursor": {} }');
-ERROR:  $nProbes must be greater than or equal to 1.
+ERROR:  The value of $nProbes should be at least 1.
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "aggregation_pipeline", "pipeline": [ { "$search": { "cosmosSearch": { "vector": [ 3.0, 4.9, 1.0 ], "k": 2, "path": "v", "nProbes": "5" }  } } ], "cursor": {} }');
-ERROR:  $nProbes must be an integer value.
+ERROR:  $nProbes is required to be an integer value.
 -- numLists > data size, pgvector will generate randomized centroids, using original vector data to query
 CALL documentdb_api.drop_indexes('db', '{ "dropIndexes": "aggregation_pipeline", "index": "foo_1"}');
                           retval                          
@@ -951,9 +951,9 @@ SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "aggregatio
 ERROR:  Unrecognized $search option: unknowType, should be one of: cosmosSearch, knnBeta.
 -- non supported vector index type
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "aggregation_pipeline_vector", "indexes": [ { "key": { "v": "cosmosSearch" }, "name": "idx_vector", "cosmosSearchOptions": { "kind": "vector-diskann", "similarity": "COS", "dimensions": 3 } } ] }');
-ERROR:  Error in specification { "key" : { "v" : "cosmosSearch" }, "name" : "idx_vector", "cosmosSearchOptions" : { "kind" : "vector-diskann", "similarity" : "COS", "dimensions" : 3 } } :: caused by :: Invalid search index kind vector-diskann
+ERROR:  Error in specification { "key" : { "v" : "cosmosSearch" }, "name" : "idx_vector", "cosmosSearchOptions" : { "kind" : "vector-diskann", "similarity" : "COS", "dimensions" : 3 } }:Invalid search index kind vector-diskann
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "aggregation_pipeline_vector", "indexes": [ { "key": { "v": "cosmosSearch" }, "name": "idx_vector", "cosmosSearchOptions": { "kind": "vector-scann", "similarity": "COS", "dimensions": 3 } } ] }');
-ERROR:  Error in specification { "key" : { "v" : "cosmosSearch" }, "name" : "idx_vector", "cosmosSearchOptions" : { "kind" : "vector-scann", "similarity" : "COS", "dimensions" : 3 } } :: caused by :: Invalid search index kind vector-scann
+ERROR:  Error in specification { "key" : { "v" : "cosmosSearch" }, "name" : "idx_vector", "cosmosSearchOptions" : { "kind" : "vector-scann", "similarity" : "COS", "dimensions" : 3 } }:Invalid search index kind vector-scann
 -- $lookup
 SELECT documentdb_api.insert_one('db','agg_pipeline_movie_screenings',' { "_id" : 1, "movie_title" : "Interstellar", "ticket_price" : 15, "tickets_sold" : 120 }', NULL);
 NOTICE:  creating collection
@@ -1402,13 +1402,13 @@ SELECT document FROM bson_aggregation_pipeline('db',
 (7 rows)
 
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": 1, "pipeline": [ { "$addFields": { "newField" : "1", "a.y": ["p", "q"] } } ], "cursor": {} }');
-ERROR:  {aggregate: 1} is not valid for '$addFields'; a collection is required.
+ERROR:  The value '{aggregate: 1}' is invalid for the '$addFields'; a collection input is necessary.
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": 1, "pipeline": [ { "$match": { "newField" : "1", "a.y": ["p", "q"] } } ], "cursor": {} }');
-ERROR:  {aggregate: 1} is not valid for '$match'; a collection is required.
+ERROR:  The value '{aggregate: 1}' is invalid for the '$match'; a collection input is necessary.
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": 1, "pipeline": [ { "$project": { "newField" : "1", "a.y": ["p", "q"] } } ], "cursor": {} }');
-ERROR:  {aggregate: 1} is not valid for '$project'; a collection is required.
+ERROR:  The value '{aggregate: 1}' is invalid for the '$project'; a collection input is necessary.
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": 1, "pipeline": [ { "$skip": 1 } ], "cursor": {} }');
-ERROR:  {aggregate: 1} is not valid for '$skip'; a collection is required.
+ERROR:  The value '{aggregate: 1}' is invalid for the '$skip'; a collection input is necessary.
 -- test sort behavior on sharded/unsharded
 EXPLAIN (COSTS OFF) SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate" : "agg_pipeline_movie_catalog", "pipeline" : [ { "$match" : { "$or" : [ { "_id" : { "$lt" : 9999.0 }, "some_other_field" : { "$ne" : 3.0 } }, { "this_predicate_matches_nothing" : true } ] } }, { "$sort" : { "_id" : -1.0 } }, { "$limit" : 1.0 }, { "$project" : { "_id" : 1.0, "b" : { "$round" : "$a" } } } ], "cursor" : {  }, "lsid" : { "id" : { "$binary" : { "base64": "VJmzOaS5R46C4aFkQzrFaQ==", "subType" : "04" } } }, "$db" : "test" }');
                                                                                                                       QUERY PLAN                                                                                                                       
@@ -1651,7 +1651,7 @@ SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "agg_pipeli
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "agg_pipeline_samplerate", "pipeline": [ { "$match": { "$sampleRate": -1.23 } }, { "$limit": 1 }, {"$count": "count"} ], "cursor": {} }');
 ERROR:  numeric argument to $sampleRate must be in [0, 1]
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "agg_pipeline_samplerate", "pipeline": [ { "$match": { "$sampleRate": null } }, { "$limit": 1 }, {"$count": "count"} ], "cursor": {} }');
-ERROR:  argument to $sampleRate must be a numeric type
+ERROR:  The operator $sampleRate requires an argument of numeric data type.
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "agg_pipeline_samplerate", "pipeline": [ { "$match": { "$sampleRate": NaN } }, { "$limit": 1 }, {"$count": "count"} ], "cursor": {} }');
 ERROR:  numeric argument to $sampleRate must be in [0, 1]
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "agg_pipeline_samplerate", "pipeline": [ { "$match": { "$sampleRate": Infinity } }, { "$limit": 1 }, {"$count": "count"} ], "cursor": {} }');
@@ -1659,11 +1659,11 @@ ERROR:  numeric argument to $sampleRate must be in [0, 1]
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "agg_pipeline_samplerate", "pipeline": [ { "$match": { "$sampleRate": -Infinity } }, { "$limit": 1 }, {"$count": "count"} ], "cursor": {} }');
 ERROR:  numeric argument to $sampleRate must be in [0, 1]
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "agg_pipeline_samplerate", "pipeline": [ { "$match": { "$sampleRate": "0.65" } }, { "$limit": 1 }, {"$count": "count"} ], "cursor": {} }');
-ERROR:  argument to $sampleRate must be a numeric type
+ERROR:  The operator $sampleRate requires an argument of numeric data type.
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "agg_pipeline_samplerate", "pipeline": [ { "$match": { "$sampleRate": 10 } }, { "$limit": 1 }, {"$count": "count"} ], "cursor": {} }');
 ERROR:  numeric argument to $sampleRate must be in [0, 1]
 SELECT document FROM bson_aggregation_pipeline('db', '{ "aggregate": "agg_pipeline_samplerate", "pipeline": [ { "$match": { "$sampleRate": false } }, { "$limit": 1 }, {"$count": "count"} ], "cursor": {} }');
-ERROR:  argument to $sampleRate must be a numeric type
+ERROR:  The operator $sampleRate requires an argument of numeric data type.
 -- match/find with $comment
 SELECT document FROM bson_aggregation_find('db', '{ "find": "aggregation_pipeline", "filter": { "_id": "1", "$comment": "finding id 1" }}');
                                                                document                                                               

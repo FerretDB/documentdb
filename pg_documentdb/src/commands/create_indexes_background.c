@@ -69,7 +69,7 @@
  */
 typedef struct
 {
-	/* All index requests have been processed */
+	/* All requested indexes have now been successfully processed */
 	bool finish;
 
 	/* At-least one create index request failed */
@@ -130,6 +130,8 @@ static const int NumberOfSkippableErrors = sizeof(SkippableErrors) /
 
 /* for background Index build */
 PG_FUNCTION_INFO_V1(command_build_index_concurrently);
+PG_FUNCTION_INFO_V1(command_reindex_index_background);
+PG_FUNCTION_INFO_V1(command_reindex_index_background_internal);
 PG_FUNCTION_INFO_V1(command_create_indexes_background);
 PG_FUNCTION_INFO_V1(command_create_indexes_background_internal);
 PG_FUNCTION_INFO_V1(command_check_build_index_status);
@@ -238,8 +240,7 @@ build_index_concurrently_from_indexqueue_core(MemoryContext stableContext)
 	}
 
 	List *excludeCollectionIds = NIL;
-	uint64 *collectionIds = GetCollectionIdsForIndexBuild(
-		CREATE_INDEX_COMMAND_TYPE, excludeCollectionIds);
+	uint64 *collectionIds = GetCollectionIdsForIndexBuild(excludeCollectionIds);
 
 	volatile uint64_t collectionId = 0;
 	IndexCmdRequest *volatile indexCmdRequest = NULL;
@@ -257,8 +258,7 @@ build_index_concurrently_from_indexqueue_core(MemoryContext stableContext)
 			if (AcquireAdvisoryExclusiveSessionLockForCreateIndexBackground(
 					collectionId) != LOCKACQUIRE_NOT_AVAIL)
 			{
-				indexCmdRequest = GetRequestFromIndexQueue(CREATE_INDEX_COMMAND_TYPE,
-														   collectionId, stableContext);
+				indexCmdRequest = GetRequestFromIndexQueue(collectionId, stableContext);
 				if (!indexCmdRequest)
 				{
 					/* Could not get any index requests for this collection, skip it for this round */
@@ -295,8 +295,7 @@ build_index_concurrently_from_indexqueue_core(MemoryContext stableContext)
 		}
 
 		/* excluded collectionids so far */
-		collectionIds = GetCollectionIdsForIndexBuild(CREATE_INDEX_COMMAND_TYPE,
-													  excludeCollectionIds);
+		collectionIds = GetCollectionIdsForIndexBuild(excludeCollectionIds);
 	}
 
 	if (!indexCmdRequest)
@@ -311,11 +310,16 @@ build_index_concurrently_from_indexqueue_core(MemoryContext stableContext)
 						UINT64_FORMAT,
 						indexCmdRequest->indexId, collectionId);
 		MarkIndexRequestStatus(indexCmdRequest->indexId,
-							   CREATE_INDEX_COMMAND_TYPE,
+							   indexCmdRequest->cmdType,
 							   IndexCmdStatus_Skippable, NULL, NULL,
 							   indexCmdRequest->attemptCount);
-		DeleteCollectionIndexRecord(indexCmdRequest->collectionId,
-									indexCmdRequest->indexId);
+
+		if (indexCmdRequest->cmdType == CREATE_INDEX_COMMAND_TYPE)
+		{
+			DeleteCollectionIndexRecord(indexCmdRequest->collectionId,
+										indexCmdRequest->indexId);
+		}
+
 		return RunStatus_IndexMarkedSkippable;
 	}
 
@@ -331,13 +335,22 @@ build_index_concurrently_from_indexqueue_core(MemoryContext stableContext)
 				indexCmdRequest->indexId, collectionId);
 
 			/* remove any stale entry from PG */
-			TryDropCollectionIndex(indexCmdRequest->indexId);
+			if (indexCmdRequest->cmdType == CREATE_INDEX_COMMAND_TYPE)
+			{
+				TryDropCollectionIndex(indexCmdRequest->indexId);
 
-			/* remove the request permanently */
-			RemoveRequestFromIndexQueue(indexCmdRequest->indexId,
-										CREATE_INDEX_COMMAND_TYPE);
-			DeleteCollectionIndexRecord(indexCmdRequest->collectionId,
-										indexCmdRequest->indexId);
+				/* remove the request permanently */
+				RemoveRequestFromIndexQueue(indexCmdRequest->indexId,
+											indexCmdRequest->cmdType);
+
+				DeleteCollectionIndexRecord(indexCmdRequest->collectionId,
+											indexCmdRequest->indexId);
+			}
+			else
+			{
+				RemoveRequestFromIndexQueue(indexCmdRequest->indexId,
+											indexCmdRequest->cmdType);
+			}
 		}
 		return RunStatus_PrunedSkippableIndexes;
 	}
@@ -348,7 +361,7 @@ build_index_concurrently_from_indexqueue_core(MemoryContext stableContext)
 
 	/* Mark index inprogress. */
 	indexCmdRequest->attemptCount++;
-	MarkIndexRequestStatus(indexCmdRequest->indexId, CREATE_INDEX_COMMAND_TYPE,
+	MarkIndexRequestStatus(indexCmdRequest->indexId, indexCmdRequest->cmdType,
 						   IndexCmdStatus_Inprogress, PgbsonInitEmpty(),
 						   GetIndexBuildJobOpId(), indexCmdRequest->attemptCount);
 
@@ -451,8 +464,12 @@ build_index_concurrently_from_indexqueue_core(MemoryContext stableContext)
 	if (indexCreated)
 	{
 		/* Set the stats target for the index to 0 for unique indexes */
-		UpdateIndexStatsForPostgresIndex(indexCmdRequest->collectionId, list_make1_int(
-											 indexCmdRequest->indexId));
+		if (indexCmdRequest->cmdType == CREATE_INDEX_COMMAND_TYPE)
+		{
+			UpdateIndexStatsForPostgresIndex(indexCmdRequest->collectionId,
+											 list_make1_int(
+												 indexCmdRequest->indexId));
+		}
 
 		/*
 		 * Now try marking entries inserted for collection index as valid.
@@ -472,7 +489,7 @@ build_index_concurrently_from_indexqueue_core(MemoryContext stableContext)
 				indexCmdRequest->indexId, collectionId);
 			MarkIndexAsValid(indexCmdRequest->indexId);
 			RemoveRequestFromIndexQueue(indexCmdRequest->indexId,
-										CREATE_INDEX_COMMAND_TYPE);
+										indexCmdRequest->cmdType);
 
 			/*
 			 * All done, commit the subtransaction and return to outer
@@ -520,9 +537,12 @@ build_index_concurrently_from_indexqueue_core(MemoryContext stableContext)
 			UINT64_FORMAT,
 			indexCmdRequest->indexId, collectionId);
 
-		TryDropCollectionIndex(indexCmdRequest->indexId);
+		if (indexCmdRequest->cmdType == CREATE_INDEX_COMMAND_TYPE)
+		{
+			TryDropCollectionIndex(indexCmdRequest->indexId);
+		}
 
-		/* MarkIndexRequestStatus to failure for the indexId and cmdType = CREATE_INDEX_COMMAND_TYPE */
+		/* MarkIndexRequestStatus to failure for the indexId and cmdType = indexCmdRequest->cmdType */
 		elog_unredacted(
 			"Marking Index status Failed for index with index_id: %d and collectionId: "
 			UINT64_FORMAT,
@@ -544,12 +564,16 @@ build_index_concurrently_from_indexqueue_core(MemoryContext stableContext)
 
 			/* mark the request skippable (removed after the TTL window) */
 			MarkIndexRequestStatus(indexCmdRequest->indexId,
-								   CREATE_INDEX_COMMAND_TYPE,
+								   indexCmdRequest->cmdType,
 								   IndexCmdStatus_Skippable, newComment,
 								   NULL,
 								   indexCmdRequest->attemptCount);
-			DeleteCollectionIndexRecord(indexCmdRequest->collectionId,
-										indexCmdRequest->indexId);
+
+			if (indexCmdRequest->cmdType == CREATE_INDEX_COMMAND_TYPE)
+			{
+				DeleteCollectionIndexRecord(indexCmdRequest->collectionId,
+											indexCmdRequest->indexId);
+			}
 		}
 		else
 		{
@@ -559,15 +583,18 @@ build_index_concurrently_from_indexqueue_core(MemoryContext stableContext)
 								UINT64_FORMAT,
 								indexCmdRequest->indexId, collectionId);
 				MarkIndexRequestStatus(indexCmdRequest->indexId,
-									   CREATE_INDEX_COMMAND_TYPE,
+									   indexCmdRequest->cmdType,
 									   IndexCmdStatus_Skippable, newComment, NULL,
 									   indexCmdRequest->attemptCount);
 
 				/* The request will be removed during the next cron job when the time elapsed since the request's last update exceeds the specified IndexQueueEvictionIntervalInSec
 				 * we have to remove this request from index metadata to avoid any conflict if user app immediately tries to submit the same request
 				 */
-				DeleteCollectionIndexRecord(indexCmdRequest->collectionId,
-											indexCmdRequest->indexId);
+				if (indexCmdRequest->cmdType == CREATE_INDEX_COMMAND_TYPE)
+				{
+					DeleteCollectionIndexRecord(indexCmdRequest->collectionId,
+												indexCmdRequest->indexId);
+				}
 			}
 			else
 			{
@@ -575,7 +602,7 @@ build_index_concurrently_from_indexqueue_core(MemoryContext stableContext)
 								UINT64_FORMAT,
 								indexCmdRequest->indexId, collectionId);
 				MarkIndexRequestStatus(indexCmdRequest->indexId,
-									   CREATE_INDEX_COMMAND_TYPE,
+									   indexCmdRequest->cmdType,
 									   IndexCmdStatus_Failed, newComment, NULL,
 									   indexCmdRequest->attemptCount);
 			}
@@ -590,36 +617,12 @@ build_index_concurrently_from_indexqueue_core(MemoryContext stableContext)
 }
 
 
-/*
- * Queues the Index creation request(command_create_indexes_background_internal) and
- * waits(check_build_index_status) for it to finish.
- */
-Datum
-command_create_indexes_background(PG_FUNCTION_ARGS)
+static Datum
+ReindexOrCreateCommandCore(PG_FUNCTION_ARGS, char *internalQuery)
 {
-	if (PG_ARGISNULL(0))
-	{
-		ereport(ERROR, (errmsg("dbName cannot be NULL")));
-	}
-
-	if (PG_ARGISNULL(1))
-	{
-		ereport(ERROR, (errmsg("arg cannot be NULL")));
-	}
-
-	text *databaseDatum = PG_GETARG_TEXT_P(0);
-	pgbson *indexSpec = PG_GETARG_PGBSON(1);
-
 	ThrowIfServerOrTransactionReadOnly();
-
-	StringInfo submitIndexBuildRequestQuery = makeStringInfo();
-	appendStringInfo(submitIndexBuildRequestQuery,
-					 "SELECT %s.create_indexes_background_internal(%s,%s)",
-					 ApiInternalSchemaName,
-					 quote_literal_cstr(text_to_cstring(databaseDatum)),
-					 quote_literal_cstr(PgbsonToHexadecimalString(indexSpec)));
 	pgbson *submitIndexBuildResponse = RunIndexCommandOnMetadataCoordinator(
-		submitIndexBuildRequestQuery->data, SPI_OK_SELECT);
+		internalQuery, SPI_OK_SELECT);
 
 	/* Seperate the CreateIndex response and internal keys i.e. "indexRequest" */
 	pgbson_writer buildIndexResponseWriter;
@@ -659,6 +662,220 @@ command_create_indexes_background(PG_FUNCTION_ARGS)
 	PG_RETURN_DATUM(ComposeBuildIndexResponse(fcinfo,
 											  buildIndexResponseBson, requestDetailBson,
 											  ok));
+}
+
+
+Datum
+command_reindex_index_background(PG_FUNCTION_ARGS)
+{
+	if (PG_ARGISNULL(0))
+	{
+		ereport(ERROR, (errmsg("dbName cannot be NULL")));
+	}
+
+	if (PG_ARGISNULL(1))
+	{
+		ereport(ERROR, (errmsg("Argument value must not be NULL")));
+	}
+
+	text *databaseDatum = PG_GETARG_TEXT_P(0);
+	pgbson *indexSpec = PG_GETARG_PGBSON(1);
+
+	StringInfo submitIndexBuildRequestQuery = makeStringInfo();
+	appendStringInfo(submitIndexBuildRequestQuery,
+					 "SELECT %s.reindex_indexes_background_internal(%s,%s)",
+					 ApiInternalSchemaName,
+					 quote_literal_cstr(text_to_cstring(databaseDatum)),
+					 quote_literal_cstr(PgbsonToHexadecimalString(indexSpec)));
+
+	PG_RETURN_DATUM(ReindexOrCreateCommandCore(fcinfo,
+											   submitIndexBuildRequestQuery->data));
+}
+
+
+/*
+ * Queues the Index creation request(command_create_indexes_background_internal) and
+ * waits(check_build_index_status) for it to finish.
+ */
+Datum
+command_create_indexes_background(PG_FUNCTION_ARGS)
+{
+	if (PG_ARGISNULL(0))
+	{
+		ereport(ERROR, (errmsg("dbName cannot be NULL")));
+	}
+
+	if (PG_ARGISNULL(1))
+	{
+		ereport(ERROR, (errmsg("Argument value must not be NULL")));
+	}
+
+	text *databaseDatum = PG_GETARG_TEXT_P(0);
+	pgbson *indexSpec = PG_GETARG_PGBSON(1);
+
+	StringInfo submitIndexBuildRequestQuery = makeStringInfo();
+	appendStringInfo(submitIndexBuildRequestQuery,
+					 "SELECT %s.create_indexes_background_internal(%s,%s)",
+					 ApiInternalSchemaName,
+					 quote_literal_cstr(text_to_cstring(databaseDatum)),
+					 quote_literal_cstr(PgbsonToHexadecimalString(indexSpec)));
+
+	PG_RETURN_DATUM(ReindexOrCreateCommandCore(fcinfo,
+											   submitIndexBuildRequestQuery->data));
+}
+
+
+static List *
+ParseReindexSpec(pgbson *reindexSpec, char **collectionName)
+{
+	bson_iter_t reindexIter;
+	PgbsonInitIterator(reindexSpec, &reindexIter);
+	bool hasCollectionSpecified = false;
+	List *indexIdList = NIL;
+	while (bson_iter_next(&reindexIter))
+	{
+		const char *key = bson_iter_key(&reindexIter);
+		if (strcmp(key, "collection") == 0)
+		{
+			const bson_value_t *value = bson_iter_value(&reindexIter);
+			if (value->value_type != BSON_TYPE_UTF8)
+			{
+				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
+								errmsg(
+									"reindex failed, 'collection' field must be a string")));
+			}
+			*collectionName = pnstrdup(value->value.v_utf8.str, value->value.v_utf8.len);
+			hasCollectionSpecified = true;
+		}
+		else if (strcmp(key, "indexes") == 0)
+		{
+			EnsureTopLevelFieldType("indexes", &reindexIter, BSON_TYPE_ARRAY);
+			bson_iter_t indexesArrayIter;
+			bson_iter_recurse(&reindexIter, &indexesArrayIter);
+			while (bson_iter_next(&indexesArrayIter))
+			{
+				const bson_value_t *indexValue = bson_iter_value(&indexesArrayIter);
+				EnsureTopLevelFieldIsNumberLike("indexes.index", indexValue);
+
+				indexIdList = lappend_int(indexIdList, BsonValueAsInt32(indexValue));
+			}
+		}
+		else
+		{
+			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
+							errmsg(
+								"reindex failed, invalid field '%s' found in the reindex spec",
+								key)));
+		}
+	}
+
+	if (!hasCollectionSpecified)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
+						errmsg("reindex failed, 'collection' field must be specified")));
+	}
+
+	if (indexIdList == NIL)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
+						errmsg(
+							"reindex failed, 'indexes' field must contain at least one index id")));
+	}
+
+	return indexIdList;
+}
+
+
+Datum
+command_reindex_index_background_internal(PG_FUNCTION_ARGS)
+{
+	Datum dbNameDatum = PG_GETARG_DATUM(0);
+	pgbson *reindexSpec = PG_GETARG_PGBSON(1);
+
+	char *collectionName = NULL;
+	List *indexIdList = ParseReindexSpec(reindexSpec, &collectionName);
+
+	MongoCollection *collection =
+		GetMongoCollectionByNameDatum(dbNameDatum, CStringGetTextDatum(collectionName),
+									  AccessShareLock);
+	if (!collection)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_NAMESPACENOTFOUND),
+						errmsg("reindex failed, collection %s.%s does not exist",
+							   TextDatumGetCString(dbNameDatum),
+							   collectionName)));
+	}
+
+	uint64 collectionId = collection->collectionId;
+
+	/*
+	 * Please note that the advisory lock will be released after first transaction commit.
+	 * This is mainly useful to prevent concurrent index metadata insertions
+	 * for given collection while checking for name / option conflicting indexes
+	 **/
+	AcquireAdvisoryExclusiveLockForCreateIndexes(collectionId);
+
+	/*
+	 * Record indexes into metadata as invalid.
+	 */
+	ListCell *indexDefCell = NULL;
+	foreach(indexDefCell, indexIdList)
+	{
+		int indexId = lfirst_int(indexDefCell);
+
+		IndexDetails *indexDef = IndexIdGetIndexDetails(indexId);
+
+		if (indexDef == NULL)
+		{
+			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
+							errmsg("reindex failed, index with id %d does not exist",
+								   indexId)));
+		}
+
+		if (indexDef->collectionId != collectionId)
+		{
+			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
+							errmsg(
+								"reindex failed, index with id %d does not belong to collection %s.%s",
+								indexId,
+								TextDatumGetCString(dbNameDatum),
+								collectionName)));
+		}
+
+		StringInfo cmdStr = makeStringInfo();
+		appendStringInfo(cmdStr, "REINDEX INDEX CONCURRENTLY %s.", ApiDataSchemaName);
+		if (strcmp(indexDef->indexSpec.indexName, "_id_") == 0)
+		{
+			appendStringInfo(cmdStr, DOCUMENT_DATA_PRIMARY_KEY_FORMAT_PREFIX
+							 UINT64_FORMAT,
+							 collectionId);
+		}
+		else
+		{
+			appendStringInfo(cmdStr, DOCUMENT_DATA_TABLE_INDEX_NAME_FORMAT,
+							 indexDef->indexId);
+		}
+
+		Oid userOid = GetAuthenticatedUserId();
+		AddRequestInIndexQueue(cmdStr->data, indexId, collectionId, REINDEX_COMMAND_TYPE,
+							   userOid);
+	}
+
+	ereport(DEBUG1, (errmsg(
+						 "Submitted all requests for collection indexes creation successfully")));
+
+	CreateIndexesResult *result = palloc0(sizeof(CreateIndexesResult));
+	result->ok = true;
+
+	result->numIndexesAfter = list_length(indexIdList);
+	if (indexIdList != NIL)
+	{
+		result->request = palloc0(sizeof(SubmittedIndexRequests));
+		result->request->cmdType = REINDEX_COMMAND_TYPE;
+		result->request->indexIds = indexIdList;
+	}
+
+	PG_RETURN_POINTER(MakeCreateIndexesMsg(result));
 }
 
 
@@ -713,7 +930,7 @@ command_create_indexes_background_internal(PG_FUNCTION_ARGS)
 			PopActiveSnapshot();
 		}
 
-		/* Abort the inner transaction */
+		/* Abort inner transaction */
 		RollbackAndReleaseCurrentSubTransaction();
 
 		/* Rollback changes MemoryContext */
@@ -1028,7 +1245,7 @@ SubmitCreateIndexesRequest(Datum dbNameDatum,
 	else if (indexCount < nindexesRequested)
 	{
 		/* then not all but some indexes already exist */
-		result.note = "index already exists";
+		result.note = "An index with this name already exists";
 	}
 
 	result.numIndexesAfter = result.numIndexesBefore + indexCount;
@@ -1301,7 +1518,7 @@ CheckForIndexCmdToFinish(const List *indexIdList, char cmdType)
 			}
 			else
 			{
-				result->errmsg = "Index creation attempt failed";
+				result->errmsg = "Failed to create index";
 				result->errcode = ERRCODE_DOCUMENTDB_INTERNALERROR;
 			}
 			isAnyIndexFailed = true;
@@ -1327,7 +1544,7 @@ CheckForIndexCmdToFinish(const List *indexIdList, char cmdType)
 			/* index failed but empty comment in queue. */
 			elog(LOG, "Index creation failed with empty comment in queue, status %d",
 				 maxCmdStatus);
-			result->errmsg = "Index Creation failed";
+			result->errmsg = "Failed to create index";
 			result->errcode = ERRCODE_DOCUMENTDB_INTERNALERROR;
 		}
 
@@ -1625,7 +1842,7 @@ PruneSkippableIndexes(void)
 	bool prunedIndexes = false;
 	List *excludeCollectionIds = NIL;
 	IndexCmdRequest *volatile request = GetSkippableRequestFromIndexQueue(
-		CREATE_INDEX_COMMAND_TYPE, IndexQueueEvictionIntervalInSec, excludeCollectionIds);
+		IndexQueueEvictionIntervalInSec, excludeCollectionIds);
 
 	while (request != NULL)
 	{
@@ -1639,13 +1856,22 @@ PruneSkippableIndexes(void)
 				UINT64_FORMAT,
 				request->indexId, request->collectionId);
 
-			/* remove any stale entry from PG */
-			TryDropCollectionIndex(request->indexId);
+			if (request->cmdType == CREATE_INDEX_COMMAND_TYPE)
+			{
+				/* remove any stale entry from PG */
+				TryDropCollectionIndex(request->indexId);
 
-			/* remove the request permanently */
-			RemoveRequestFromIndexQueue(request->indexId,
-										CREATE_INDEX_COMMAND_TYPE);
-			DeleteCollectionIndexRecord(request->collectionId, request->indexId);
+				/* remove the request permanently */
+				RemoveRequestFromIndexQueue(request->indexId,
+											request->cmdType);
+				DeleteCollectionIndexRecord(request->collectionId, request->indexId);
+			}
+			else
+			{
+				/* remove the request permanently */
+				RemoveRequestFromIndexQueue(request->indexId,
+											request->cmdType);
+			}
 
 			ReleaseAdvisoryExclusiveSessionLockForCreateIndexBackground(
 				request->collectionId);
@@ -1668,8 +1894,7 @@ PruneSkippableIndexes(void)
 		}
 
 		/* Check for more prunable requests */
-		request = GetSkippableRequestFromIndexQueue(CREATE_INDEX_COMMAND_TYPE,
-													IndexQueueEvictionIntervalInSec,
+		request = GetSkippableRequestFromIndexQueue(IndexQueueEvictionIntervalInSec,
 													excludeCollectionIds);
 	}
 

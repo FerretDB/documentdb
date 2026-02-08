@@ -126,5 +126,16 @@ RUN cat /etc/sudoers | grep secure_path | sed "s/\:\/bin\:/\:\/bin\:\/usr\/lib\/
 # Add PG to the path
 ENV PATH=$PATH:/usr/lib/postgresql/$PG_VERSION/bin
 
+# Install Rust toolchain
+COPY scripts/install_rustup.sh /tmp/install_setup/
+COPY rust-toolchain.toml /tmp/install_setup/
+
+ENV RUSTUP_HOME=/home/documentdb/.rustup \
+    CARGO_HOME=/home/documentdb/.cargo \
+    PATH=/home/documentdb/.cargo/bin:$PATH
+
+RUN [ "bin/bash", "-c", "/tmp/install_setup/install_rustup.sh" ]
+RUN chown -R documentdb:documentdb /home/documentdb/.cargo /home/documentdb/.rustup
+
 USER documentdb
 WORKDIR /home/documentdb

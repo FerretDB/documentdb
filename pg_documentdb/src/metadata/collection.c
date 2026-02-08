@@ -175,7 +175,7 @@ InitializeCollectionsHash(void)
 	if (CollectionsCacheContext == NULL)
 	{
 		CollectionsCacheContext = AllocSetContextCreate(CacheMemoryContext,
-														"Collection cache context",
+														"Cache context for collection",
 														ALLOCSET_DEFAULT_SIZES);
 	}
 
@@ -492,9 +492,10 @@ GetMongoCollectionByNameDatum(Datum databaseNameDatum, Datum collectionNameDatum
 	if (collection != NULL && collection->viewDefinition != NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTEDONVIEW),
-						errmsg("Namespace %s.%s is a view, not a collection",
-							   collection->name.databaseName,
-							   collection->name.collectionName)));
+						errmsg(
+							"The namespace %s.%s refers to a view object rather than a collection",
+							collection->name.databaseName,
+							collection->name.collectionName)));
 	}
 
 	return collection;
@@ -541,7 +542,7 @@ GetMongoCollectionShardOidsAndNames(MongoCollection *collection, ArrayType **sha
 Oid
 TryGetCollectionShardTable(MongoCollection *collection, LOCKMODE lockMode)
 {
-	/* If we don't have a local shard, bail. */
+	/* Cannot proceed without a local shard available. */
 	if (collection->shardTableName[0] == '\0')
 	{
 		return InvalidOid;
@@ -617,14 +618,14 @@ GetMongoCollectionByNameDatumCore(Datum databaseNameDatum, Datum collectionNameD
 	if (databaseNameLength >= MAX_DATABASE_NAME_LENGTH)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE), errmsg(
-							"database name is too long")));
+							"The provided database name exceeds the permitted length")));
 	}
 
 	int collectionNameLength = VARSIZE_ANY_EXHDR(collectionNameDatum);
 	if (collectionNameLength >= MAX_COLLECTION_NAME_LENGTH)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE), errmsg(
-							"collection name is too long")));
+							"The specified collection name exceeds the allowed length")));
 	}
 
 	MongoCollectionName qualifiedName;
@@ -798,14 +799,14 @@ GetTempMongoCollectionByNameDatum(Datum databaseNameDatum, Datum collectionNameD
 	if (databaseNameLength >= MAX_DATABASE_NAME_LENGTH)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"database name is too long")));
+							"The provided database name exceeds the permitted length")));
 	}
 
 	int collectionNameLength = VARSIZE_ANY_EXHDR(collectionNameDatum);
 	if (collectionNameLength >= MAX_COLLECTION_NAME_LENGTH)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"collection name is too long")));
+							"The specified collection name exceeds the allowed length")));
 	}
 
 	/* copy text bytes directly, buffers are already 0-initialized above */
@@ -836,9 +837,11 @@ IsDataTableCreatedWithinCurrentXact(const MongoCollection *collection)
 		SearchSysCache1(RELOID, ObjectIdGetDatum(collection->relationId));
 	if (!HeapTupleIsValid(pgCatalogTuple))
 	{
-		ereport(ERROR, (errmsg("data table for collection with id "
-							   UINT64_FORMAT " doesn't exist",
-							   collection->collectionId)));
+		ereport(ERROR, (errmsg(
+							"The data table associated with the collection identified by "
+							UINT64_FORMAT
+							" cannot be found.",
+							collection->collectionId)));
 	}
 
 	bool dataTableCreatedWithinCurrentXact =
@@ -897,13 +900,13 @@ GetMongoCollectionFromCatalogById(uint64 collectionId, Oid relationId,
 		Datum collectionNameDatum = heap_getattr(tuple, 2, tupleDescriptor, &isNull);
 		if (isNull)
 		{
-			ereport(ERROR, (errmsg("collection_name should not be NULL in catalog")));
+			ereport(ERROR, (errmsg("collection name must not be NULL")));
 		}
 
 		memcpy(collection->name.collectionName, VARDATA_ANY(collectionNameDatum),
 			   VARSIZE_ANY_EXHDR(collectionNameDatum));
 
-		/* Attr 3 is the collection_id */
+		/* Attribute 3 refers to the collection_id */
 		collection->collectionId = collectionId;
 
 		Datum shardKeyDatum = heap_getattr(tuple, 4, tupleDescriptor, &isNull);
@@ -1247,11 +1250,11 @@ void
 ValidateCollectionNameForUnauthorizedSystemNs(const char *collectionName,
 											  Datum databaseNameDatum)
 {
-	/* Empty collection name*/
+	/* Collection name cannot be empty*/
 	if (strlen(collectionName) == 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE),
-						errmsg("Invalid empty namespace specified")));
+						errmsg("An invalid and empty namespace has been specified")));
 	}
 	for (int i = 0; i < NonWritableSystemCollectionNamesLength; i++)
 	{
@@ -1264,7 +1267,7 @@ ValidateCollectionNameForUnauthorizedSystemNs(const char *collectionName,
 
 			/* Need to disallow user writes on NonWritableSystemCollectionNames */
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE),
-							errmsg("cannot write to %.*s.%s",
+							errmsg("Unable to write data to specified location %.*s.%s",
 								   databaseView.length, databaseView.string,
 								   NonWritableSystemCollectionNames[i])));
 		}
@@ -1301,7 +1304,7 @@ ValidateCollectionNameForValidSystemNamespace(StringView *collectionView,
 				.string = VARDATA_ANY(databaseNameDatum)
 			};
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE),
-							errmsg("Invalid system namespace: %.*s.%.*s",
+							errmsg("System namespace provided is invalid: %.*s.%.*s",
 								   databaseView.length, databaseView.string,
 								   collectionView->length, collectionView->string)));
 		}
@@ -1426,12 +1429,12 @@ GetCollectionOrViewCore(PG_FUNCTION_ARGS, bool allowViews)
 			{
 				resultIsNulls[i - 1] = false;
 				resultValues[i - 1] = SPI_datumTransfer(resultDatum,
-														SPI_tuptable->tupdesc->attrs[i -
-																					 1].
-														attbyval,
-														SPI_tuptable->tupdesc->attrs[i -
-																					 1].
-														attlen);
+														TupleDescAttr(
+															SPI_tuptable->tupdesc, i -
+															1)->attbyval,
+														TupleDescAttr(
+															SPI_tuptable->tupdesc, i -
+															1)->attlen);
 			}
 		}
 
@@ -1449,9 +1452,10 @@ GetCollectionOrViewCore(PG_FUNCTION_ARGS, bool allowViews)
 		if (!allowViews && resultTupDesc->natts > 5 && !resultIsNulls[5])
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTEDONVIEW),
-							errmsg("Namespace %s.%s is a view, not a collection",
-								   TextDatumGetCString(databaseDatum),
-								   TextDatumGetCString(collectionName))));
+							errmsg(
+								"The namespace %s.%s refers to a view object rather than a collection",
+								TextDatumGetCString(databaseDatum),
+								TextDatumGetCString(collectionName))));
 		}
 
 		HeapTuple resultTup = heap_form_tuple(resultTupDesc, resultValues, resultIsNulls);
@@ -1476,7 +1480,7 @@ CreateCollection(Datum dbNameDatum, Datum collectionNameDatum)
 	if (collectionNameStr != NULL && strlen(collectionNameStr) == 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE),
-						errmsg("Invalid empty namespace specified")));
+						errmsg("An invalid and empty namespace has been specified")));
 	}
 
 	const char *cmdStr = FormatSqlQuery("SELECT %s.create_collection($1, $2)",
@@ -1619,15 +1623,16 @@ ValidateDatabaseCollection(Datum databaseDatum, Datum collectionDatum)
 	if (collectionView.string == NULL || collectionView.length == 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE),
-						errmsg("Invalid namespace specified '%.*s.'",
+						errmsg("The specified namespace provided '%.*s.' is invalid.",
 							   databaseView.length, databaseView.string)));
 	}
 
 	if (StringViewStartsWith(&collectionView, '.'))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE),
-						errmsg("Collection names cannot start with '.': %.*s",
-							   collectionView.length, collectionView.string)));
+						errmsg(
+							"Collection names must not begin with the '.' character: %.*s",
+							collectionView.length, collectionView.string)));
 	}
 
 	for (int i = 0; i < CharactersNotAllowedInCollectionNamesLength; i++)
@@ -1635,7 +1640,7 @@ ValidateDatabaseCollection(Datum databaseDatum, Datum collectionDatum)
 		if (StringViewContains(&collectionView, CharactersNotAllowedInCollectionNames[i]))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE),
-							errmsg("Invalid collection name: %.*s",
+							errmsg("Collection name provided is invalid: %.*s",
 								   collectionView.length, collectionView.string)));
 		}
 	}
@@ -1679,9 +1684,10 @@ validate_dbname(PG_FUNCTION_ARGS)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_DOCUMENTDB_DBALREADYEXISTS),
-					 errmsg("db already exists with different case already have: "
-							"[%s] trying to create [%.*s]", dbNameInTable,
-							databaseView.length, databaseView.string)));
+					 errmsg(
+						 "Database already exists but with a different case; existing entry: [%s], attempted creation: [%.*s]",
+						 dbNameInTable,
+						 databaseView.length, databaseView.string)));
 		}
 	}
 
@@ -1759,7 +1765,7 @@ CheckSyntaxForValidator(const bson_iter_t *validator)
 	if (bson_iter_type(validator) != BSON_TYPE_DOCUMENT)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
-						errmsg("$jsonSchema must be an object")));
+						errmsg("$jsonSchema must be of object type")));
 	}
 
 	bson_iter_t schemaIter;
@@ -1894,10 +1900,10 @@ ParseAndGetValidationActionOption(bson_iter_t *iter, const char *validationActio
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"Enumeration value '%s' for field '%s' is not a valid value.",
+							"The enumeration value '%s' provided for the field '%s' is invalid.",
 							validationAction, validationActionName),
 						errdetail_log(
-							"Enumeration value '%s' for field '%s' is not a valid value.",
+							"The enumeration value '%s' provided for the field '%s' is invalid.",
 							validationAction, validationActionName)));
 	}
 }
@@ -1938,10 +1944,10 @@ ParseAndGetValidationLevelOption(bson_iter_t *iter, const char *validationLevelN
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"Enumeration value '%s' for field '%s' is not a valid value.",
+							"The enumeration value '%s' provided for the field '%s' is invalid.",
 							validationLevel, validationLevelName),
 						errdetail_log(
-							"Enumeration value '%s' for field '%s' is not a valid value.",
+							"The enumeration value '%s' provided for the field '%s' is invalid.",
 							validationLevel, validationLevelName)));
 	}
 }

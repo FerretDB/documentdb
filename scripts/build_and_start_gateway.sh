@@ -41,7 +41,9 @@ while getopts "d:u:p:n:chsP:o:" opt; do
     h)
         help="true"
         ;;
-    s) createUser="false" ;;
+    s)
+        createUser="false"
+        ;;
     esac
 
     # Assume empty string if it's unset since we cannot reference to
@@ -101,8 +103,11 @@ done
 echo "PostgreSQL is ready."
 
 if [ "$clean" = "true" ]; then
-    echo "Cleaning the build directory..."
+    echo "Building DocumentDB Gateway after cleaning..."
+    pushd "$scriptDir/../pg_documentdb_gw"
     cargo clean
+    cargo build --profile=release-with-symbols
+    popd
 fi
 
 if [ "$createUser" = "true" ]; then
@@ -138,8 +143,10 @@ else
     echo "Skipping user creation."
 fi
 
+cd $scriptDir/../pg_documentdb_gw/
+
 if [ -z "$configFile" ]; then
-    /home/documentdb/gateway/documentdb_gateway
+    ./target/release-with-symbols/documentdb_gateway
 else
-    /home/documentdb/gateway/documentdb_gateway "$configFile"
+    ./target/release-with-symbols/documentdb_gateway "$configFile"
 fi

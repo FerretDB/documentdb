@@ -66,6 +66,10 @@ TryGetIndexBuildJobOpIdQuery_HookType try_get_index_build_job_op_id_query_hook =
 TryGetCancelIndexBuildQuery_HookType try_get_cancel_index_build_query_hook =
 	NULL;
 ShouldScheduleIndexBuilds_HookType should_schedule_index_builds_hook = NULL;
+
+GettShardIndexOids_HookType get_shard_index_oids_hook = NULL;
+UpdatePostgresIndex_HookType update_postgres_index_hook = NULL;
+
 UserNameValidation_HookType
 	username_validation_hook = NULL;
 PasswordValidation_HookType
@@ -289,7 +293,7 @@ GetUserInfoFromExternalIdentityProvider(const char *userName)
 
 
 /*
- * Check if the user is external
+ * Is user external
  */
 bool
 IsUserExternal(const char *userName)
@@ -566,4 +570,31 @@ ShouldScheduleIndexBuildJobs(void)
 	}
 
 	return true;
+}
+
+
+List *
+GetShardIndexOids(uint64_t collectionId, int indexId, bool ignoreMissing)
+{
+	if (get_shard_index_oids_hook != NULL)
+	{
+		return get_shard_index_oids_hook(collectionId, indexId, ignoreMissing);
+	}
+
+	return NIL;
+}
+
+
+void
+UpdatePostgresIndexWithOverride(uint64_t colectionId, int indexId, bool hidden,
+								void (*default_update)(uint64_t, int, bool))
+{
+	if (update_postgres_index_hook != NULL)
+	{
+		update_postgres_index_hook(colectionId, indexId, hidden);
+	}
+	else
+	{
+		default_update(colectionId, indexId, hidden);
+	}
 }

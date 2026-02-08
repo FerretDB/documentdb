@@ -207,7 +207,7 @@ bson_to_bsonsequence(PG_FUNCTION_ARGS)
 						  currentValue.value.v_doc.data_len))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("Failed to initialize single bson value")));
+						errmsg("Bson value initialization failed")));
 	}
 
 	bson_concat(doc, &currentDoc);
@@ -346,8 +346,9 @@ PgbsonSequenceInitFromJson(const char *jsonString)
 	if (element.bsonValue.value_type != BSON_TYPE_ARRAY)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("Json value for bsonsequence must be an array. got %s",
-							   BsonTypeName(element.bsonValue.value_type))));
+						errmsg(
+							"The JSON value for bsonsequence should be provided as an array, but received %s instead.",
+							BsonTypeName(element.bsonValue.value_type))));
 	}
 
 	bson_iter_t arrayIterator;
@@ -382,7 +383,8 @@ PgbsonSequenceInitFromJson(const char *jsonString)
 							  currentValue->value.v_doc.data_len))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("Could not initialize bson from value")));
+							errmsg(
+								"Failed to initialize bson object from provided value")));
 		}
 
 		if (!bson_concat(doc, &currentbson))

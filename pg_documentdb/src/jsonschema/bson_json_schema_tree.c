@@ -8,11 +8,14 @@
  */
 
 #include <postgres.h>
+#include "utils/hsearch.h"
 #include "io/bson_core.h"
 #include "query/bson_compare.h"
 #include "types/decimal128.h"
 #include "jsonschema/bson_json_schema_tree.h"
 #include "utils/documentdb_errors.h"
+#include "utils/hashset_utils.h"
+#include "utils/string_view.h"
 #include "commands/parse_error.h"
 
 /* --------------------------------------------------------- */
@@ -29,6 +32,7 @@ static void AllocateValidators(SchemaNode *node);
 static void FreeUnusedValidators(SchemaNode *node);
 
 static void ParseProperties(const bson_value_t *value, SchemaNode *node);
+static void ParseRequired(const bson_value_t *value, SchemaNode *node);
 
 static void ParseJsonType(const bson_value_t *value, SchemaNode *node);
 static void ParseBsonType(const bson_value_t *value, SchemaNode *node);
@@ -152,6 +156,10 @@ BuildSchemaTreeCoreOnNode(bson_iter_t *schemaIter, SchemaNode *node)
 		{
 			ParseProperties(value, node);
 		}
+		else if (strcmp(key, "required") == 0)
+		{
+			ParseRequired(value, node);
+		}
 
 		/* TODO: Add other Object Validators here */
 
@@ -200,12 +208,12 @@ BuildSchemaTreeCoreOnNode(bson_iter_t *schemaIter, SchemaNode *node)
 			if (IsBsonValueNaN(value))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("divisor cannot be NaN")));
+								errmsg("A divisor value must not be NaN")));
 			}
 			if (IsBsonValueInfinity(value))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("divisor cannot be infinite")));
+								errmsg("Division by an infinite value is not allowed")));
 			}
 			node->validations.numeric->multipleOf = (bson_value_t *) palloc0(
 				sizeof(bson_value_t));
@@ -338,8 +346,9 @@ BuildSchemaTreeCoreOnNode(bson_iter_t *schemaIter, SchemaNode *node)
 				 strcmp(key, "format") == 0 || strcmp(key, "id") == 0)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("$jsonSchema keyword '%s' is not currently supported",
-								   key)));
+							errmsg(
+								"The '%s' keyword in $jsonSchema is not supported at this time",
+								key)));
 		}
 
 		/* -------------------------------------------------------- */
@@ -429,6 +438,78 @@ ParseProperties(const bson_value_t *value, SchemaNode *node)
 
 
 /*
+ * This function reads the schema value for "required" keyword.
+ * And stores it in the parent Node's Object validations section.
+ */
+static void
+ParseRequired(const bson_value_t *value, SchemaNode *node)
+{
+	if (value->value_type != BSON_TYPE_ARRAY)
+	{
+		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
+						errmsg(
+							"Expected an array for 'required' in $jsonSchema, but got %s",
+							BsonTypeName(value->value_type))));
+	}
+	pgbson_writer writer;
+	PgbsonWriterInit(&writer);
+	pgbson_array_writer arrayWriter;
+	PgbsonWriterStartArray(&writer, "", 0, &arrayWriter);
+	bson_iter_t iter;
+	BsonValueInitIterator(value, &iter);
+
+	/* Hash table to track seen field names for efficient duplicate detection */
+	HTAB *seenFieldsHash = CreateStringViewHashSet();
+
+	while (bson_iter_next(&iter))
+	{
+		if (!BSON_ITER_HOLDS_UTF8(&iter))
+		{
+			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
+							errmsg(
+								"All elements in 'required' array must be strings, but encountered %s",
+								BsonIterTypeName(&iter))));
+		}
+		const char *field = bson_iter_utf8(&iter, NULL);
+
+		/* TODO: Add support for dot notation paths */
+		if (strchr(field, '.') != NULL)
+		{
+			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
+							errmsg("Dot notation paths are currently not supported: %s",
+								   field)));
+		}
+
+		/* Check for duplicate field names using hash table */
+		StringView fieldView = CreateStringViewFromString(field);
+		bool found;
+		hash_search(seenFieldsHash, &fieldView, HASH_ENTER, &found);
+
+		if (found)
+		{
+			hash_destroy(seenFieldsHash);
+			PgbsonWriterFree(&writer);
+			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
+							errmsg(
+								"Duplicate field name in $jsonSchema 'required' array")));
+		}
+
+		PgbsonArrayWriterWriteUtf8(&arrayWriter, field);
+	}
+
+	/* Clean up hash table */
+	hash_destroy(seenFieldsHash);
+	PgbsonWriterEndArray(&writer, &arrayWriter);
+	node->validations.object->required = (bson_value_t *) palloc0(
+		sizeof(bson_value_t));
+	PgbsonArrayWriterCopyDataToBsonValue(&arrayWriter,
+										 node->validations.object->required);
+	PgbsonWriterFree(&writer);
+	node->validationFlags.object |= ObjectValidationTypes_Required;
+}
+
+
+/*
  * ParseJsonType function reads the schema value for "type" keyword.
  * And stores it in the Node's common validations section.
  */
@@ -484,7 +565,7 @@ ParseJsonType(const bson_value_t *value, SchemaNode *node)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
 						errmsg(
-							"$jsonSchema keyword 'type' must be either a string or an array of strings")));
+							"The 'type' property in $jsonSchema must be defined as either a single string or an array containing multiple strings")));
 	}
 
 	node->validations.common->jsonTypes = jsonTypes;
@@ -602,7 +683,9 @@ ParseEncrypt(const bson_value_t *value, SchemaNode *node)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
-							errmsg("BSON field 'encrypt.%s' is an unknown field", key)));
+							errmsg(
+								"The BSON field 'encrypt.%s' is not recognized as a valid field.",
+								key)));
 		}
 	}
 	node->validationFlags.binary |= BinaryValidationTypes_Encrypt;
@@ -651,8 +734,9 @@ ParseEncryptMetadata(const bson_value_t *value, SchemaNode *node)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_UNKNOWNBSONFIELD),
-							errmsg("BSON field 'encryptMetadata.%s' is an unknown field",
-								   key)));
+							errmsg(
+								"The BSON field 'encryptMetadata.%s' is not recognized as a valid or supported field.",
+								key)));
 		}
 	}
 }
@@ -764,7 +848,7 @@ GetJsonTypeEnumFromJsonTypeString(const char *jsonTypeStr)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 						errmsg(
-							"$jsonSchema type 'integer' is not currently supported.")));
+							"The 'integer' type in $jsonSchema is not supported at this time.")));
 	}
 	else if (strcmp(jsonTypeStr, "number") == 0)
 	{
@@ -785,7 +869,7 @@ GetJsonTypeEnumFromJsonTypeString(const char *jsonTypeStr)
 	}
 
 	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-					errmsg("Unknown type name alias: %s", jsonTypeStr)));
+					errmsg("Unrecognized data type alias: %s", jsonTypeStr)));
 }
 
 
@@ -867,7 +951,7 @@ GetBsonTypeEnumFromBsonTypeString(const char *bsonTypeStr)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 						errmsg(
-							"$jsonSchema type 'integer' is not currently supported.")));
+							"The 'integer' type in $jsonSchema is not supported at this time.")));
 	}
 	else if (strcmp(bsonTypeStr, "timestamp") == 0)
 	{
@@ -891,7 +975,7 @@ GetBsonTypeEnumFromBsonTypeString(const char *bsonTypeStr)
 	}
 
 	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-					errmsg(" Unknown type name alias: %s", bsonTypeStr)));
+					errmsg(" Unrecognized data type alias: %s", bsonTypeStr)));
 }
 
 
@@ -1106,28 +1190,33 @@ GetValidatedBsonIntValue(const bson_value_t *value, const char *nonPIIfield)
 	if (!BsonTypeIsNumber(value->value_type))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("Expected a number in: %s: %s", nonPIIfield,
-							   BsonValueToJsonForLogging(value)),
-						errdetail_log("Expected a number in: %s: found %s", nonPIIfield,
-									  BsonTypeName(value->value_type))));
+						errmsg(
+							"A numeric value was expected in %s, but instead %s was encountered",
+							nonPIIfield,
+							BsonValueToJsonForLogging(value)),
+						errdetail_log(
+							"A numeric value was expected in %s, but instead %s was encountered",
+							nonPIIfield,
+							BsonTypeName(value->value_type))));
 	}
 	if (!IsBsonValue64BitInteger(value, false))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("Cannot represent as a 64-bit integer: %s: %s",
+						errmsg("Unable to store value as a 64-bit integer: %s: %s",
 							   nonPIIfield,
 							   BsonValueToJsonForLogging(value)),
 						errdetail_log(
-							"Cannot represent as a 64-bit integer: %s: input type: %s",
+							"Unable to store value as a 64-bit integer: %s, input type is %s",
 							nonPIIfield,
 							BsonTypeName(value->value_type))));
 	}
 	if (!IsBsonValueFixedInteger(value))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("Expected an integer: %s: %s", nonPIIfield,
+						errmsg("Expected value of integer type: %s: %s", nonPIIfield,
 							   BsonValueToJsonForLogging(value)),
-						errdetail_log("Expected an integer: %s: %s", nonPIIfield,
+						errdetail_log("Expected value of integer type: %s: %s",
+									  nonPIIfield,
 									  BsonTypeName(value->value_type))));
 	}
 
@@ -1135,9 +1224,11 @@ GetValidatedBsonIntValue(const bson_value_t *value, const char *nonPIIfield)
 	if (intValue < 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("Expected a positive number in: %s: %s", nonPIIfield,
+						errmsg("Value for %s cannot be zero or negative. Got %s",
+							   nonPIIfield,
 							   BsonValueToJsonForLogging(value)),
-						errdetail_log("Expected a positive number in: %s", nonPIIfield)));
+						errdetail_log("Value for %s cannot be zero or negative. Got %s",
+									  nonPIIfield, BsonValueToJsonForLogging(value))));
 	}
 	return intValue;
 }

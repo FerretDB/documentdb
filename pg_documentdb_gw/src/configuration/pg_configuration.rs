@@ -19,7 +19,7 @@ use super::dynamic::{DynamicConfiguration, POSTGRES_RECOVERY_KEY};
 use super::SetupConfiguration;
 use crate::error::{DocumentDBError, Result};
 use crate::postgres::{Connection, ConnectionPool};
-use crate::requests::RequestInfo;
+use crate::requests::request_tracker::RequestTracker;
 use crate::QueryCatalog;
 
 #[derive(Debug, Deserialize, Default, Clone)]
@@ -146,14 +146,14 @@ impl PgConfiguration {
             Err(e) => log::warn!("Host Config file not able to be loaded: {}", e),
         }
 
-        let mut request_info = RequestInfo::new();
+        let mut request_tracker = RequestTracker::new();
         let pg_config_rows = conn
             .query(
                 query_catalog.pg_settings(),
                 &[],
                 &[],
                 None,
-                &mut request_info,
+                &mut request_tracker,
             )
             .await?;
         for pg_config in pg_config_rows {
@@ -181,7 +181,7 @@ impl PgConfiguration {
                 &[],
                 &[],
                 None,
-                &mut request_info,
+                &mut request_tracker,
             )
             .await?;
         let in_recovery: bool = pg_is_in_recovery_row.first().is_some_and(|row| row.get(0));

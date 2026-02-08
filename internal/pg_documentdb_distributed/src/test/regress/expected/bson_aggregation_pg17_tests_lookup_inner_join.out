@@ -258,3 +258,98 @@ SELECT documentdb_api.drop_collection('lookupdb', 'gate_availability');
  t
 (1 row)
 
+-- lookup with point read where inner plan depends on external param crash fix scenario
+SELECT documentdb_api.insert_one('lookupdb','Dishes',' { "_id" : 1, "dishId" : 1, "ingredients": [1, 2, 3, 4] }', NULL);
+psql:sql/bson_aggregation_tests_lookup_inner_join_core.sql:104: NOTICE:  creating collection
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('lookupdb','Ingredients',' { "_id" : 1, "shopId" : 101, "name": "Salt" }', NULL);
+psql:sql/bson_aggregation_tests_lookup_inner_join_core.sql:105: NOTICE:  creating collection
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('lookupdb','Ingredients',' { "_id" : 2, "shopId" : 101, "name": "Clove" }', NULL);
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('lookupdb','Ingredients',' { "_id" : 3, "shopId" : 101, "name": "Olive" }', NULL);
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('lookupdb','Ingredients',' { "_id" : 4, "shopId" : 101, "name": "Pepper" }', NULL);
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+SELECT documentdb_api.insert_one('lookupdb','Shops',' { "_id" : 101, "name": "ABC Mart" }', NULL);
+psql:sql/bson_aggregation_tests_lookup_inner_join_core.sql:109: NOTICE:  creating collection
+                              insert_one                              
+---------------------------------------------------------------------
+ { "n" : { "$numberInt" : "1" }, "ok" : { "$numberDouble" : "1.0" } }
+(1 row)
+
+-- Get collection IDs for each collection and store them in variables
+SELECT collection_id AS dishes_id FROM documentdb_api_catalog.collections WHERE database_name = 'lookupdb' AND collection_name = 'Dishes' \gset
+SELECT collection_id AS ingredients_id FROM documentdb_api_catalog.collections WHERE database_name = 'lookupdb' AND collection_name = 'Ingredients' \gset  
+SELECT collection_id AS shops_id FROM documentdb_api_catalog.collections WHERE database_name = 'lookupdb' AND collection_name = 'Shops' \gset
+-- Dynamically run ANALYZE commands using the collection IDs
+SELECT 'ANALYZE documentdb_data.documents_' || :'dishes_id' \gexec
+ANALYZE documentdb_data.documents_94373
+SELECT 'ANALYZE documentdb_data.documents_' || :'ingredients_id' \gexec
+ANALYZE documentdb_data.documents_94374
+SELECT 'ANALYZE documentdb_data.documents_' || :'shops_id' \gexec
+ANALYZE documentdb_data.documents_94375
+BEGIN;
+set local seq_page_cost to 1;
+set local documentdb.enableLookupInnerJoin to off;
+SELECT document FROM bson_aggregation_pipeline('lookupdb', '{"aggregate": "Dishes", "pipeline": [{"$match": {"dishId": 1}}, {"$unwind": "$ingredients"} , {"$lookup": {"from": "Ingredients", "localField": "ingredients", "foreignField": "_id", "as": "ingredient_info"}} , {"$unwind": "$ingredient_info"} , {"$lookup": {"from": "Shops", "localField": "ingredient_info.shopId", "foreignField": "_id", "as": "shop_info"}}, {"$unwind": "$shop_info"}]}');
+                                                                                                                                                document                                                                                                                                                
+---------------------------------------------------------------------
+ { "_id" : { "$numberInt" : "1" }, "dishId" : { "$numberInt" : "1" }, "ingredients" : { "$numberInt" : "1" }, "ingredient_info" : { "_id" : { "$numberInt" : "1" }, "shopId" : { "$numberInt" : "101" }, "name" : "Salt" }, "shop_info" : { "_id" : { "$numberInt" : "101" }, "name" : "ABC Mart" } }
+ { "_id" : { "$numberInt" : "1" }, "dishId" : { "$numberInt" : "1" }, "ingredients" : { "$numberInt" : "2" }, "ingredient_info" : { "_id" : { "$numberInt" : "2" }, "shopId" : { "$numberInt" : "101" }, "name" : "Clove" }, "shop_info" : { "_id" : { "$numberInt" : "101" }, "name" : "ABC Mart" } }
+ { "_id" : { "$numberInt" : "1" }, "dishId" : { "$numberInt" : "1" }, "ingredients" : { "$numberInt" : "3" }, "ingredient_info" : { "_id" : { "$numberInt" : "3" }, "shopId" : { "$numberInt" : "101" }, "name" : "Olive" }, "shop_info" : { "_id" : { "$numberInt" : "101" }, "name" : "ABC Mart" } }
+ { "_id" : { "$numberInt" : "1" }, "dishId" : { "$numberInt" : "1" }, "ingredients" : { "$numberInt" : "4" }, "ingredient_info" : { "_id" : { "$numberInt" : "4" }, "shopId" : { "$numberInt" : "101" }, "name" : "Pepper" }, "shop_info" : { "_id" : { "$numberInt" : "101" }, "name" : "ABC Mart" } }
+(4 rows)
+
+ROLLBACK;
+BEGIN;
+set local seq_page_cost to 1;
+set local documentdb.enableLookupInnerJoin to off;
+EXPLAIN (COSTS OFF, SUMMARY OFF, VERBOSE ON) SELECT document FROM bson_aggregation_pipeline('lookupdb', '{"aggregate": "Dishes", "pipeline": [{"$match": {"dishId": 1}}, {"$unwind": "$ingredients"} , {"$lookup": {"from": "Ingredients", "localField": "ingredients", "foreignField": "_id", "as": "ingredient_info"}} , {"$unwind": "$ingredient_info"} , {"$lookup": {"from": "Shops", "localField": "ingredient_info.shopId", "foreignField": "_id", "as": "shop_info"}}, {"$unwind": "$shop_info"}]}');
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       QUERY PLAN                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       
+---------------------------------------------------------------------
+ Custom Scan (Citus Adaptive)
+   Output: remote_scan.document
+   Task Count: 1
+   Tasks Shown: All
+   ->  Task
+         Query: SELECT documentdb_api_internal.bson_dollar_merge_documents_at_path(lookup_stage_1.document, "lookupRight_stage_1".document, 'shop_info'::text) AS document FROM ((SELECT agg_stage_3.document, documentdb_api_internal.bson_dollar_lookup_extract_filter_array(agg_stage_3.document, '{ "_id" : "ingredient_info.shopId" }'::documentdb_core.bson) AS lookup_filter FROM (SELECT documentdb_api_internal.bson_dollar_merge_documents_at_path(lookup_stage_1_1.document, "lookupRight_stage_1_1".document, 'ingredient_info'::text) AS document FROM ((SELECT agg_stage_2.document, documentdb_api_internal.bson_dollar_lookup_extract_filter_array(agg_stage_2.document, '{ "_id" : "ingredients" }'::documentdb_core.bson) AS lookup_filter FROM (SELECT documentdb_api_catalog.bson_dollar_unwind(collection.document, '$ingredients'::text) AS document FROM documentdb_data.documents_94373_9437006 collection WHERE ((collection.document OPERATOR(documentdb_api_catalog.#=) '{ "dishId" : { "$numberInt" : "1" } }'::documentdb_core.bsonquery) AND (collection.shard_key_value OPERATOR(pg_catalog.=) '94373'::bigint))) agg_stage_2) lookup_stage_1_1 LEFT JOIN LATERAL (SELECT lookup_right_query_stage_0.document FROM (SELECT collection_0_1.document, collection_0_1.object_id AS "objectId" FROM documentdb_data.documents_94374_9437008 collection_0_1 WHERE (collection_0_1.shard_key_value OPERATOR(pg_catalog.=) '94374'::bigint)) lookup_right_query_stage_0 WHERE (lookup_right_query_stage_0."objectId" OPERATOR(documentdb_core.=) ANY (lookup_stage_1_1.lookup_filter))) "lookupRight_stage_1_1" ON (true)) WHERE ("lookupRight_stage_1_1".document IS NOT NULL)) agg_stage_3) lookup_stage_1 LEFT JOIN LATERAL (SELECT lookup_right_query_stage_0.document FROM (SELECT collection_0_1.document, collection_0_1.object_id AS "objectId" FROM documentdb_data.documents_94375_9437010 collection_0_1 WHERE (collection_0_1.shard_key_value OPERATOR(pg_catalog.=) '94375'::bigint)) lookup_right_query_stage_0 WHERE (lookup_right_query_stage_0."objectId" OPERATOR(documentdb_core.=) ANY (lookup_stage_1.lookup_filter))) "lookupRight_stage_1" ON (true)) WHERE ("lookupRight_stage_1".document IS NOT NULL)
+         Node: host=localhost port=58070 dbname=regression
+         ->  Nested Loop
+               Output: documentdb_api_internal.bson_dollar_merge_documents_at_path(documentdb_api_internal.bson_dollar_merge_documents_at_path((documentdb_api_catalog.bson_dollar_unwind(collection.document, '$ingredients'::text)), collection_0_1.document, 'ingredient_info'::text), collection_0_1_1.document, 'shop_info'::text)
+               ->  ProjectSet
+                     Output: documentdb_api_catalog.bson_dollar_unwind(collection.document, '$ingredients'::text)
+                     ->  Seq Scan on documentdb_data.documents_94373_9437006 collection
+                           Output: collection.shard_key_value, collection.object_id, collection.document
+                           Filter: (collection.document OPERATOR(documentdb_api_catalog.@=) '{ "dishId" : { "$numberInt" : "1" } }'::documentdb_core.bson)
+               ->  Nested Loop
+                     Output: collection_0_1.document, collection_0_1.object_id, collection_0_1_1.document, collection_0_1_1.object_id
+                     ->  Index Scan using _id_ on documentdb_data.documents_94374_9437008 collection_0_1
+                           Output: collection_0_1.shard_key_value, collection_0_1.object_id, collection_0_1.document
+                           Index Cond: ((collection_0_1.shard_key_value = '94374'::bigint) AND (collection_0_1.object_id OPERATOR(documentdb_core.=) ANY (documentdb_api_internal.bson_dollar_lookup_extract_filter_array((documentdb_api_catalog.bson_dollar_unwind(collection.document, '$ingredients'::text)), '{ "_id" : "ingredients" }'::documentdb_core.bson))))
+                     ->  Index Scan using _id_ on documentdb_data.documents_94375_9437010 collection_0_1_1
+                           Output: collection_0_1_1.shard_key_value, collection_0_1_1.object_id, collection_0_1_1.document
+                           Index Cond: ((collection_0_1_1.shard_key_value = '94375'::bigint) AND (collection_0_1_1.object_id OPERATOR(documentdb_core.=) ANY (documentdb_api_internal.bson_dollar_lookup_extract_filter_array(documentdb_api_internal.bson_dollar_merge_documents_at_path((documentdb_api_catalog.bson_dollar_unwind(collection.document, '$ingredients'::text)), collection_0_1.document, 'ingredient_info'::text), '{ "_id" : "ingredient_info.shopId" }'::documentdb_core.bson))))
+(22 rows)
+
+ROLLBACK;

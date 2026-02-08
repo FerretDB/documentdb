@@ -1,5 +1,4 @@
 NOTICE:  identifier "pg_regress/bson_aggregation_pipeline_tests_inverse_match_explain_pg17" will be truncated to "pg_regress/bson_aggregation_pipeline_tests_inverse_match_explai"
-SET search_path TO documentdb_api,documentdb_core,documentdb_api_catalog;
 \i sql/bson_aggregation_pipeline_tests_inverse_match_explain_core.sql
 SET search_path TO documentdb_api,documentdb_core,documentdb_api_catalog;
 SET documentdb.next_collection_id TO 12300;

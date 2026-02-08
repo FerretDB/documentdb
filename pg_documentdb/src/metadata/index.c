@@ -59,7 +59,7 @@ static IndexOptionsEquivalency GetOptionsEquivalencyFromIndexOptions(
 	rightIndexSpec);
 
 
-/* Different types of indexes supported
+/* Supported index types
  */
 static const MongoIndexSupport MongoIndexSupportedList[] =
 {
@@ -93,7 +93,7 @@ command_record_id_index(PG_FUNCTION_ARGS)
 {
 	if (PG_ARGISNULL(0))
 	{
-		ereport(ERROR, (errmsg("collectionId cannot be NULL")));
+		ereport(ERROR, (errmsg("Collection ID must not be NULL")));
 	}
 	uint64 collectionId = DatumGetUInt64(PG_GETARG_DATUM(0));
 
@@ -114,7 +114,7 @@ index_spec_options_are_equivalent(PG_FUNCTION_ARGS)
 {
 	if (PG_ARGISNULL(0) || PG_ARGISNULL(1))
 	{
-		ereport(ERROR, (errmsg("index specs cannot be null")));
+		ereport(ERROR, (errmsg("Index specifications must not be null")));
 	}
 
 	IndexOptionsEquivalency equivalence = IndexSpecOptionsAreEquivalent(
@@ -166,7 +166,7 @@ get_index_spec_as_current_op_command(PG_FUNCTION_ARGS)
 {
 	if (PG_ARGISNULL(0))
 	{
-		ereport(ERROR, (errmsg("db name cannot be NULL")));
+		ereport(ERROR, (errmsg("Database name must not be NULL")));
 	}
 	char *databaseName = text_to_cstring(PG_GETARG_TEXT_P(0));
 
@@ -611,7 +611,7 @@ CollectionIdGetIndexNames(uint64 collectionId, bool excludeIdIndex, bool inProgr
 													SPI_OK_SELECT, &isNull);
 	if (isNull)
 	{
-		/* collection has no indexes */
+		/* This collection does not contain any indexes */
 		return NIL;
 	}
 
@@ -704,7 +704,7 @@ CollectionIdGetIndexesCore(uint64 collectionId, bool excludeIdIndex,
 
 	if (isNull[0])
 	{
-		/* collection has no indexes */
+		/* This collection does not contain any indexes */
 		return NIL;
 	}
 
@@ -1457,25 +1457,23 @@ AddRequestInIndexQueue(char *createIndexCmd, int indexId, uint64 collectionId, c
  * GetRequestFromIndexQueue gets the exactly one request corresponding to the collectionId to either for CREATE or REINDEX depending on cmdType.
  */
 IndexCmdRequest *
-GetSkippableRequestFromIndexQueue(char cmdType, int expireTimeInSeconds,
+GetSkippableRequestFromIndexQueue(int expireTimeInSeconds,
 								  List *skipCollections)
 {
-	Assert(cmdType == CREATE_INDEX_COMMAND_TYPE || cmdType == REINDEX_COMMAND_TYPE);
-
 	StringInfo cmdStr = makeStringInfo();
 
 	/* We want dirty reads here so this would be readOnly=false */
 	bool readOnly = false;
-	int numValues = 8;
-	bool isNull[8] = { 0 };
-	Datum results[8] = { 0 };
+	int numValues = 9;
+	bool isNull[9] = { 0 };
+	Datum results[9] = { 0 };
 	Oid userOid = InvalidOid;
 
 	/* Get the oldest by update time skippable index from the index queue */
 	appendStringInfo(cmdStr,
-					 "SELECT index_cmd, index_id, index_cmd_status, COALESCE(attempt, 0) AS attempt, comment, update_time, user_oid, collection_id"
-					 " FROM %s iq WHERE cmd_type = '%c' AND index_cmd_status = %d AND update_time < (now() - INTERVAL '%ds') ",
-					 GetIndexQueueName(), cmdType, IndexCmdStatus_Skippable,
+					 "SELECT index_cmd, index_id, index_cmd_status, COALESCE(attempt, 0) AS attempt, comment, update_time, user_oid, collection_id, cmd_type "
+					 " FROM %s iq WHERE index_cmd_status = %d AND update_time < (now() - INTERVAL '%ds') ",
+					 GetIndexQueueName(), IndexCmdStatus_Skippable,
 					 expireTimeInSeconds);
 
 	if (skipCollections != NIL)
@@ -1492,7 +1490,7 @@ GetSkippableRequestFromIndexQueue(char cmdType, int expireTimeInSeconds,
 		appendStringInfo(cmdStr, ") ");
 	}
 
-	appendStringInfo(cmdStr, " ORDER BY update_time ASC LIMIT 1");
+	appendStringInfo(cmdStr, " ORDER BY cmd_type ASC, update_time ASC LIMIT 1");
 
 	ExtensionExecuteMultiValueQueryViaSPI(cmdStr->data, readOnly, SPI_OK_SELECT, results,
 										  isNull, numValues);
@@ -1509,6 +1507,8 @@ GetSkippableRequestFromIndexQueue(char cmdType, int expireTimeInSeconds,
 	pgbson *comment = DatumGetPgBson_MAYBE_NULL(results[4]);
 	TimestampTz updateTime = DatumGetTimestampTz(results[5]);
 	uint64_t collectionId = (uint64_t) DatumGetInt64(results[7]);
+	BpChar *cmdTypeChar = DatumGetBpCharP(results[8]);
+	char *cmdTypeData = VARDATA_ANY(cmdTypeChar);
 	if (!isNull[6])
 	{
 		userOid = DatumGetObjectId(results[6]);
@@ -1523,6 +1523,7 @@ GetSkippableRequestFromIndexQueue(char cmdType, int expireTimeInSeconds,
 	request->updateTime = updateTime;
 	request->status = status;
 	request->userOid = userOid;
+	request->cmdType = cmdTypeData[0];
 	return request;
 }
 
@@ -1531,14 +1532,12 @@ GetSkippableRequestFromIndexQueue(char cmdType, int expireTimeInSeconds,
  * GetRequestFromIndexQueue gets the exactly one request corresponding to the collectionId to either for CREATE or REINDEX depending on cmdType.
  */
 IndexCmdRequest *
-GetRequestFromIndexQueue(char cmdType, uint64 collectionId, MemoryContext mcxt)
+GetRequestFromIndexQueue(uint64 collectionId, MemoryContext mcxt)
 {
-	Assert(cmdType == CREATE_INDEX_COMMAND_TYPE || cmdType == REINDEX_COMMAND_TYPE);
-
 	bool readOnly = false;
-	int numValues = 7;
-	bool isNull[7] = { 0 };
-	Datum results[7] = { 0 };
+	int numValues = 8;
+	bool isNull[8] = { 0 };
+	Datum results[8] = { 0 };
 	Oid userOid = InvalidOid;
 
 	/**
@@ -1549,7 +1548,7 @@ GetRequestFromIndexQueue(char cmdType, uint64 collectionId, MemoryContext mcxt)
 	 * The order by clause makes sure that we pick IndexCmdStatus_Queued requests first over other (ascending order).
 	 *
 	 * SELECT index_cmd, index_id, index_cmd_status,
-	 *        COALESCE(attempt, 0) AS attempt, comment, update_time, user_oid
+	 *        COALESCE(attempt, 0) AS attempt, comment, update_time, user_oid, cmd_type
 	 * FROM ApiCatalogSchemaName.{ExtensionObjectPrefix}_index_queue iq
 	 * WHERE cmd_type = '%c'
 	 *       AND iq.collection_id = collectionId
@@ -1559,15 +1558,14 @@ GetRequestFromIndexQueue(char cmdType, uint64 collectionId, MemoryContext mcxt)
 	 *                AND <distributed_hook_for_pid> NOT IN (SELECT distinct pid FROM pg_stat_activity WHERE pid IS NOT NULL)
 	 *               )
 	 *           )
-	 *	ORDER BY index_cmd_status ASC LIMIT 1
+	 *	ORDER BY cmd_type asc, index_cmd_status ASC LIMIT 1
 	 */
 	StringInfo cmdStr = makeStringInfo();
 	appendStringInfo(cmdStr,
-					 "SELECT index_cmd, index_id, index_cmd_status, COALESCE(attempt, 0) AS attempt, comment, update_time, user_oid");
+					 "SELECT index_cmd, index_id, index_cmd_status, COALESCE(attempt, 0) AS attempt, comment, update_time, user_oid, cmd_type ");
 	appendStringInfo(cmdStr,
-					 " FROM %s iq WHERE cmd_type = '%c'",
-					 GetIndexQueueName(), cmdType);
-	appendStringInfo(cmdStr, " AND iq.collection_id = " UINT64_FORMAT, collectionId);
+					 " FROM %s iq ", GetIndexQueueName());
+	appendStringInfo(cmdStr, " WHERE iq.collection_id = " UINT64_FORMAT, collectionId);
 	appendStringInfo(cmdStr, " AND (index_cmd_status NOT IN (%d, %d)",
 					 IndexCmdStatus_Inprogress, IndexCmdStatus_Skippable);
 	appendStringInfo(cmdStr, " OR (index_cmd_status = %d", IndexCmdStatus_Inprogress);
@@ -1587,7 +1585,7 @@ GetRequestFromIndexQueue(char cmdType, uint64 collectionId, MemoryContext mcxt)
 					 " NOT IN (SELECT distinct pid FROM pg_stat_activity WHERE pid IS NOT NULL)");
 	appendStringInfo(cmdStr, " )) ");
 	appendStringInfo(cmdStr,
-					 " ORDER BY index_cmd_status ASC LIMIT 1");
+					 " ORDER BY cmd_type ASC, index_cmd_status ASC LIMIT 1");
 
 	ExtensionExecuteMultiValueQueryViaSPI(cmdStr->data, readOnly, SPI_OK_SELECT,
 										  results,
@@ -1607,6 +1605,8 @@ GetRequestFromIndexQueue(char cmdType, uint64 collectionId, MemoryContext mcxt)
 	{
 		userOid = DatumGetObjectId(results[6]);
 	}
+	BpChar *cmdTypeChar = DatumGetBpCharP(results[7]);
+	char *cmdTypeData = VARDATA_ANY(cmdTypeChar);
 
 	MemoryContext old = MemoryContextSwitchTo(mcxt);
 	IndexCmdRequest *request = palloc0(sizeof(IndexCmdRequest));
@@ -1618,6 +1618,7 @@ GetRequestFromIndexQueue(char cmdType, uint64 collectionId, MemoryContext mcxt)
 	request->userOid = userOid;
 	request->comment = NULL;
 	request->cmd = pstrdup(cmd);
+	request->cmdType = cmdTypeData[0];
 	if (comment != NULL)
 	{
 		request->comment = PgbsonCloneFromPgbson(comment);
@@ -1658,10 +1659,8 @@ ConvertUint64ListToArray(List *collectionIdArray)
  * This is to make sure that we process only one index build request for a collection at a time.
  */
 uint64 *
-GetCollectionIdsForIndexBuild(char cmdType, List *excludeCollectionIds)
+GetCollectionIdsForIndexBuild(List *excludeCollectionIds)
 {
-	Assert(cmdType == CREATE_INDEX_COMMAND_TYPE || cmdType == REINDEX_COMMAND_TYPE);
-
 	/* Allocate one more collectionId than MaxNumActiveUsersIndexBuilds so that the last one is always 0 */
 	uint64 *collectionIds = palloc0(sizeof(uint64) * (MaxNumActiveUsersIndexBuilds + 1));
 
@@ -1670,7 +1669,7 @@ GetCollectionIdsForIndexBuild(char cmdType, List *excludeCollectionIds)
 	 * SELECT array_agg(a.collection_id) FROM
 	 *  (SELECT collection_id
 	 *  FROM ApiCatalogSchemaName.{ExtensionObjectPrefix}_index_queue pq
-	 *  WHERE cmd_type = $1 AND collection_id <> ALL($2)
+	 *  WHERE collection_id <> ALL($2)
 	 *  ORDER BY min(pq.index_cmd_status) LIMIT MaxNumActiveUsersIndexBuilds
 	 *  ) a;
 	 */
@@ -1679,16 +1678,15 @@ GetCollectionIdsForIndexBuild(char cmdType, List *excludeCollectionIds)
 	appendStringInfo(cmdStr,
 					 "SELECT array_agg(a.collection_id) FROM (");
 	appendStringInfo(cmdStr,
-					 "SELECT collection_id FROM %s iq WHERE cmd_type = $1",
+					 "SELECT collection_id FROM %s iq ",
 					 GetIndexQueueName());
 
 	if (excludeCollectionIds != NIL)
 	{
-		appendStringInfo(cmdStr, " AND collection_id <> ALL($2) ");
+		appendStringInfo(cmdStr, " WHERE collection_id <> ALL($2) ");
 	}
 	appendStringInfo(cmdStr,
-					 " ORDER BY index_cmd_status ASC LIMIT %d",
-					 MaxNumActiveUsersIndexBuilds);
+					 " ORDER BY cmd_type ASC, index_cmd_status ASC LIMIT $1");
 	appendStringInfo(cmdStr, ") a");
 
 	int argCount = 1;
@@ -1696,9 +1694,9 @@ GetCollectionIdsForIndexBuild(char cmdType, List *excludeCollectionIds)
 	Datum argValues[2];
 	char argNulls[2];
 
-	argTypes[0] = CHAROID;
-	argValues[0] = CharGetDatum(cmdType);
-	argNulls[1] = ' ';
+	argTypes[0] = INT4OID;
+	argValues[0] = Int32GetDatum(MaxNumActiveUsersIndexBuilds);
+	argNulls[0] = ' ';
 
 	if (excludeCollectionIds != NIL)
 	{
@@ -1777,6 +1775,7 @@ void
 MarkIndexRequestStatus(int indexId, char cmdType, IndexCmdStatus status, pgbson *comment,
 					   IndexJobOpId *opId, int16 attemptCount)
 {
+	elog(LOG, "cmdType is %c", cmdType);
 	Assert(cmdType == CREATE_INDEX_COMMAND_TYPE || cmdType == REINDEX_COMMAND_TYPE);
 	StringInfo cmdStr = makeStringInfo();
 	appendStringInfo(cmdStr,
@@ -1899,7 +1898,7 @@ MergeTextIndexWeights(List *textIndexes, const bson_value_t *weights, bool *isWi
 {
 	if (weights->value_type != BSON_TYPE_DOCUMENT)
 	{
-		ereport(ERROR, (errmsg("weights must be a document")));
+		ereport(ERROR, (errmsg("weights must be a valid document")));
 	}
 
 	bson_iter_t weightsIter;
@@ -2472,32 +2471,48 @@ static bool
 AreIndexOptionsStillEquivalent(const char *path, const bson_value_t *left,
 							   const bson_value_t *right)
 {
+	bool areEquivalent = true;
 	if (IsOptionsKeyOrderedIndex(path))
 	{
-		if (left == NULL && right == NULL)
+		if (left != NULL || right != NULL)
 		{
-			return true;
-		}
+			bool enableCompositeTermLeft = false;
+			bool enableCompositeTermRight = false;
 
-		bool enableCompositeTermLeft = false;
-		bool enableCompositeTermRight = false;
+			if (left != NULL)
+			{
+				enableCompositeTermLeft = BsonValueAsBool(left);
+			}
+			if (right != NULL)
+			{
+				enableCompositeTermRight = BsonValueAsBool(right);
+			}
 
-		if (left != NULL)
-		{
-			enableCompositeTermLeft = BsonValueAsBool(left);
+			areEquivalent = enableCompositeTermLeft == enableCompositeTermRight;
 		}
-		if (right != NULL)
-		{
-			enableCompositeTermRight = BsonValueAsBool(right);
-		}
-
-		return enableCompositeTermLeft == enableCompositeTermRight;
 	}
-	else
+
+	if (areEquivalent && strcmp(path, "buildAsUnique") == 0)
 	{
-		/* Other fields do not change index equivalency */
-		return true;
+		if (left != NULL || right != NULL)
+		{
+			bool buildAsUniqueLeft = false;
+			bool buildAsUniqueRight = false;
+
+			if (left != NULL)
+			{
+				buildAsUniqueLeft = BsonValueAsBool(left);
+			}
+			if (right != NULL)
+			{
+				buildAsUniqueRight = BsonValueAsBool(right);
+			}
+
+			areEquivalent = buildAsUniqueLeft == buildAsUniqueRight;
+		}
 	}
+
+	return areEquivalent;
 }
 
 

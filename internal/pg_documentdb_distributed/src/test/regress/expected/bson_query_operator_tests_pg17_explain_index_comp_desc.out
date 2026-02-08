@@ -3,12 +3,11 @@ SET search_path TO documentdb_core,documentdb_api,documentdb_api_catalog,documen
 SET citus.next_shard_id TO 1200000;
 SET documentdb.next_collection_id TO 1200;
 SET documentdb.next_collection_index_id TO 1200;
-\i sql/bson_query_operator_tests_explain_index_composite.sql
+\i sql/bson_query_operator_tests_explain_index_comp_desc.sql
 SET search_path TO documentdb_core,documentdb_api,documentdb_api_catalog,documentdb_api_internal;
 SET citus.next_shard_id TO 1200000;
 SET documentdb.next_collection_id TO 1200;
 SET documentdb.next_collection_index_id TO 1200;
-SET documentdb.enableNewCompositeIndexOpClass to on;
 set documentdb.enableExtendedExplainPlans to on;
 SELECT documentdb_api.drop_collection('db', 'queryoperator') IS NOT NULL;
  ?column? 
@@ -17,7 +16,7 @@ SELECT documentdb_api.drop_collection('db', 'queryoperator') IS NOT NULL;
 (1 row)
 
 SELECT documentdb_api.create_collection('db', 'queryoperator');
-psql:sql/bson_query_operator_tests_explain_index_composite.sql:10: NOTICE:  creating collection
+psql:sql/bson_query_operator_tests_explain_index_comp_desc.sql:9: NOTICE:  creating collection
  create_collection 
 ---------------------------------------------------------------------
  t
@@ -30,7 +29,7 @@ SELECT documentdb_api.drop_collection('db', 'queryoperatorIn') IS NOT NULL;
 (1 row)
 
 SELECT documentdb_api.create_collection('db', 'queryoperatorIn');
-psql:sql/bson_query_operator_tests_explain_index_composite.sql:13: NOTICE:  creating collection
+psql:sql/bson_query_operator_tests_explain_index_comp_desc.sql:12: NOTICE:  creating collection
  create_collection 
 ---------------------------------------------------------------------
  t
@@ -43,7 +42,7 @@ SELECT documentdb_api.drop_collection('db', 'nullfield') IS NOT NULL;
 (1 row)
 
 SELECT documentdb_api.create_collection('db', 'nullfield');
-psql:sql/bson_query_operator_tests_explain_index_composite.sql:16: NOTICE:  creating collection
+psql:sql/bson_query_operator_tests_explain_index_comp_desc.sql:15: NOTICE:  creating collection
  create_collection 
 ---------------------------------------------------------------------
  t
@@ -56,51 +55,51 @@ SELECT documentdb_api.drop_collection('db', 'singlepathindexexists') IS NOT NULL
 (1 row)
 
 SELECT documentdb_api.create_collection('db', 'singlepathindexexists');
-psql:sql/bson_query_operator_tests_explain_index_composite.sql:19: NOTICE:  creating collection
+psql:sql/bson_query_operator_tests_explain_index_comp_desc.sql:18: NOTICE:  creating collection
  create_collection 
 ---------------------------------------------------------------------
  t
 (1 row)
 
 -- create a composite index
-SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "queryoperator", "indexes": [ { "key": { "a": 1, "c": 1 }, "enableCompositeTerm": true, "name": "queryoperator_a_c" }] }', true);
+SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "queryoperator", "indexes": [ { "key": { "a": -1, "c": -1 }, "enableCompositeTerm": true, "name": "queryoperator_a_c" }] }', true);
                                                                                                    create_indexes_non_concurrently                                                                                                    
 ---------------------------------------------------------------------
  { "raw" : { "defaultShard" : { "numIndexesBefore" : { "$numberInt" : "1" }, "numIndexesAfter" : { "$numberInt" : "2" }, "createdCollectionAutomatically" : false, "ok" : { "$numberInt" : "1" } } }, "ok" : { "$numberInt" : "1" } }
 (1 row)
 
-SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "queryoperator", "indexes": [ { "key": { "a.b": 1, "_id": 1 }, "enableCompositeTerm": true, "name": "queryoperator_ab" }] }', true);
+SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "queryoperator", "indexes": [ { "key": { "a.b": -1, "_id": -1 }, "enableCompositeTerm": true, "name": "queryoperator_ab" }] }', true);
                                                                                                    create_indexes_non_concurrently                                                                                                    
 ---------------------------------------------------------------------
  { "raw" : { "defaultShard" : { "numIndexesBefore" : { "$numberInt" : "2" }, "numIndexesAfter" : { "$numberInt" : "3" }, "createdCollectionAutomatically" : false, "ok" : { "$numberInt" : "1" } } }, "ok" : { "$numberInt" : "1" } }
 (1 row)
 
-SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "queryoperator", "indexes": [ { "key": { "b": 1, "a": 1 }, "enableCompositeTerm": true, "name": "queryoperator_b_a" }] }', true);
+SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "queryoperator", "indexes": [ { "key": { "b": -1, "a": -1 }, "enableCompositeTerm": true, "name": "queryoperator_b_a" }] }', true);
                                                                                                    create_indexes_non_concurrently                                                                                                    
 ---------------------------------------------------------------------
  { "raw" : { "defaultShard" : { "numIndexesBefore" : { "$numberInt" : "3" }, "numIndexesAfter" : { "$numberInt" : "4" }, "createdCollectionAutomatically" : false, "ok" : { "$numberInt" : "1" } } }, "ok" : { "$numberInt" : "1" } }
 (1 row)
 
-SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "nullfield", "indexes": [ { "key": { "a": 1 }, "enableCompositeTerm": true, "name": "nullfield_ab" }] }', true);
+SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "nullfield", "indexes": [ { "key": { "a": -1 }, "enableCompositeTerm": true, "name": "nullfield_ab" }] }', true);
                                                                                                    create_indexes_non_concurrently                                                                                                    
 ---------------------------------------------------------------------
  { "raw" : { "defaultShard" : { "numIndexesBefore" : { "$numberInt" : "1" }, "numIndexesAfter" : { "$numberInt" : "2" }, "createdCollectionAutomatically" : false, "ok" : { "$numberInt" : "1" } } }, "ok" : { "$numberInt" : "1" } }
 (1 row)
 
-SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "queryoperatorIn", "indexes": [ { "key": { "a": 1 }, "enableCompositeTerm": true, "name": "queryoperatorin_a" }] }', true);
+SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "queryoperatorIn", "indexes": [ { "key": { "a": -1 }, "enableCompositeTerm": true, "name": "queryoperatorin_a" }] }', true);
                                                                                                    create_indexes_non_concurrently                                                                                                    
 ---------------------------------------------------------------------
  { "raw" : { "defaultShard" : { "numIndexesBefore" : { "$numberInt" : "1" }, "numIndexesAfter" : { "$numberInt" : "2" }, "createdCollectionAutomatically" : false, "ok" : { "$numberInt" : "1" } } }, "ok" : { "$numberInt" : "1" } }
 (1 row)
 
-SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "queryoperatorIn", "indexes": [ { "key": { "a.b": 1 }, "enableCompositeTerm": true, "name": "queryoperatorin_ab" }] }', true);
+SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "queryoperatorIn", "indexes": [ { "key": { "a.b": -1 }, "enableCompositeTerm": true, "name": "queryoperatorin_ab" }] }', true);
                                                                                                    create_indexes_non_concurrently                                                                                                    
 ---------------------------------------------------------------------
  { "raw" : { "defaultShard" : { "numIndexesBefore" : { "$numberInt" : "2" }, "numIndexesAfter" : { "$numberInt" : "3" }, "createdCollectionAutomatically" : false, "ok" : { "$numberInt" : "1" } } }, "ok" : { "$numberInt" : "1" } }
 (1 row)
 
 -- create single path index
-SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "singlepathindexexists", "indexes": [ { "key": { "a": 1 }, "enableCompositeTerm": true, "name": "a_index" }] }', true);
+SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createIndexes": "singlepathindexexists", "indexes": [ { "key": { "a": -1 }, "enableCompositeTerm": true, "name": "a_index" }] }', true);
                                                                                                    create_indexes_non_concurrently                                                                                                    
 ---------------------------------------------------------------------
  { "raw" : { "defaultShard" : { "numIndexesBefore" : { "$numberInt" : "1" }, "numIndexesAfter" : { "$numberInt" : "2" }, "createdCollectionAutomatically" : false, "ok" : { "$numberInt" : "1" } } }, "ok" : { "$numberInt" : "1" } }
@@ -116,9 +115,9 @@ SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{ "createI
  document        | bson   |           | not null | 
 Indexes:
     "collection_pk_1200" PRIMARY KEY, btree (shard_key_value, object_id)
-    "documents_rum_index_1204" documentdb_rum (document bson_rum_composite_path_ops (pathspec='[ "a", "c" ]', tl='2691'))
-    "documents_rum_index_1205" documentdb_rum (document bson_rum_composite_path_ops (pathspec='[ "a.b", "_id" ]', tl='2691'))
-    "documents_rum_index_1206" documentdb_rum (document bson_rum_composite_path_ops (pathspec='[ "b", "a" ]', tl='2691'))
+    "documents_rum_index_1204" documentdb_rum (document bson_rum_composite_path_ops (pathspec='[ { "a" : -1 }, { "c" : -1 } ]', tl='2691'))
+    "documents_rum_index_1205" documentdb_rum (document bson_rum_composite_path_ops (pathspec='[ { "a.b" : -1 }, { "_id" : -1 } ]', tl='2691'))
+    "documents_rum_index_1206" documentdb_rum (document bson_rum_composite_path_ops (pathspec='[ { "b" : -1 }, { "a" : -1 } ]', tl='2691'))
 Check constraints:
     "shard_key_value_check" CHECK (shard_key_value = '1200'::bigint)
 
@@ -128,7 +127,6 @@ set local documentdb.useLocalExecutionShardQueries to off;
 -- avoid sequential scan (likely to be preferred on small tables)
 set local enable_seqscan TO off;
 set local documentdb.forceUseIndexIfAvailable to on;
-set local documentdb.enableNewCompositeIndexOpClass to on;
 set local documentdb.enableExtendedExplainPlans to on;
 set local documentdb.forceRumIndexScanToBitmapHeapScan to off;
 \i sql/bson_query_operator_tests_explain_core.sql
@@ -614,7 +612,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=4 loops=1)
                indexName: queryoperator_ab
                isMultiKey: true
-               indexBounds: ["a.b": [1, 1], "_id": (MinKey, MaxKey)]
+               indexBounds: ["a.b": DESC[1, 1], "_id": DESC(MinKey, MaxKey)]
                innerScanLoops: 4 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 4)]
@@ -638,7 +636,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=23 loops=1)
                indexName: queryoperator_ab
                isMultiKey: true
-               indexBounds: ["a.b": [MinKey, MaxKey], "_id": (MinKey, MaxKey)]
+               indexBounds: ["a.b": DESC[MinKey, MaxKey], "_id": DESC(MinKey, MaxKey)]
                innerScanLoops: 26 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 40)]
@@ -663,7 +661,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=4 loops=1)
                indexName: queryoperator_ab
                isMultiKey: true
-               indexBounds: ["a.b": (1, Infinity], "_id": (MinKey, MaxKey)]
+               indexBounds: ["a.b": DESC(1, Infinity], "_id": DESC(MinKey, MaxKey)]
                innerScanLoops: 4 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 5)]
@@ -687,7 +685,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=5 loops=1)
                indexName: queryoperator_ab
                isMultiKey: true
-               indexBounds: ["a.b": [1, Infinity], "_id": (MinKey, MaxKey)]
+               indexBounds: ["a.b": DESC[1, Infinity], "_id": DESC(MinKey, MaxKey)]
                innerScanLoops: 5 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 9)]
@@ -711,7 +709,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=5 loops=1)
                indexName: queryoperator_ab
                isMultiKey: true
-               indexBounds: ["a.b": [-Infinity, 1), "_id": (MinKey, MaxKey)]
+               indexBounds: ["a.b": DESC[-Infinity, 1), "_id": DESC(MinKey, MaxKey)]
                innerScanLoops: 5 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 6)]
@@ -735,7 +733,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=6 loops=1)
                indexName: queryoperator_ab
                isMultiKey: true
-               indexBounds: ["a.b": [-Infinity, 1], "_id": (MinKey, MaxKey)]
+               indexBounds: ["a.b": DESC[-Infinity, 1], "_id": DESC(MinKey, MaxKey)]
                innerScanLoops: 6 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 10)]
@@ -760,7 +758,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=1 loops=1)
                indexName: a_index
                isMultiKey: false
-               indexBounds: ["a": [-Infinity, 1]]
+               indexBounds: ["a": DESC[-Infinity, 1]]
                innerScanLoops: 1 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 1)]
@@ -784,7 +782,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=4 loops=1)
                indexName: a_index
                isMultiKey: false
-               indexBounds: ["a": [MinKey, MaxKey]]
+               indexBounds: ["a": DESC[MinKey, MaxKey]]
                innerScanLoops: 4 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 4)]
@@ -808,7 +806,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=1 loops=1)
                indexName: a_index
                isMultiKey: false
-               indexBounds: ["a": (MinKey, null]]
+               indexBounds: ["a": DESC(MinKey, null]]
                innerScanLoops: 1 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 1)]
@@ -833,7 +831,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=15 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": ({ "b" : 1 }, [  ]), "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC({ "b" : 1 }, [  ]), "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 15 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 23)]
@@ -857,7 +855,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=1 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": ({ "b" : [ true, false ] }, [  ]), "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC({ "b" : [ true, false ] }, [  ]), "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 1 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 1)]
@@ -881,7 +879,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=3 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [{ "b" : [ 2, 3, 4 ] }, MaxKey], "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[{ "b" : [ 2, 3, 4 ] }, MaxKey], "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 6 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 8)]
@@ -906,7 +904,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=16 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [{ "b" : 1 }, [  ]), "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[{ "b" : 1 }, [  ]), "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 16 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 25)]
@@ -930,7 +928,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=1 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [{ "b" : [ true, false ] }, [  ]), "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[{ "b" : [ true, false ] }, [  ]), "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 1 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 1)]
@@ -954,7 +952,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=3 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [{ "b" : [ 2, 3, 4 ] }, MaxKey], "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[{ "b" : [ 2, 3, 4 ] }, MaxKey], "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 6 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 8)]
@@ -979,7 +977,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=5 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [{ }, { "b" : 1 }), "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[{ }, { "b" : 1 }), "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 5 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 5)]
@@ -1003,7 +1001,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=18 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [{ }, { "b" : [ true, false ] }), "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[{ }, { "b" : [ true, false ] }), "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 18 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 29)]
@@ -1027,7 +1025,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=9 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [MinKey, [ { "b" : [ 2, 3, 4 ] } ]), "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[MinKey, [ { "b" : [ 2, 3, 4 ] } ]), "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 26 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 40)]
@@ -1052,7 +1050,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=6 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [{ }, { "b" : 1 }], "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[{ }, { "b" : 1 }], "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 6 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 7)]
@@ -1076,7 +1074,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=18 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [{ }, { "b" : [ true, false ] }], "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[{ }, { "b" : [ true, false ] }], "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 18 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 29)]
@@ -1100,7 +1098,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=9 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [MinKey, [ { "b" : [ 2, 3, 4 ] } ]], "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[MinKey, [ { "b" : [ 2, 3, 4 ] } ]], "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 26 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 40)]
@@ -1125,7 +1123,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=2 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [{ "b" : 1 }, { "b" : 1 }], "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[{ "b" : 1 }, { "b" : 1 }], "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 2 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 2)]
@@ -1149,7 +1147,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=0 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [{ "b" : [ true, false ] }, { "b" : [ true, false ] }], "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[{ "b" : [ true, false ] }, { "b" : [ true, false ] }], "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 0 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0)]
@@ -1172,7 +1170,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=0 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [[ { "b" : [ 2, 3, 4 ] } ], [ { "b" : [ 2, 3, 4 ] } ]], "c": (MinKey, MaxKey)], ["a": [{ "b" : [ 2, 3, 4 ] }, { "b" : [ 2, 3, 4 ] }], "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[[ { "b" : [ 2, 3, 4 ] } ], [ { "b" : [ 2, 3, 4 ] } ]], "c": DESC(MinKey, MaxKey)], ["a": DESC[{ "b" : [ 2, 3, 4 ] }, { "b" : [ 2, 3, 4 ] }], "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 0 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0), (isInequality: true, estimatedEntryCount: 0)]
@@ -1195,7 +1193,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=25 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [MinKey, MaxKey], "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[MinKey, MaxKey], "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 26 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 39)]
@@ -1220,7 +1218,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=27 loops=1)
                indexName: queryoperator_a_c
                isMultiKey: true
-               indexBounds: ["a": [MinKey, MaxKey], "c": (MinKey, MaxKey)]
+               indexBounds: ["a": DESC[MinKey, MaxKey], "c": DESC(MinKey, MaxKey)]
                innerScanLoops: 27 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 41)]
@@ -1464,7 +1462,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
                ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=2 loops=1)
                      indexName: queryoperator_ab
                      isMultiKey: true
-                     indexBounds: ["a.b": ["M", "M"], "_id": (MinKey, MaxKey)]
+                     indexBounds: ["a.b": DESC["M", "M"], "_id": DESC(MinKey, MaxKey)]
                      innerScanLoops: 2 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 2)]
@@ -1472,7 +1470,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
                            Filter: ((document OPERATOR(documentdb_api_catalog.@#?) '{ "a" : { "b" : "M", "c" : { "$gt" : { "$numberInt" : "50" } } } }'::documentdb_core.bson) AND (document OPERATOR(documentdb_api_catalog.@#?) '{ "a" : { "c" : { "$numberInt" : "100" }, "d" : "Y" } }'::documentdb_core.bson))
                            Heap Blocks: exact=1
                            ->  Bitmap Index Scan on queryoperator_ab (actual rows=2 loops=1)
-                                 Index Cond: (document OPERATOR(documentdb_api_catalog.@=) '{ "a.b" : "M" }'::documentdb_core.bson)
+                                 Index Cond: (document OPERATOR(documentdb_api_catalog.@<>) '{ "a.b" : { "elemMatchIndexOp" : [ { "op" : { "$numberInt" : "1" }, "value" : "M", "isTopLevel" : false } ] } }'::documentdb_core.bson)
 (22 rows)
 
 -- $or gets converted to $in for simple expressions.
@@ -1492,13 +1490,13 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
                ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=0 loops=1)
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": [3, 3], "c": (MinKey, MaxKey)]
+                     indexBounds: ["a": DESC[3, 3], "c": DESC(MinKey, MaxKey)]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0)]
                      indexName: queryoperator_b_a
                      isMultiKey: true
-                     indexBounds: ["b": [4, 4], "a": (MinKey, MaxKey)]
+                     indexBounds: ["b": DESC[4, 4], "a": DESC(MinKey, MaxKey)]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0)]
@@ -1527,13 +1525,13 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
                ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=2 loops=1)
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": [3, 3], "c": (MinKey, MaxKey)]
+                     indexBounds: ["a": DESC[3, 3], "c": DESC(MinKey, MaxKey)]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0)]
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": [4, Infinity], "c": (MinKey, MaxKey)]
+                     indexBounds: ["a": DESC[4, Infinity], "c": DESC(MinKey, MaxKey)]
                      innerScanLoops: 2 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 2)]
@@ -1563,7 +1561,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
                ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=0 loops=1)
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": [3, 3], "c": (MinKey, MaxKey)], ["a": [5, 5], "c": (MinKey, MaxKey)]
+                     indexBounds: ["a": DESC[3, 3], "c": DESC(MinKey, MaxKey)], ["a": DESC[5, 5], "c": DESC(MinKey, MaxKey)]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0), (isInequality: true, estimatedEntryCount: 0)]
@@ -1589,7 +1587,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
                ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=0 loops=1)
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": [3, 3], "c": (MinKey, MaxKey)], ["a": [5, 5], "c": (MinKey, MaxKey)]
+                     indexBounds: ["a": DESC[3, 3], "c": DESC(MinKey, MaxKey)], ["a": DESC[5, 5], "c": DESC(MinKey, MaxKey)]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0), (isInequality: true, estimatedEntryCount: 0)]
@@ -1620,7 +1618,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF, VERBOSE ON) SELECT obje
                      Output: object_id, document
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": (3, Infinity], "c": (MinKey, MaxKey)]
+                     indexBounds: ["a": DESC(3, Infinity], "c": DESC(MinKey, MaxKey)]
                      innerScanLoops: 2 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 2)]
@@ -1652,7 +1650,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF, VERBOSE ON) SELECT obje
                      Output: object_id, document
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": (3, Infinity], "c": (MinKey, MaxKey)]
+                     indexBounds: ["a": DESC(3, Infinity], "c": DESC(MinKey, MaxKey)]
                      innerScanLoops: 2 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 2)]
@@ -1685,7 +1683,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF, VERBOSE ON) SELECT obje
                      Output: object_id, document
                      indexName: queryoperator_b_a
                      isMultiKey: true
-                     indexBounds: ["b": (MinKey, null], "a": [3, 3]]
+                     indexBounds: ["b": DESC(MinKey, null], "a": DESC[3, 3]]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0)]
@@ -1714,13 +1712,13 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF, VERBOSE ON) SELECT obje
                      Output: object_id, document
                      indexName: queryoperator_b_a
                      isMultiKey: true
-                     indexBounds: ["b": (MinKey, null], "a": [3, 3]]
+                     indexBounds: ["b": DESC(MinKey, null], "a": DESC[3, 3]]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0)]
                      indexName: queryoperator_b_a
                      isMultiKey: true
-                     indexBounds: ["b": [MinKey, MaxKey], "a": [3, 3]]
+                     indexBounds: ["b": DESC[MinKey, MaxKey], "a": DESC[3, 3]]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0)]
@@ -1754,13 +1752,13 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF, VERBOSE ON) SELECT obje
                      Output: object_id, document
                      indexName: queryoperator_b_a
                      isMultiKey: true
-                     indexBounds: ["b": (MinKey, null], "a": [3, 3]]
+                     indexBounds: ["b": DESC(MinKey, null], "a": DESC[3, 3]]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0)]
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": [3, 3], "c": (MinKey, null]]
+                     indexBounds: ["a": DESC[3, 3], "c": DESC(MinKey, null]]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0)]
@@ -1794,19 +1792,19 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF, VERBOSE ON) SELECT obje
                      Output: object_id, document
                      indexName: queryoperator_b_a
                      isMultiKey: true
-                     indexBounds: ["b": (MinKey, null], "a": [3, 3]]
+                     indexBounds: ["b": DESC(MinKey, null], "a": DESC[3, 3]]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0)]
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": [3, 3], "c": (MinKey, null]]
+                     indexBounds: ["a": DESC[3, 3], "c": DESC(MinKey, null]]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0)]
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": [3, 3], "c": (MinKey, null]]
+                     indexBounds: ["a": DESC[3, 3], "c": DESC(MinKey, null]]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0)]
@@ -1839,7 +1837,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
                ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=2 loops=1)
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": [1, 1], "c": (MinKey, MaxKey)]
+                     indexBounds: ["a": DESC[1, 1], "c": DESC(MinKey, MaxKey)]
                      innerScanLoops: 2 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 2)]
@@ -1883,7 +1881,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
                ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=2 loops=1)
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": [1, 1], "c": (MinKey, MaxKey)], ["a": [2, 2], "c": (MinKey, MaxKey)]
+                     indexBounds: ["a": DESC[1, 1], "c": DESC(MinKey, MaxKey)], ["a": DESC[2, 2], "c": DESC(MinKey, MaxKey)]
                      innerScanLoops: 2 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 2), (isInequality: true, estimatedEntryCount: 1)]
@@ -1910,7 +1908,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
                ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=25 loops=1)
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": [MinKey, MaxKey], "c": (MinKey, MaxKey)]
+                     indexBounds: ["a": DESC[MinKey, MaxKey], "c": DESC(MinKey, MaxKey)]
                      innerScanLoops: 26 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 39)]
@@ -1958,7 +1956,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
                ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=25 loops=1)
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": [MinKey, MaxKey], "c": (MinKey, MaxKey)], ["a": [MinKey, MaxKey], "c": (MinKey, MaxKey)]
+                     indexBounds: ["a": DESC[MinKey, MaxKey], "c": DESC(MinKey, MaxKey)], ["a": DESC[MinKey, MaxKey], "c": DESC(MinKey, MaxKey)]
                      innerScanLoops: 27 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 39), (isInequality: true, estimatedEntryCount: 40)]
@@ -1986,7 +1984,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT object_id, docum
                ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=0 loops=1)
                      indexName: queryoperator_a_c
                      isMultiKey: true
-                     indexBounds: ["a": [3, 3], "c": (MinKey, MaxKey)], ["a": [4, 4], "c": (MinKey, MaxKey)]
+                     indexBounds: ["a": DESC[3, 3], "c": DESC(MinKey, MaxKey)], ["a": DESC[4, 4], "c": DESC(MinKey, MaxKey)]
                      innerScanLoops: 0 loops
                      scanType: regular
                      scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 0), (isInequality: true, estimatedEntryCount: 0)]
@@ -2009,7 +2007,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT document FROM do
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=2 loops=1)
                indexName: queryoperatorin_a
                isMultiKey: true
-               indexBounds: ["a": [NaN, NaN]], ["a": [1000, 1000]]
+               indexBounds: ["a": DESC[NaN, NaN]], ["a": DESC[1000, 1000]]
                innerScanLoops: 2 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: false, estimatedEntryCount: 2), (isInequality: false, estimatedEntryCount: 0)]
@@ -2033,7 +2031,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT document FROM do
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=2 loops=1)
                indexName: queryoperatorin_a
                isMultiKey: true
-               indexBounds: ["a": [Infinity, Infinity]], ["a": [1000, 1000]]
+               indexBounds: ["a": DESC[Infinity, Infinity]], ["a": DESC[1000, 1000]]
                innerScanLoops: 2 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: false, estimatedEntryCount: 2), (isInequality: false, estimatedEntryCount: 0)]
@@ -2057,7 +2055,7 @@ EXPLAIN (COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT document FROM do
          ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=0 loops=1)
                indexName: queryoperatorin_a
                isMultiKey: true
-               indexBounds: ["a": [1.01, 1.01]], ["a": [10, 10]]
+               indexBounds: ["a": DESC[1.01, 1.01]], ["a": DESC[10, 10]]
                innerScanLoops: 0 loops
                scanType: regular
                scanKeyDetails: key 1: [(isInequality: false, estimatedEntryCount: 0), (isInequality: false, estimatedEntryCount: 0)]

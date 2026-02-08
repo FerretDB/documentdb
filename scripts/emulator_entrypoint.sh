@@ -54,9 +54,6 @@ Launches DocumentDB
 
 Optional arguments:
   -h, --help            Display information on available configuration
-  --enforce-ssl         Enforce SSL for all connections. 
-                        Defaults to true
-                        Overrides ENFORCE_SSL environment variable.
   --cert-path [PATH]    Specify a path to a certificate for securing traffic. You need to mount this file into the 
                         container (e.g. if CERT_PATH=/mycert.pfx, you'd add an option like the following to your 
                         docker run: --mount type=bind,source=./mycert.pfx,target=/mycert.pfx)
@@ -120,11 +117,6 @@ do
     -h|--help) 
         usage;
         exit 0;;
-
-    --enforce-ssl)
-        shift
-        export ENFORCE_SSL=$1
-        shift;;
 
     --cert-path)
         shift
@@ -242,24 +234,6 @@ if { [ -n "${CERT_PATH:-}" ] && [ -z "${KEY_FILE:-}" ]; } || \
     exit 1
 fi
 
-if { [ -z "${CERT_PATH:-}" ] && [ -z "${KEY_FILE:-}" ]; }; then
-    echo "CERT_PATH and KEY_FILE not provided. Generating self-signed certificate and key..."
-    CERT_PATH="$HOME/self_signed_cert.pem"
-    KEY_FILE="$HOME/self_signed_key.pem"
-    openssl req -x509 -newkey rsa:4096 -keyout "$KEY_FILE" -out "$CERT_PATH" -days 365 -nodes -subj "/CN=localhost"
-    
-    echo "Generated certificate at $CERT_PATH and key at $KEY_FILE."
-
-    # Combine the key and certificate into a single PEM file
-    COMBINED_PEM="$HOME/self_signed_combined.pem"
-    cat "$CERT_PATH" "$KEY_FILE" > "$COMBINED_PEM"
-    echo "Combined certificate and key into $COMBINED_PEM."
-
-    # Export docker cp command for copying the PEM file to the local machine
-    echo "To copy the combined PEM file to your local machine, use the following command:"
-    echo "docker cp <container_id>:$COMBINED_PEM ./self_signed_combined.pem"
-fi
-
 num='^[0-9]+$'
 if ! [[ "$DOCUMENTDB_PORT" =~ $num ]]; then
     echo "Invalid port value $DOCUMENTDB_PORT, must be a number"
@@ -375,38 +349,30 @@ else
 fi
 
 # Setting up the configuration file
-cp /home/documentdb/gateway/SetupConfiguration.json /home/documentdb/gateway/SetupConfiguration_temp.json
+mkdir -p /home/documentdb/gateway/pg_documentdb_gw/target
+configFile="/home/documentdb/gateway/pg_documentdb_gw/target/SetupConfiguration_temp.json"
+cp /home/documentdb/gateway/pg_documentdb_gw/SetupConfiguration.json $configFile
+sudo chmod 755 $configFile
 
 if [ -n "${DOCUMENTDB_PORT:-}" ]; then
     echo "Updating GatewayListenPort in the configuration file..."
-    jq ".GatewayListenPort = $DOCUMENTDB_PORT" /home/documentdb/gateway/SetupConfiguration_temp.json > /home/documentdb/gateway/SetupConfiguration_temp.json.tmp && \
-    mv /home/documentdb/gateway/SetupConfiguration_temp.json.tmp /home/documentdb/gateway/SetupConfiguration_temp.json
+    jq ".GatewayListenPort = $DOCUMENTDB_PORT" $configFile > $configFile.tmp && \
+    mv $configFile.tmp $configFile
 fi
 
 if [ -n "${POSTGRESQL_PORT:-}" ]; then
     echo "Updating PostgresPort in the configuration file..."
-    jq ".PostgresPort = $POSTGRESQL_PORT" /home/documentdb/gateway/SetupConfiguration_temp.json > /home/documentdb/gateway/SetupConfiguration_temp.json.tmp && \
-    mv /home/documentdb/gateway/SetupConfiguration_temp.json.tmp /home/documentdb/gateway/SetupConfiguration_temp.json
+    jq ".PostgresPort = $POSTGRESQL_PORT" $configFile > $configFile.tmp && \
+    mv $configFile.tmp $configFile
 fi
 
 if [ -n "${CERT_PATH:-}" ] && [ -n "${KEY_FILE:-}" ]; then
     echo "Adding CertificateOptions to the configuration file..."
     jq --arg certPath "$CERT_PATH" --arg keyFilePath "$KEY_FILE" \
-       '. + { "CertificateOptions": { "CertType": "PemFile", "FilePath": $certPath, "KeyFilePath": $keyFilePath } }' \
-       /home/documentdb/gateway/SetupConfiguration_temp.json > /home/documentdb/gateway/SetupConfiguration_temp.json.tmp && \
-    mv /home/documentdb/gateway/SetupConfiguration_temp.json.tmp /home/documentdb/gateway/SetupConfiguration_temp.json
+       '.CertificateOptions = { "CertType": "PemFile", "FilePath": $certPath, "KeyFilePath": $keyFilePath }' \
+       $configFile > $configFile.tmp && \
+    mv $configFile.tmp $configFile
 fi
-
-if [ -n "${ENFORCE_SSL:-}" ]; then
-    echo "Updating EnforceSslTcp in the configuration file..."
-    jq --arg enforceSsl $ENFORCE_SSL \
-       '.EnforceSslTcp = ($enforceSsl == "true")' /home/documentdb/gateway/SetupConfiguration_temp.json > /home/documentdb/gateway/SetupConfiguration_temp.json.tmp && \
-    mv /home/documentdb/gateway/SetupConfiguration_temp.json.tmp /home/documentdb/gateway/SetupConfiguration_temp.json
-fi
-
-sudo chmod 755 /home/documentdb/gateway/SetupConfiguration_temp.json
-
-configFile="/home/documentdb/gateway/SetupConfiguration_temp.json"
 
 echo "Starting gateway in the background..."
 if [ "$CREATE_USER" = "false" ]; then

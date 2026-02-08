@@ -35,6 +35,7 @@ extern char *ApiGucPrefix;
 extern char *ClusterAdminRole;
 
 char *ApiDistributedSchemaName = "documentdb_api_distributed";
+char *ApiDistributedSchemaNameV2 = "documentdb_api_distributed";
 char *DistributedExtensionName = "documentdb_distributed";
 bool CreateDistributedFunctions = false;
 bool CreateIndexBuildQueueTable = false;
@@ -570,7 +571,7 @@ AddAttributeHandleIfExists(const char *addAttributeQuery)
 		MemoryContextSwitchTo(oldContext);
 		ErrorData *errorData = CopyErrorDataAndFlush();
 
-		/* Abort the inner transaction */
+		/* Abort inner transaction */
 		RollbackAndReleaseCurrentSubTransaction();
 
 		/* Rollback changes MemoryContext */
@@ -1033,7 +1034,7 @@ UpdateClusterMetadata(bool isInitialize)
 	Datum updateArgs[1] = { PointerGetDatum(PgbsonWriterGetPgbson(&writer)) };
 	Oid updateTypes[1] = { BsonTypeId() };
 
-	/*  Update the row */
+	/* Modify the existing row data */
 	const char *updateQuery = FormatSqlQuery(
 		"UPDATE %s.%s_cluster_data SET metadata = %s.bson_dollar_set(metadata, $1)",
 		ApiDistributedSchemaName, ExtensionObjectPrefix, ApiCatalogSchemaName);

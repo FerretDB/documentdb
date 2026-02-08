@@ -74,7 +74,7 @@ typedef struct
 	/* Seconds that the command is running */
 	int secsRunning;
 
-	/* The operationId for the operation */
+	/* The operationId associated with this specific operation */
 	const char *operationId;
 
 	/* The raw mongo table (if it could be determined) */
@@ -94,6 +94,12 @@ typedef struct
 
 	/* The shard_id of the entity running this activity */
 	int32 shardId;
+
+	/* The backend type for the process */
+	const char *backendType;
+
+	/* The leader PID if this is a worker */
+	int64 leaderPid;
 
 	/* collection name determined from the table name */
 	const char *processedMongoCollection;
@@ -471,7 +477,10 @@ WorkerGetBaseActivities()
 						   " pa.wait_event_type AS wait_event_type, "
 						   " pa.global_pid || ':' || (EXTRACT(epoch FROM pa.query_start) * 1000000)::numeric(20,0) AS op_id, "
 						   " EXTRACT(epoch FROM now() - pa.state_change)::bigint AS state_change_since, "
-						   " pa.groupid AS shard_id FROM (");
+						   " pa.groupid AS shard_id, "
+						   " pa.backend_type AS backend_type, "
+						   " pa.leader_pid::bigint AS leaderPid "
+						   " FROM (");
 
 	appendStringInfoString(queryInfo, DistributedOperationsQuery);
 
@@ -667,6 +676,26 @@ WorkerGetBaseActivities()
 			activity->shardId = DatumGetInt32(resultDatum);
 		}
 
+		/* backend_type (Attr 12) */
+		resultDatum = SPI_getbinval(SPI_tuptable->vals[0],
+									SPI_tuptable->tupdesc, 12,
+									&isNull);
+		if (!isNull)
+		{
+			spiContext = MemoryContextSwitchTo(priorMemoryContext);
+			activity->backendType = TextDatumGetCString(resultDatum);
+			MemoryContextSwitchTo(spiContext);
+		}
+
+		/* leader_pid (Attr 13) */
+		resultDatum = SPI_getbinval(SPI_tuptable->vals[0],
+									SPI_tuptable->tupdesc, 13,
+									&isNull);
+		if (!isNull)
+		{
+			activity->leaderPid = DatumGetInt64(resultDatum);
+		}
+
 		spiContext = MemoryContextSwitchTo(priorMemoryContext);
 		workerActivities = lappend(workerActivities, activity);
 		MemoryContextSwitchTo(spiContext);
@@ -723,6 +752,18 @@ WriteOneActivityToDocument(SingleWorkerActivity *workerActivity,
 	PgbsonWriterAppendInt64(singleActivityWriter, "op_prefix", 9,
 							workerActivity->globalPid);
 
+
+	if (workerActivity->backendType != NULL &&
+		strcmp(workerActivity->backendType, "parallel worker") == 0)
+	{
+		PgbsonWriterAppendBool(singleActivityWriter, "parallelWorker", 14, true);
+	}
+
+	if (workerActivity->leaderPid != 0)
+	{
+		PgbsonWriterAppendInt64(singleActivityWriter, "leaderOpPattern", 14,
+								workerActivity->leaderPid);
+	}
 
 	if (isActive)
 	{
@@ -1070,6 +1111,13 @@ WriteCommandAndGetQueryType(const char *query, SingleWorkerActivity *activity,
 		activity->processedBuildIndexStatProgress = true;
 		return "workerCommand";
 	}
+	else if (strstr(query, "REINDEX") != NULL)
+	{
+		PgbsonWriterAppendUtf8(commandWriter, "reIndex", 7,
+							   activity->processedMongoCollection);
+		activity->processedBuildIndexStatProgress = true;
+		return "workerCommand";
+	}
 	else
 	{
 		return "command";
@@ -1197,11 +1245,16 @@ GetIndexSpecForShardedCreateIndexQuery(SingleWorkerActivity *activity)
 	IndexDetails *detail = IndexIdGetIndexDetails(indexId);
 
 	/* assign right value to rawMongoTable */
-	activity->rawMongoTable = (char *) palloc(NAMEDATALEN);
-	snprintf(activity->rawMongoTable, NAMEDATALEN, DOCUMENT_DATA_TABLE_NAME_FORMAT,
-			 detail->collectionId);
+	if (detail != NULL)
+	{
+		activity->rawMongoTable = (char *) palloc(NAMEDATALEN);
+		snprintf(activity->rawMongoTable, NAMEDATALEN, DOCUMENT_DATA_TABLE_NAME_FORMAT,
+				 detail->collectionId);
 
-	return &(detail->indexSpec);
+		return &(detail->indexSpec);
+	}
+
+	return NULL;
 }
 
 
@@ -1335,7 +1388,8 @@ AddIndexBuilds(TupleDesc descriptor, Tuplestorestate *tupleStore)
 		}
 		else if (status == IndexCmdStatus_Queued)
 		{
-			msg = "Index build is queued";
+			msg =
+				"The index build is currently queued";
 		}
 
 		pgbson_writer finalWriter;
@@ -1372,6 +1426,10 @@ PhaseToUserMessage(const char *phaseString)
 	if (strcmp(phaseString, "initializing") == 0)
 	{
 		return "Initializing index.";
+	}
+	else if (strcmp(phaseString, "building index: initializing") == 0)
+	{
+		return "Initializing index";
 	}
 	else if (strcmp(phaseString, "waiting for old snapshots") == 0)
 	{
@@ -1435,7 +1493,7 @@ PhaseToUserMessage(const char *phaseString)
 	}
 	else if (strcmp(phaseString, "waiting for worker to start") == 0)
 	{
-		return "Waiting for worker to start.";
+		return "Awaiting initialization of worker process.";
 	}
 	else if (strcmp(phaseString, "waiting for worker to abort") == 0)
 	{
@@ -1476,7 +1534,7 @@ WriteIndexBuildProgressAndGetMessage(SingleWorkerActivity *activity,
 
 	/* NULLIF(blocks_total) ensures that "Progress" is NULL if blocks_total is 0 so we don't get div by zero errors and row_get_bson skips the field. */
 	appendStringInfo(str,
-					 "WITH c1 AS (SELECT phase, blocks_done, blocks_total, (blocks_done * 100.0 / NULLIF(blocks_total, 0)) AS \"Progress\", "
+					 "WITH c1 AS (SELECT phase, command LIKE '%%CONCURRENTLY%%' AS concurrent, blocks_done, blocks_total, (blocks_done * 100.0 / NULLIF(blocks_total, 0)) AS \"Progress\", "
 					 " tuples_done AS \"terms_done\", tuples_total AS \"terms_total\", "
 					 " (tuples_done * 100.0 / NULLIF(tuples_total, 0)) AS \"terms_progress\", ");
 

@@ -46,10 +46,8 @@
  */
 typedef struct
 {
-	/* name of the Mongo database */
 	char databaseName[MAX_DATABASE_NAME_LENGTH];
 
-	/* name of the Mongo collection */
 	char collectionName[MAX_COLLECTION_NAME_LENGTH];
 } MongoCollectionName;
 
@@ -107,7 +105,7 @@ typedef struct
 	/* View definition if applicable */
 	pgbson *viewDefinition;
 
-	/* The UUID of the collection or view */
+	/* The unique identifier (UUID) associated with the specified collection or view */
 	pg_uuid_t collectionUUID;
 
 	/* creation_time column attribute number */
@@ -132,7 +130,7 @@ typedef struct
  */
 typedef struct
 {
-	/* The name of the source collection or view */
+	/* The source collection or view for this view definition */
 	const char *viewSource;
 
 	/* An optional pipeline to apply to the view

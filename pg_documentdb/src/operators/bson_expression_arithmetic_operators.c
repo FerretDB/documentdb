@@ -953,7 +953,7 @@ ProcessDollarAdd(const bson_value_t *currentElement, void *state, bson_value_t *
 		if (addState->isDateTimeAdd)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARADDONLYONEDATE), errmsg(
-								"only one date allowed in an $add expression")));
+								"Only a single date value is permitted within an $add operators expression.")));
 		}
 
 		addState->isDateTimeAdd = true;
@@ -1015,7 +1015,7 @@ ProcessDollarAddAccumulatedResult(void *state, bson_value_t *result)
 		if (CheckForDateOverflow(result))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_OVERFLOW), errmsg(
-								"date overflow in $add")));
+								"Date value overflow detected in operator $add")));
 		}
 		else if (!addState->foundUndefined &&
 				 result->value_type != BSON_TYPE_DATE_TIME)
@@ -1183,7 +1183,7 @@ ProcessDollarDivide(void *state, bson_value_t *result)
 		if (IsDecimal128Zero(&divisor))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-								"can't $divide by zero")));
+								"$divide by zero is not allowed")));
 		}
 
 		result->value_type = BSON_TYPE_DECIMAL128;
@@ -1198,7 +1198,7 @@ ProcessDollarDivide(void *state, bson_value_t *result)
 		if (divisor == 0.0)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-								"can't $divide by zero")));
+								"$divide by zero is not allowed")));
 		}
 
 		result->value_type = BSON_TYPE_DOUBLE;
@@ -1232,7 +1232,7 @@ ProcessDollarMod(void *state, bson_value_t *result)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARMODONLYNUMERIC), errmsg(
-								"$mod only supports numeric types, not %s and %s",
+								"$mod operator supports only numeric types, not %s and %s",
 								BsonTypeName(dividendValue.value_type),
 								BsonTypeName(divisorValue.value_type))));
 		}
@@ -1243,7 +1243,7 @@ ProcessDollarMod(void *state, bson_value_t *result)
 		(BsonValueAsDouble(&divisorValue) == 0.0))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARMODBYZEROPROHIBITED), errmsg(
-							"can't $mod by zero")));
+							"Cannot perform $mod with zero")));
 	}
 
 	bson_value_t remainder;
@@ -1268,7 +1268,7 @@ ProcessDollarCeil(const bson_value_t *currentValue, bson_value_t *result)
 	if (!BsonValueIsNumber(currentValue))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION28765), errmsg(
-							"$ceil only supports numeric types, not %s",
+							"$ceil can only handle numeric data types, not %s",
 							BsonTypeName(currentValue->value_type))));
 	}
 
@@ -1301,7 +1301,7 @@ ProcessDollarFloor(const bson_value_t *currentValue, bson_value_t *result)
 	if (!BsonValueIsNumber(currentValue))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION28765), errmsg(
-							"$floor only supports numeric types, not %s",
+							"Expected numberic type for $floor but found '%s' type",
 							BsonTypeName(currentValue->value_type))));
 	}
 
@@ -1334,7 +1334,7 @@ ProcessDollarExp(const bson_value_t *currentValue, bson_value_t *result)
 	if (!BsonValueIsNumber(currentValue))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION28765), errmsg(
-							"$exp only supports numeric types, not %s",
+							"The $exp operator can only be used with numeric data types, not %s",
 							BsonTypeName(currentValue->value_type))));
 	}
 
@@ -1366,7 +1366,7 @@ ProcessDollarSqrt(const bson_value_t *currentValue, bson_value_t *result)
 	if (!BsonValueIsNumber(currentValue))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION28765), errmsg(
-							"$sqrt only supports numeric types, not %s",
+							"$sqrt can only be applied to numeric types, not to %s.",
 							BsonTypeName(currentValue->value_type))));
 	}
 
@@ -1381,7 +1381,7 @@ ProcessDollarSqrt(const bson_value_t *currentValue, bson_value_t *result)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARSQRTGREATEROREQUALTOZERO),
 						errmsg(
-							"$sqrt's argument must be greater than or equal to 0")));
+							"The operator sqrt requires its argument to be zero or a positive value")));
 	}
 
 	bson_value_t sqrtResult;
@@ -1413,7 +1413,7 @@ ProcessDollarLog10(const bson_value_t *currentValue, bson_value_t *result)
 	if (!BsonValueIsNumber(currentValue))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION28765), errmsg(
-							"$log10 only supports numeric types, not %s",
+							"Expected numeric type for $log10 but found '%s' type",
 							BsonTypeName(currentValue->value_type))));
 	}
 
@@ -1428,7 +1428,7 @@ ProcessDollarLog10(const bson_value_t *currentValue, bson_value_t *result)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARLOG10MUSTBEPOSITIVENUMBER),
 						errmsg(
-							"$log10's argument must be a positive number, but is %s",
+							"The argument provided to $log10 must be a positive number, but the given value is %s.",
 							BsonValueToJsonForLogging(currentValue))));
 	}
 
@@ -1462,7 +1462,7 @@ ProcessDollarLn(const bson_value_t *currentValue, bson_value_t *result)
 	if (!BsonValueIsNumber(currentValue))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION28765), errmsg(
-							"$ln only supports numeric types, not %s",
+							"$ln works exclusively with numeric data types, but received %s instead",
 							BsonTypeName(currentValue->value_type))));
 	}
 
@@ -1476,7 +1476,7 @@ ProcessDollarLn(const bson_value_t *currentValue, bson_value_t *result)
 	if (isComparisonValid && cmp != 1)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARLNMUSTBEPOSITIVENUMBER), errmsg(
-							"$ln's argument must be a positive number, but is %s",
+							"The argument provided to the $ln operator must be a positive numeric value, but received %s instead.",
 							BsonValueToJsonForLogging(currentValue))));
 	}
 
@@ -1516,14 +1516,14 @@ ProcessDollarLog(void *state, bson_value_t *result)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARLOGARGUMENTMUSTBENUMERIC),
 						errmsg(
-							"$log's argument must be numeric, not %s",
+							"$log requires a numeric argument, but received %s instead.",
 							BsonTypeName(numberValue.value_type))));
 	}
 
 	if (!BsonValueIsNumber(&baseValue))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARLOGBASEMUSTBENUMERIC), errmsg(
-							"$log's base must be numeric, not %s",
+							"The base value for the $log operator must be numeric, not %s",
 							BsonTypeName(baseValue.value_type))));
 	}
 
@@ -1555,7 +1555,7 @@ ProcessDollarLog(void *state, bson_value_t *result)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARLOGNUMBERMUSTBEPOSITIVE),
 							errmsg(
-								"$log's argument must be a positive number, but is %s",
+								"$log requires its argument to be a positive number, but the provided value is %s",
 								BsonValueToJsonForLogging(&numberValue))));
 		}
 
@@ -1572,7 +1572,7 @@ ProcessDollarLog(void *state, bson_value_t *result)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARLOGBASEMUSTBEGREATERTHANONE),
 							errmsg(
-								"$log's base must be a positive number not equal to 1, but is %s",
+								"The base value for the $log must be positive and cannot be 1, but it is %s.",
 								BsonValueToJsonForLogging(&baseValue))));
 		}
 
@@ -1594,7 +1594,7 @@ ProcessDollarLog(void *state, bson_value_t *result)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARLOGNUMBERMUSTBEPOSITIVE),
 							errmsg(
-								"$log's argument must be a positive number, but is %s",
+								"$log requires its argument to be a positive number, but the provided value is %s",
 								BsonValueToJsonForLogging(&numberValue))));
 		}
 
@@ -1602,7 +1602,7 @@ ProcessDollarLog(void *state, bson_value_t *result)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARLOGBASEMUSTBEGREATERTHANONE),
 							errmsg(
-								"$log's base must be a positive number not equal to 1, but is %s",
+								"The base value for the $log must be positive and cannot be 1, but it is %s.",
 								BsonValueToJsonForLogging(&baseValue))));
 		}
 
@@ -1632,7 +1632,7 @@ ProcessDollarPow(void *state, bson_value_t *result)
 	if (!BsonValueIsNumber(&baseValue))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARPOWBASEMUSTBENUMERIC), errmsg(
-							"$pow's base must be numeric, not %s",
+							"$pow requires its base to be numeric, but received %s instead",
 							BsonTypeName(baseValue.value_type))));
 	}
 
@@ -1640,7 +1640,7 @@ ProcessDollarPow(void *state, bson_value_t *result)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARPOWEXPONENTMUSTBENUMERIC),
 						errmsg(
-							"$pow's exponent must be numeric, not %s",
+							"The operator $pow requires a numeric exponent rather than %s",
 							BsonTypeName(exponentValue.value_type))));
 	}
 
@@ -1663,7 +1663,7 @@ ProcessDollarPow(void *state, bson_value_t *result)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARPOWEXPONENTINVALIDFORZEROBASE),
 						errmsg(
-							"$pow cannot take a base of 0 and a negative exponent")));
+							"A base of 0 and a negative exponent can't be taken by $pow")));
 	}
 
 	bson_value_t decimalPowResult;
@@ -1705,7 +1705,7 @@ ProcessDollarPow(void *state, bson_value_t *result)
 			return;
 		}
 
-		/* We should return long. */
+		/* return long */
 		result->value_type = BSON_TYPE_INT64;
 		result->value.v_int64 = GetBsonDecimal128AsInt64(&decimalPowResult,
 														 ConversionRoundingMode_NearestEven);
@@ -1752,7 +1752,7 @@ RoundOrTruncateValue(bson_value_t *result, DualArgumentExpressionState *dualStat
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARROUNDFIRSTARGMUSTBENUMERIC),
 						errmsg(
-							"%s only supports numeric types, not %s",
+							"%s works exclusively with numeric data types, not with %s",
 							operatorName, BsonTypeName(number.value_type))));
 	}
 
@@ -1774,7 +1774,7 @@ RoundOrTruncateValue(bson_value_t *result, DualArgumentExpressionState *dualStat
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARROUNDPRECISIONOUTOFRANGE),
 						errmsg(
-							"cannot apply %s with precision value %ld value must be in [-20, 100]",
+							"Unable to apply %s when using precision value %ld, as the acceptable range is between -20 and 100.",
 							operatorName, precisionAsLong)));
 	}
 
@@ -1825,11 +1825,11 @@ RoundOrTruncateValue(bson_value_t *result, DualArgumentExpressionState *dualStat
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARROUNDOVERFLOWINT64),
 							errmsg(
-								"invalid conversion from Decimal128 result in %s resulting from arguments: [%s, %s]",
+								"Invalid conversion from Decimal128 leading to %s, caused by provided arguments: [%s, %s]",
 								operatorName, BsonValueToJsonForLogging(&number),
 								BsonValueToJsonForLogging(&precision)),
 							errdetail_log(
-								"invalid conversion from Decimal128 result in %s resulting from argument type: [%s, %s]",
+								"Invalid conversion from Decimal128 leading to %s caused by provided argument type: [%s, %s]",
 								operatorName, BsonTypeName(number.value_type),
 								BsonTypeName(precision.value_type))));
 		}
@@ -1854,7 +1854,7 @@ ProcessDollarAbs(const bson_value_t *currentValue, bson_value_t *result)
 	if (!BsonValueIsNumber(currentValue))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION28765), errmsg(
-							"$abs only supports numeric types, not %s",
+							"$abs operator only accepts numeric data types, not %s",
 							BsonTypeName(currentValue->value_type))));
 	}
 
@@ -1874,7 +1874,7 @@ ProcessDollarAbs(const bson_value_t *currentValue, bson_value_t *result)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOLLARABSCANTTAKELONGMINVALUE),
 							errmsg(
-								"can't take $abs of long long min")));
+								"Cannot compute $abs for minimum long long value")));
 		}
 
 		int64_t absValue = llabs(BsonValueAsInt64(currentValue));
@@ -1930,14 +1930,14 @@ ThrowIfNotNumeric(const bson_value_t *value, const char *operatorName)
 	if (!BsonValueIsNumber(value))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH), errmsg(
-							"%s only supports numeric types, not %s",
+							"%s works exclusively with numeric data types, not with %s",
 							operatorName,
 							BsonTypeName(value->value_type))));
 	}
 }
 
 
-/* Throws if the value is not numeric or a date value. */
+/* This error occurs when the provided value is neither numeric nor a valid date. */
 static void
 ThrowIfNotNumericOrDate(const bson_value_t *value, const char *operatorName)
 {
@@ -1945,7 +1945,7 @@ ThrowIfNotNumericOrDate(const bson_value_t *value, const char *operatorName)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
 						errmsg(
-							"%s only supports numeric or date types, not %s",
+							"%s can only process numeric or date types, not %s",
 							operatorName,
 							BsonTypeName(value->value_type))));
 	}

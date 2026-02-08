@@ -20,5 +20,6 @@
 #include "io/pgbsonelement.h"
 #include "utils/string_view.h"
 #include "io/bsonvalue_utils.h"
+#include "utils/documentdb_pg_compatibility.h"
 
 #endif

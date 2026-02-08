@@ -213,9 +213,9 @@ command_reshard_collection(PG_FUNCTION_ARGS)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INTERNALERROR),
 							errmsg(
-								"Internal error resharding collection in metadata coordinator"),
+								"Metadata coordinator encountered internal error while resharding the collection"),
 							errdetail_log(
-								"Internal error resharding collection in metadata coordinator via distributed call %s",
+								"Metadata coordinator encountered internal error while resharding the collection via distributed call %s",
 								text_to_cstring(result.response))));
 		}
 
@@ -359,12 +359,14 @@ FindShardKeyFieldValue(bson_iter_t *docIter, const char *path)
 			if (BSON_ITER_HOLDS_ARRAY(docIter))
 			{
 				ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-								errmsg("Shard key cannot contain an array.")));
+								errmsg(
+									"A shard key is not permitted to include any array elements.")));
 			}
 			else if (BSON_ITER_HOLDS_REGEX(docIter))
 			{
 				ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-								errmsg("Shard key cannot contain a regex.")));
+								errmsg(
+									"A shard key is not allowed to include any regular expression pattern.")));
 			}
 			else if (BSON_ITER_HOLDS_UNDEFINED(docIter))
 			{
@@ -381,7 +383,7 @@ FindShardKeyFieldValue(bson_iter_t *docIter, const char *path)
 			/* shard key path that contains array is invalid */
 			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							errmsg(
-								"Shard key cannot contain array values or array descendants.")));
+								"Shard key is not allowed to include array values or any array-derived elements.")));
 		}
 		else if (BSON_ITER_HOLDS_DOCUMENT(docIter))
 		{
@@ -429,7 +431,7 @@ ValidateShardKey(const pgbson *shardKeyDoc)
 			if (strcmp("hashed", value->value.v_utf8.str) != 0)
 			{
 				ereport(ERROR, (errcode(ERRCODE_INVALID_TEXT_REPRESENTATION),
-								errmsg("invalid value for shard key: %s",
+								errmsg("Shard key value provided is invalid: %s",
 									   value->value.v_utf8.str)));
 			}
 		}
@@ -531,7 +533,7 @@ ComputeShardKeyFieldValuesHash(ShardKeyFieldValues *shardKeyValues,
 			return false;
 		}
 
-		/* add the value into the hash */
+		/* Insert the given value into the hash table */
 		bson_value_t *value = &(shardKeyValues->values[fieldIndex]);
 
 		if (value->value_type == BSON_TYPE_REGEX)
@@ -1195,7 +1197,7 @@ ShardCollectionCore(ShardCollectionArgs *args)
 							errmsg("Collection %s.%s is not sharded",
 								   args->databaseName, args->collectionName),
 							errdetail_log(
-								"Can not re/unshard collection that doesn't exist: %s.%s",
+								"Unable to perform re/unshard operation on a collection that is missing: %s.%s",
 								args->databaseName, args->collectionName)));
 		}
 
@@ -1374,7 +1376,7 @@ ShardCollectionCore(ShardCollectionArgs *args)
 										SPI_OK_INSERT, &isNull);
 
 	/*
-	 * Replace the old table with the new table.
+	 * Failed to replace the old table with the newly provided table.
 	 */
 	resetStringInfo(queryInfo);
 	appendStringInfo(queryInfo,
@@ -1558,7 +1560,7 @@ ParseShardCollectionRequest(pgbson *args, ShardCollectionArgs *shardArgs)
 			EnsureTopLevelFieldType("collation", &argIter, BSON_TYPE_DOCUMENT);
 			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							errmsg(
-								"Collation on shard collection is not supported yet")));
+								"Collation for sharded collections is currently unsupported")));
 		}
 		else if (strcmp(key, "timeseries") == 0)
 		{
@@ -1578,7 +1580,7 @@ ParseShardCollectionRequest(pgbson *args, ShardCollectionArgs *shardArgs)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("Unknown key %s", key)));
+							errmsg("Unrecognized key %s", key)));
 		}
 	}
 
@@ -1593,7 +1595,7 @@ ParseShardCollectionRequest(pgbson *args, ShardCollectionArgs *shardArgs)
 	if (shardArgs->shardKeyDefinition == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("key is a required field.")));
+						errmsg("The key parameter is required.")));
 	}
 
 	ValidateShardKey(shardArgs->shardKeyDefinition);
@@ -1654,7 +1656,7 @@ ParseReshardCollectionRequest(pgbson *args, ShardCollectionArgs *shardArgs)
 			EnsureTopLevelFieldType("collation", &argIter, BSON_TYPE_DOCUMENT);
 			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 							errmsg(
-								"Collation on shard collection is not supported yet")));
+								"Collation for sharded collections is currently unsupported")));
 		}
 		else if (strcmp(key, "zones") == 0)
 		{
@@ -1672,7 +1674,7 @@ ParseReshardCollectionRequest(pgbson *args, ShardCollectionArgs *shardArgs)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("Unknown key %s", key)));
+							errmsg("Unrecognized key %s", key)));
 		}
 	}
 
@@ -1687,7 +1689,7 @@ ParseReshardCollectionRequest(pgbson *args, ShardCollectionArgs *shardArgs)
 	if (shardArgs->shardKeyDefinition == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("key is a required field.")));
+						errmsg("The key parameter is required.")));
 	}
 
 	ValidateShardKey(shardArgs->shardKeyDefinition);
@@ -1722,7 +1724,7 @@ ParseUnshardCollectionRequest(pgbson *args, ShardCollectionArgs *shardArgs)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("Unknown key %s", key)));
+							errmsg("Unrecognized key %s", key)));
 		}
 	}
 

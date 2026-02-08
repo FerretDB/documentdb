@@ -68,46 +68,46 @@ select 1 from documentdb_api.insert_one('bulkdb', 'updateme', '{"a":10,"_id":10,
 CALL documentdb_api.update_bulk('bulkdb', NULL);
 ERROR:  update document cannot be NULL
 CALL documentdb_api.update_bulk(NULL, '{"update":"updateme", "updates":[{"q":{},"u":{"$set":{"b":0}},"multi":true}]}');
-ERROR:  database name cannot be NULL
+ERROR:  database name must not be NULL
 CALL documentdb_api.update_bulk('bulkdb', '{"updates":[{"q":{},"u":{"$set":{"b":0}},"multi":true}]}');
-ERROR:  BSON field 'update.update' is missing but a required field
+ERROR:  Required field 'update.update' is missing
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme"}');
-ERROR:  BSON field 'update.updates' is missing but is a required field
+ERROR:  Required field 'update.updates' is missing
 CALL documentdb_api.update_bulk('bulkdb', '{"update":["updateme"], "updates":[{"q":{},"u":{"$set":{"b":0}},"multi":true}]}');
 ERROR:  collection name has invalid type array
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":{"q":{},"u":{"$set":{"b":0}},"multi":true}}');
-ERROR:  BSON field 'update.updates' is the wrong type 'object', expected type 'array'
+ERROR:  The BSON field 'update.updates' has an incorrect type 'object'; it should be of type 'array'.
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"q":{},"u":{"$set":{"b":0}},"multi":true}], "extra":1}');
-ERROR:  BSON field 'update.extra' is an unknown field
+ERROR:  The BSON field 'update.extra' is not recognized as a valid field
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"q":{}}]}');
-ERROR:  BSON field 'update.updates.u' is missing but a required field
+ERROR:  The required field 'update.updates.u' is missing
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"q":{},"multi":true}]}');
-ERROR:  BSON field 'update.updates.u' is missing but a required field
+ERROR:  The required field 'update.updates.u' is missing
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"multi":true}]}');
-ERROR:  BSON field 'update.updates.q' is missing but a required field
+ERROR:  The required field 'update.updates.q' is missing
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"u":{"$set":{"b":0}}}]}');
-ERROR:  BSON field 'update.updates.q' is missing but a required field
+ERROR:  The required field 'update.updates.q' is missing
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"q":{},"u":"text"}]}');
 ERROR:  BSON field 'update.updates.u' is the wrong type 'string', expected type 'object' or 'array'
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"q":[],"u":{"$set":{"b":0}},"multi":true}]}');
-ERROR:  BSON field 'update.updates.q' is the wrong type 'array', expected type 'object'
+ERROR:  The BSON field 'update.updates.q' has an incorrect type 'array'; it should be of type 'object'.
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"q":{},"u":{"$set":{"b":0}},"multi":1}]}');
-ERROR:  BSON field 'update.updates.multi' is the wrong type 'int', expected type 'bool'
+ERROR:  The BSON field 'update.updates.multi' has an incorrect type 'int'; it should be of type 'bool'.
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"q":{},"u":{"$set":{"b":0}},"multi":true,"extra":1}]}');
-ERROR:  BSON field 'update.updates.extra' is an unknown field
+ERROR:  The field 'update.updates.extra' specified is not recognized as a valid field
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"q":{},"u":{"$set":{"b":0}},"multi":true}],"ordered":1}');
-ERROR:  BSON field 'update.ordered' is the wrong type 'int', expected type 'bool'
+ERROR:  The BSON field 'update.ordered' has an incorrect type 'int'; it should be of type 'bool'.
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"q":{},"u":{"$bork":{"b":0}},"multi":true}]}');
-                                                                                                                                                              p_result                                                                                                                                                               | p_success 
+                                                                                                                                                               p_result                                                                                                                                                                | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50331677" }, "errmsg" : "Unknown modifier: $bork. Expected a valid update modifier or pipeline-style update specified as an array" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50331677" }, "errmsg" : "Unknown modifier: $bork. Please use a valid update modifier or pipeline-style update specified as an array" } ] } | f
 (1 row)
 
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"q":{},"u":{"$set":{"b":0}},"upsert":[]}]}');
-ERROR:  BSON field 'update.updates.upsert' is the wrong type 'array', expected type 'bool'
+ERROR:  The BSON field 'update.updates.upsert' has an incorrect type 'array'; it should be of type 'bool'.
 -- Disallow writes to system.views
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"system.views", "updates":[{"q":{},"u":{"$set":{"b":0}}}]}');
-ERROR:  cannot write to bulkdb.system.views
+ERROR:  Unable to write data to specified location bulkdb.system.views
 -- update all
 set search_path TO '';
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"q":{},"u":{"$set":{"b":0}},"multi":true}]}');
@@ -138,9 +138,9 @@ select count(*) from documentdb_api.collection('bulkdb', 'updateme') where docum
 
 -- update multi with a replace is not supported
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"q":{"a":{"$lte":3}},"u":{"b":0},"multi":true}]}');
-                                                                                                                                       p_result                                                                                                                                        | p_success 
+                                                                                                                                         p_result                                                                                                                                         | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50331677" }, "errmsg" : "multi update is not supported for replacement-style update" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50331677" }, "errmsg" : "multi=true and replace-style updates cannot be used together." } ] } | f
 (1 row)
 
 -- update multi with an aggregation pipeline is supported
@@ -159,9 +159,9 @@ CALL documentdb_api.update_bulk('bulkdb', '{"update":"notexists", "updates":[{"q
 
 -- query syntax errors are added the response
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme", "updates":[{"q":{"a":{"$ltr":5}},"u":{"$set":{"b":0}},"multi":true}]}');
-                                                                                                                     p_result                                                                                                                      | p_success 
+                                                                                                                             p_result                                                                                                                             | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "16777245" }, "errmsg" : "unknown operator: $ltr" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "16777245" }, "errmsg" : "Unrecognized operator specified: $ltr" } ] } | f
 (1 row)
 
 -- when ordered, expect only first update to be executed
@@ -923,7 +923,7 @@ select count(*) from documentdb_api.collection('bulkdb', 'updateme') where docum
 
 -- update with docs specified on both
 CALL documentdb_api.update_bulk('bulkdb', '{"update":"updateme",  "updates":[{"q":{"_id":33, "a": 10 },"u":{"$set":{"b":2}},"multi":true,"upsert":true}]}', '{ "":[{"q":{"_id":33, "a": 10 },"u":{"$set":{"b":1}},"multi":false,"upsert":true}] }');
-ERROR:  Unexpected additional updates
+ERROR:  Unexpected further updates required
 select documentdb_api.drop_collection('bulkdb','updateme');
  drop_collection 
 ---------------------------------------------------------------------
@@ -965,9 +965,9 @@ CALL documentdb_api.update_bulk(
         "ordered": true
      }'
 );
-                                                                                                                                     p_result                                                                                                                                     | p_success 
+                                                                                                                                           p_result                                                                                                                                            | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "1" }, "code" : { "$numberInt" : "335544349" }, "errmsg" : "Updating the path 'p' would create a conflict at 'p'" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "1" }, "code" : { "$numberInt" : "335544349" }, "errmsg" : "Modifying the path 'p' will result in a conflict occurring at 'p'" } ] } | f
 (1 row)
 
 -- ii) ordered=false
@@ -985,9 +985,9 @@ CALL documentdb_api.update_bulk(
         "ordered": false
      }'
 );
-                                                                                                                                                                                                              p_result                                                                                                                                                                                                              | p_success 
+                                                                                                                                                                                                                           p_result                                                                                                                                                                                                                           | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "1" }, "code" : { "$numberInt" : "335544349" }, "errmsg" : "Updating the path 'p' would create a conflict at 'p'" }, { "index" : { "$numberInt" : "3" }, "code" : { "$numberInt" : "335544349" }, "errmsg" : "Updating the path 'p' would create a conflict at 'p'" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "1" }, "code" : { "$numberInt" : "335544349" }, "errmsg" : "Modifying the path 'p' will result in a conflict occurring at 'p'" }, { "index" : { "$numberInt" : "3" }, "code" : { "$numberInt" : "335544349" }, "errmsg" : "Modifying the path 'p' will result in a conflict occurring at 'p'" } ] } | f
 (1 row)
 
 -- show that we validate "query" document even if collection doesn't exist
@@ -1054,9 +1054,9 @@ CALL documentdb_api.update_bulk(
         "ordered": true
      }'
 );
-                                                                                                                                     p_result                                                                                                                                     | p_success 
+                                                                                                                                           p_result                                                                                                                                            | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "1" }, "code" : { "$numberInt" : "335544349" }, "errmsg" : "Updating the path 'p' would create a conflict at 'p'" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "1" }, "code" : { "$numberInt" : "335544349" }, "errmsg" : "Modifying the path 'p' will result in a conflict occurring at 'p'" } ] } | f
 (1 row)
 
 -- ii) ordered=false
@@ -1074,9 +1074,9 @@ CALL documentdb_api.update_bulk(
         "ordered": false
      }'
 );
-                                                                                                                                                                                                              p_result                                                                                                                                                                                                              | p_success 
+                                                                                                                                                                                                                           p_result                                                                                                                                                                                                                           | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "1" }, "code" : { "$numberInt" : "335544349" }, "errmsg" : "Updating the path 'p' would create a conflict at 'p'" }, { "index" : { "$numberInt" : "3" }, "code" : { "$numberInt" : "335544349" }, "errmsg" : "Updating the path 'p' would create a conflict at 'p'" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "1" }, "code" : { "$numberInt" : "335544349" }, "errmsg" : "Modifying the path 'p' will result in a conflict occurring at 'p'" }, { "index" : { "$numberInt" : "3" }, "code" : { "$numberInt" : "335544349" }, "errmsg" : "Modifying the path 'p' will result in a conflict occurring at 'p'" } ] } | f
 (1 row)
 
 -- show that we validate "query" document even if we can't match any documents
@@ -1281,21 +1281,21 @@ CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{
 (1 row)
 
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"_id": 1, "_id": 2},"u":{},"upsert":true}]}');
-                                                                                                                                         p_result                                                                                                                                          | p_success 
+                                                                                                                                                      p_result                                                                                                                                                       | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "419430429" }, "errmsg" : "cannot infer query fields to set, path '_id' is matched twice" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "419430429" }, "errmsg" : "Unable to determine which query fields to set, as the path '_id' has been matched twice" } ] } | f
 (1 row)
 
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"x": 1, "x": 5},"u":{"$set" : {"x":10}},"upsert":true}]}');
-                                                                                                                                        p_result                                                                                                                                         | p_success 
+                                                                                                                                                     p_result                                                                                                                                                      | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "419430429" }, "errmsg" : "cannot infer query fields to set, path 'x' is matched twice" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "419430429" }, "errmsg" : "Unable to determine which query fields to set, as the path 'x' has been matched twice" } ] } | f
 (1 row)
 
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"_id": 1, "_id.b": 2},"u":{"_id":3, "a":4},"upsert":true}]}');
-                                                                                                                                               p_result                                                                                                                                               | p_success 
+                                                                                                                                                     p_result                                                                                                                                                      | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "603979805" }, "errmsg" : "field at '_id' must be exactly specified, field at sub-path '_id.b'found" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "603979805" }, "errmsg" : "Invalid path '_id.b'. Please specify the full '_id' field value instead of a sub-path" } ] } | f
 (1 row)
 
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"_idab.b": 2},"u":{"_id":3, "a":4},"upsert":true}]}');
@@ -1305,21 +1305,21 @@ CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{
 (1 row)
 
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"_id.c": 2},"u":{"_id":3, "a":4},"upsert":true}]}');
-                                                                                                                                               p_result                                                                                                                                               | p_success 
+                                                                                                                                                     p_result                                                                                                                                                      | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "603979805" }, "errmsg" : "field at '_id' must be exactly specified, field at sub-path '_id.c'found" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "603979805" }, "errmsg" : "Invalid path '_id.c'. Please specify the full '_id' field value instead of a sub-path" } ] } | f
 (1 row)
 
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"_id": 1, "_id": 2},"u":{"_id":3},"upsert":true}]}');
-                                                                                                                                         p_result                                                                                                                                          | p_success 
+                                                                                                                                                      p_result                                                                                                                                                       | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "419430429" }, "errmsg" : "cannot infer query fields to set, path '_id' is matched twice" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "419430429" }, "errmsg" : "Unable to determine which query fields to set, as the path '_id' has been matched twice" } ] } | f
 (1 row)
 
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"_id": 1, "_id": 2},"u":{"$set" : {"_id":3} },"upsert":true}]}');
-                                                                                                                                         p_result                                                                                                                                          | p_success 
+                                                                                                                                                      p_result                                                                                                                                                       | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "419430429" }, "errmsg" : "cannot infer query fields to set, path '_id' is matched twice" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "419430429" }, "errmsg" : "Unable to determine which query fields to set, as the path '_id' has been matched twice" } ] } | f
 (1 row)
 
 -- array filters sent to final update command.
@@ -1371,9 +1371,9 @@ NOTICE:  creating collection
 
 --upsert with $expr
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"$and" : [{"$expr" : {"$eq": ["$a",1]}}]},"u":{},"upsert":true}]}');
-                                                                                                                                       p_result                                                                                                                                       | p_success 
+                                                                                                                                                         p_result                                                                                                                                                          | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50593821" }, "errmsg" : "$expr is not allowed in the query predicate for an upsert" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50593821" }, "errmsg" : "Use of the $expr operator is not permitted within the query predicate for an upsert operation." } ] } | f
 (1 row)
 
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"$or" : [{"$expr" : {"$gt": ["$b",1]}}, {"x": 2}]},"u":{"$set" : {"a": 10}},"upsert":true}]}');
@@ -1383,33 +1383,33 @@ CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{
 (1 row)
 
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"$or" : [{"$expr" : {"$gte": ["$c", 100]}}]},"u":{"$set": {"a" :10}},"upsert":true}]}');
-                                                                                                                                       p_result                                                                                                                                       | p_success 
+                                                                                                                                                         p_result                                                                                                                                                          | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50593821" }, "errmsg" : "$expr is not allowed in the query predicate for an upsert" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50593821" }, "errmsg" : "Use of the $expr operator is not permitted within the query predicate for an upsert operation." } ] } | f
 (1 row)
 
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"$or" : [{"$or" : [{"$expr" : {"$gte": ["$c", 100]}}]}]},"u":{"$set": {"a" :10}},"upsert":true}]}');
-                                                                                                                                       p_result                                                                                                                                       | p_success 
+                                                                                                                                                         p_result                                                                                                                                                          | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50593821" }, "errmsg" : "$expr is not allowed in the query predicate for an upsert" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50593821" }, "errmsg" : "Use of the $expr operator is not permitted within the query predicate for an upsert operation." } ] } | f
 (1 row)
 
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"$and" : [{"$or" : [{"x": 10},{"$expr" : {"$gte": ["$c", 100]}}, {"y": 10}]}]},"u":{"$set": {"a" :10}},"upsert":true}]}');
-                                                                                                                                       p_result                                                                                                                                       | p_success 
+                                                                                                                                                         p_result                                                                                                                                                          | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50593821" }, "errmsg" : "$expr is not allowed in the query predicate for an upsert" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50593821" }, "errmsg" : "Use of the $expr operator is not permitted within the query predicate for an upsert operation." } ] } | f
 (1 row)
 
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"$expr": {"$gt" : ["$x",10]}},"u":{},"upsert":true}]}');
-                                                                                                                                       p_result                                                                                                                                       | p_success 
+                                                                                                                                                         p_result                                                                                                                                                          | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50593821" }, "errmsg" : "$expr is not allowed in the query predicate for an upsert" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50593821" }, "errmsg" : "Use of the $expr operator is not permitted within the query predicate for an upsert operation." } ] } | f
 (1 row)
 
 CALL documentdb_api.update_bulk('update_bulk', '{"update":"single", "updates":[{"q":{"$and" : [{"a": 10}, {"$or" : [{"x": 10},{"$expr" : {"$gte": ["$c", 100]}}, {"y": 10}]}, {"b":11} ]},"u":{"$set": {"a" :10}},"upsert":true}]}');
-                                                                                                                                       p_result                                                                                                                                       | p_success 
+                                                                                                                                                         p_result                                                                                                                                                          | p_success 
 ---------------------------------------------------------------------
- { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50593821" }, "errmsg" : "$expr is not allowed in the query predicate for an upsert" } ] } | f
+ { "ok" : { "$numberDouble" : "1.0" }, "nModified" : { "$numberInt" : "0" }, "n" : { "$numberInt" : "0" }, "writeErrors" : [ { "index" : { "$numberInt" : "0" }, "code" : { "$numberInt" : "50593821" }, "errmsg" : "Use of the $expr operator is not permitted within the query predicate for an upsert operation." } ] } | f
 (1 row)
 
 -- below query will be updating document although we don't have @@ in query match but for below query only object id filter is sufficient.

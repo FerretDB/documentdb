@@ -39,8 +39,8 @@ pub trait DynamicConfiguration: Send + Sync + Debug {
         self.get_bool("enableConnectionStatus", false).await
     }
 
-    async fn enable_verbose_logging_gateway(&self) -> bool {
-        self.get_bool("enableVerboseLoggingGateway", false).await
+    async fn enable_verbose_logging_in_gateway(&self) -> bool {
+        self.get_bool("enableVerboseLoggingInGateway", false).await
     }
 
     async fn index_build_sleep_milli_secs(&self) -> i32 {

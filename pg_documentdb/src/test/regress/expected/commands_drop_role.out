@@ -1,0 +1,133 @@
+SET documentdb.next_collection_id TO 1983100;
+SET documentdb.next_collection_index_id TO 1983100;
+SET documentdb.maxUserLimit TO 10;
+\set VERBOSITY TERSE
+-- Enable role CRUD operations for testing
+SET documentdb.enableRoleCrud TO ON;
+-- ********* Test dropRole command basic functionality *********
+-- Test dropRole of a custom role
+SELECT documentdb_api.create_role('{"createRole":"customRole", "roles":["documentdb_readonly_role"]}');
+            create_role            
+-----------------------------------
+ { "ok" : { "$numberInt" : "1" } }
+(1 row)
+
+SELECT documentdb_api.drop_role('{"dropRole":"customRole"}');
+             drop_role             
+-----------------------------------
+ { "ok" : { "$numberInt" : "1" } }
+(1 row)
+
+SELECT rolname FROM pg_roles WHERE rolname = 'customRole';
+ rolname 
+---------
+(0 rows)
+
+-- Test dropRole of a referenced role which will still drop regardless
+SELECT documentdb_api.create_role('{"createRole":"customRole", "roles":["documentdb_readonly_role"]}');
+            create_role            
+-----------------------------------
+ { "ok" : { "$numberInt" : "1" } }
+(1 row)
+
+SELECT documentdb_api.create_user('{"createUser":"userWithCustomRole", "pwd":"Valid$123Pass", "roles":[{"role":"readAnyDatabase","db":"admin"}]}');
+            create_user            
+-----------------------------------
+ { "ok" : { "$numberInt" : "1" } }
+(1 row)
+
+GRANT "customRole" TO "userWithCustomRole";
+SELECT documentdb_api.drop_role('{"dropRole":"customRole"}');
+             drop_role             
+-----------------------------------
+ { "ok" : { "$numberInt" : "1" } }
+(1 row)
+
+SELECT rolname FROM pg_roles WHERE rolname = 'customRole';
+ rolname 
+---------
+(0 rows)
+
+SELECT documentdb_api.drop_user('{"dropUser":"userWithCustomRole"}');
+             drop_user             
+-----------------------------------
+ { "ok" : { "$numberInt" : "1" } }
+(1 row)
+
+-- Test dropRole with additional fields that should be ignored
+SELECT documentdb_api.create_role('{"createRole":"customRole", "roles":["documentdb_readonly_role"]}');
+            create_role            
+-----------------------------------
+ { "ok" : { "$numberInt" : "1" } }
+(1 row)
+
+SELECT documentdb_api.drop_role('{"dropRole":"customRole", "lsid":"test"}');
+             drop_role             
+-----------------------------------
+ { "ok" : { "$numberInt" : "1" } }
+(1 row)
+
+SELECT rolname FROM pg_roles WHERE rolname = 'customRole';
+ rolname 
+---------
+(0 rows)
+
+-- ********* Test dropRole error inputs *********
+SELECT documentdb_api.create_role('{"createRole":"customRole", "roles":["documentdb_readonly_role"]}');
+            create_role            
+-----------------------------------
+ { "ok" : { "$numberInt" : "1" } }
+(1 row)
+
+SELECT rolname FROM pg_roles WHERE rolname = 'customRole';
+  rolname   
+------------
+ customRole
+(1 row)
+
+-- Test dropRole with missing dropRole field, should fail
+SELECT documentdb_api.drop_role('{}');
+ERROR:  'dropRole' is a required field.
+-- Test dropRole with empty role name, should fail
+SELECT documentdb_api.drop_role('{"dropRole":""}');
+ERROR:  'dropRole' cannot be empty.
+-- Test dropRole with non-existent role, should fail
+SELECT documentdb_api.drop_role('{"dropRole":"nonExistentRole"}');
+ERROR:  role "nonExistentRole" does not exist
+-- Test dropRole with invalid JSON, should fail
+SELECT documentdb_api.drop_role('{"dropRole":"invalidJson"');
+ERROR:  invalid input syntax JSON for BSON: Code: '1', Message 'Incomplete JSON' at character 33
+-- Test dropRole with non-string role name, should fail
+SELECT documentdb_api.drop_role('{"dropRole":1}');
+ERROR:  The BSON field 'dropRole' has an incorrect type 'int'; it should be of type 'string'.
+-- Test dropRole with null role name, should fail
+SELECT documentdb_api.drop_role('{"dropRole":null}');
+ERROR:  The BSON field 'dropRole' has an incorrect type 'null'; it should be of type 'string'.
+-- Test dropping built-in roles, should fail
+SELECT documentdb_api.drop_role('{"dropRole":"documentdb_admin_role"}');
+ERROR:  Cannot drop built-in role 'documentdb_admin_role'.
+-- Test dropRole of a system role
+SELECT documentdb_api.drop_role('{"dropRole":"documentdb_bg_worker_role"}');
+ERROR:  Cannot drop built-in role 'documentdb_bg_worker_role'.
+-- Test dropRole of non-existing role with built-in role prefix, which should fail with role not found
+SELECT documentdb_api.drop_role('{"dropRole":"documentdb_role"}');
+ERROR:  role "documentdb_role" does not exist
+-- Test dropRole with unsupported field, should fail
+SELECT documentdb_api.drop_role('{"dropRole":"customRole", "unsupportedField":"value"}');
+ERROR:  Unsupported field specified: 'unsupportedField'.
+-- Test dropRole with different casing which should fail with role not found
+SELECT documentdb_api.drop_role('{"dropRole":"CUSTOMROLE"}');
+ERROR:  role "CUSTOMROLE" does not exist
+-- Test dropRole when feature is disabled
+SET documentdb.enableRoleCrud TO OFF;
+SELECT documentdb_api.drop_role('{"dropRole":"customRole"}');
+ERROR:  DropRole command is not supported.
+SET documentdb.enableRoleCrud TO ON;
+-- Clean up and Reset settings
+SELECT documentdb_api.drop_role('{"dropRole":"customRole"}');
+             drop_role             
+-----------------------------------
+ { "ok" : { "$numberInt" : "1" } }
+(1 row)
+
+RESET documentdb.enableRoleCrud;

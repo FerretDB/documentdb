@@ -9,6 +9,15 @@ E.g. to build for Debian 12 and PostgreSQL 16 for `0.102.0~ferretdb~2.0.0~rc.2` 
 ./packaging/build_packages.sh --os deb12 --pg 16 --version 0.102.0~ferretdb~2.0.0~rc.2
 ```
 
+Supported DEB/Ubuntu distributions:
+- deb11 — Debian 11 (bullseye)
+- deb12 — Debian 12 (bookworm)
+- deb13 — Debian 13 (trixie)
+- ubuntu22.04 — Ubuntu 22.04 (jammy)
+- ubuntu24.04 — Ubuntu 24.04 (noble)
+
+Supported PG versions: 15, 16, 17
+
 ## Building RPM Packages
 
 For Red Hat-based distributions, you can build RPM packages:
@@ -21,7 +30,7 @@ Supported RPM distributions:
 - rhel8 (Red Hat Enterprise Linux 8 compatible)
 - rhel9 (Red Hat Enterprise Linux 9 compatible)
 
-Supported PG versions: 16, 17
+Supported PG versions: 15, 16, 17
 
 ### RPM Build Prerequisites
 

@@ -21,8 +21,6 @@ SELECT * FROM documentdb_test_helpers.gin_bson_get_descending_composite_path_gen
 SELECT * FROM documentdb_test_helpers.gin_bson_get_descending_composite_path_generated_terms('{ "a": "aaaaaaaaaaaaaaaaaaaaaaaaaaaa", "b": 1 }', '[ "a", "b" ]', 50, true);
 
 -- create a table and insert some data.
-set documentdb.enableNewCompositeIndexOpClass to on;
-set documentdb.enableDescendingCompositeIndex to on;
 
 -- does not work
 SELECT documentdb_api_internal.create_indexes_non_concurrently(

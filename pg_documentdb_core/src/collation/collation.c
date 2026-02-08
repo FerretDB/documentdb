@@ -11,6 +11,9 @@
 #include <postgres.h>
 #include <unicode/ures.h>
 #include <unicode/uloc.h>
+#include <unicode/ucnv.h>
+#include <unicode/ustring.h>
+#include "mb/pg_wchar.h"
 #include <utils/hsearch.h>
 #include <utils/memutils.h>
 #include <unicode/umachine.h>
@@ -30,6 +33,9 @@ typedef struct
 	unsigned long collationKey;
 	UCollator *collator; /* locale_t struct, or 0 if not valid */
 } ucollator_cache_entry;
+
+
+static UConverter *icu_converter = NULL;
 
 /*
  *
@@ -245,6 +251,7 @@ inline static void CheckCollationInputParamType(bson_type_t expectedType, bson_t
 
 inline static bool CheckIfValidLocale(const char *locale);
 inline static void ThrowInvalidLocaleError(const char *locale);
+static int32_t icu_to_uchar_core(UChar **buff_uchar, const char *buff, size_t nbytes);
 
 /*
  *  This takes a collation document and convert to postgres locale string
@@ -419,6 +426,13 @@ ParseAndGetCollationString(const bson_value_t *collationValue, const char *colat
 	GenerateICULocaleAndExtractCollationOption(inputLocale, &locale,
 											   &collationOptionString);
 
+	/* for simple collation, ignore all other options */
+	if (locale != NULL && IsSimpleCollation(locale))
+	{
+		appendStringInfo(&icuCollation, "%s", locale);
+		return;
+	}
+
 	appendStringInfo(&icuCollation, "%s-u-", (locale == NULL) ? "und" : locale);
 
 	if (collationOptionString != NULL)
@@ -525,7 +539,7 @@ GetCollationSortKey(const char *collationString, char *key, int keyLength)
 	UChar *uchar;
 	int32_t ulen;
 
-	ulen = icu_to_uchar(&uchar, key, keyLength);
+	ulen = icu_to_uchar_core(&uchar, key, keyLength);
 	Size expectedLength = ucol_getSortKey(collation_entry->collator, uchar, ulen,
 										  sortKeyPtr,
 										  DEFAULT_ICU_COLLATION_SORT_KEY_LENGTH);
@@ -963,4 +977,118 @@ GenerateICULocaleAndExtractCollationOption(char *inputLocale, char **locale,
 			*currentChar = '-';
 		}
 	}
+}
+
+
+/*
+ * Ported from pg_locale.c in Postgres 17:
+ * See https://github.com/postgres/postgres/blob/REL_17_STABLE/src/backend/utils/adt/pg_locale.c#L2758
+ * Initialuze the default ICU converter for the database encoding.
+ */
+static void
+init_icu_converter(void)
+{
+	const char *icu_encoding_name;
+	UErrorCode status;
+	UConverter *conv;
+
+	if (icu_converter)
+	{
+		return;                 /* already done */
+	}
+	icu_encoding_name = get_encoding_name_for_icu(GetDatabaseEncoding());
+	if (!icu_encoding_name)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+				 errmsg("encoding \"%s\" not supported by ICU",
+						pg_encoding_to_char(GetDatabaseEncoding()))));
+	}
+
+	status = U_ZERO_ERROR;
+	conv = ucnv_open(icu_encoding_name, &status);
+	if (U_FAILURE(status))
+	{
+		ereport(ERROR,
+				(errmsg("could not open ICU converter for encoding \"%s\": %s",
+						icu_encoding_name, u_errorName(status))));
+	}
+
+	icu_converter = conv;
+}
+
+
+/*
+ * Ported from pg_locale.c in Postgres 17:
+ * See https://github.com/postgres/postgres/blob/REL_17_STABLE/src/backend/utils/adt/pg_locale.c#L2758
+ * Find length, in UChars, of given string if converted to UChar string.
+ */
+static size_t
+uchar_length(UConverter *converter, const char *str, int32_t len)
+{
+	UErrorCode status = U_ZERO_ERROR;
+	int32_t ulen;
+
+	ulen = ucnv_toUChars(converter, NULL, 0, str, len, &status);
+	if (U_FAILURE(status) && status != U_BUFFER_OVERFLOW_ERROR)
+	{
+		ereport(ERROR,
+				(errmsg("%s failed: %s", "ucnv_toUChars", u_errorName(status))));
+	}
+	return ulen;
+}
+
+
+/*
+ * Ported from pg_locale.c in Postgres 17:
+ * See https://github.com/postgres/postgres/blob/REL_17_STABLE/src/backend/utils/adt/pg_locale.c#L2758
+ * Convert the given source string into a UChar string, stored in dest, and
+ * return the length (in UChars).
+ */
+static int32_t
+uchar_convert(UConverter *converter, UChar *dest, int32_t destlen,
+			  const char *src, int32_t srclen)
+{
+	UErrorCode status = U_ZERO_ERROR;
+	int32_t ulen;
+
+	status = U_ZERO_ERROR;
+	ulen = ucnv_toUChars(converter, dest, destlen, src, srclen, &status);
+	if (U_FAILURE(status))
+	{
+		ereport(ERROR,
+				(errmsg("%s failed: %s", "ucnv_toUChars", u_errorName(status))));
+	}
+	return ulen;
+}
+
+
+/*
+ * Ported from pg_locale.c in Postgres 17:
+ * See https://github.com/postgres/postgres/blob/REL_17_STABLE/src/backend/utils/adt/pg_locale.c#L2758
+ * Convert a string in the database encoding into a string of UChars.
+ *
+ * The source string at buff is of length nbytes
+ * (it needn't be nul-terminated)
+ *
+ * *buff_uchar receives a pointer to the palloc'd result string, and
+ * the function's result is the number of UChars generated.
+ *
+ * The result string is nul-terminated, though most callers rely on the
+ * result length instead.
+ */
+static int32_t
+icu_to_uchar_core(UChar **buff_uchar, const char *buff, size_t nbytes)
+{
+	int32_t len_uchar;
+
+	init_icu_converter();
+
+	len_uchar = uchar_length(icu_converter, buff, nbytes);
+
+	*buff_uchar = palloc((len_uchar + 1) * sizeof(**buff_uchar));
+	len_uchar = uchar_convert(icu_converter,
+							  *buff_uchar, len_uchar + 1, buff, nbytes);
+
+	return len_uchar;
 }

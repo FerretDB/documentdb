@@ -7,20 +7,21 @@
  */
 
 use crate::{
-    context::ConnectionContext,
+    context::{ConnectionContext, RequestContext},
     error::{DocumentDBError, ErrorCode, Result},
     postgres::PgDataClient,
-    requests::{Request, RequestInfo, RequestType},
+    requests::RequestType,
     responses::Response,
 };
 
 // Create the transaction if required, and populate the context information with the transaction info
 pub async fn handle(
-    request: &Request<'_>,
-    request_info: &RequestInfo<'_>,
+    request_context: &mut RequestContext<'_>,
     connection_context: &mut ConnectionContext,
     pg_data_client: &impl PgDataClient,
 ) -> Result<()> {
+    let (request, request_info, _) = request_context.get_components();
+
     connection_context.transaction = None;
     if let Some(request_transaction_info) = &request_info.transaction_info {
         if request_transaction_info.auto_commit {
@@ -77,11 +78,6 @@ pub async fn handle(
                 pg_data_client,
             )
             .await;
-        log::trace!(
-            "Transaction acquired: {:?}, {:?}",
-            request_transaction_info.transaction_number,
-            transaction_result
-        );
 
         if let Err(e) = transaction_result {
             return match (request.request_type(), &e) {

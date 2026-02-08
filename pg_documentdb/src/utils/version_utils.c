@@ -1,7 +1,7 @@
 /*-------------------------------------------------------------------------
  * Copyright (c) Microsoft Corporation.  All rights reserved.
  *
- * src/version_utils.c
+ * src/utils/version_utils.c
  *
  * Utilities that Provide extension functions to handle version upgrade
  * scenarios for the current extension.
@@ -179,6 +179,17 @@ GetCurrentVersionForLogging(void)
 	ExtensionVersion version = RefreshCurrentVersion();
 	StringInfo s = makeStringInfo();
 	appendStringInfo(s, "Major = %d, Minor = %d, Patch = %d",
+					 version.Major, version.Minor, version.Patch);
+	return s->data;
+}
+
+
+const char *
+GetCurrentShortVersionStringForLogging(void)
+{
+	ExtensionVersion version = RefreshCurrentVersion();
+	StringInfo s = makeStringInfo();
+	appendStringInfo(s, "%d.%d-%d",
 					 version.Major, version.Minor, version.Patch);
 	return s->data;
 }

@@ -362,25 +362,25 @@ SELECT bson_dollar_unwind(cursorpage, '$cursor.firstBatch') FROM documentdb_api.
 
 -- 14. TTL index creation restrictions
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{"createIndexes": "ttlcoll", "indexes": [{"key": {"ttl": 1}, "name": "ttl_index2", "expireAfterSeconds": -1}]}', true);
-ERROR:  Error in specification { "key" : { "ttl" : 1 }, "name" : "ttl_index2", "expireAfterSeconds" : -1 } :: caused by :: TTL index 'expireAfterSeconds' option cannot be less than 0.
+ERROR:  Error in specification { "key" : { "ttl" : 1 }, "name" : "ttl_index2", "expireAfterSeconds" : -1 }:TTL index 'expireAfterSeconds' option cannot be less than 0.
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{"createIndexes": "ttlcoll", "indexes": [{"key": {"ttl": 1}, "name": "ttl_index2", "expireAfterSeconds": "stringNotAllowed"}]}', true);
-ERROR:  Error in specification { "key" : { "ttl" : 1 }, "name" : "ttl_index2", "expireAfterSeconds" : "stringNotAllowed" } :: caused by :: TTL index 'expireAfterSeconds' option must be numeric, but received a type of string.
+ERROR:  Error in specification { "key" : { "ttl" : 1 }, "name" : "ttl_index2", "expireAfterSeconds" : "stringNotAllowed" }:The 'expireAfterSeconds' option for a TTL index must be a numeric value, but a different data type was provided: string.
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{"createIndexes": "ttlcoll", "indexes": [{"key": {"ttl": 1}, "name": "ttl_index2", "expireAfterSeconds": true}]}', true);
-ERROR:  Error in specification { "key" : { "ttl" : 1 }, "name" : "ttl_index2", "expireAfterSeconds" : true } :: caused by :: TTL index 'expireAfterSeconds' option must be numeric, but received a type of bool.
+ERROR:  Error in specification { "key" : { "ttl" : 1 }, "name" : "ttl_index2", "expireAfterSeconds" : true }:The 'expireAfterSeconds' option for a TTL index must be a numeric value, but a different data type was provided: bool.
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{"createIndexes": "ttlcoll", "indexes": [{"key": {"ttl": 1}, "name": "ttl_index2", "expireAfterSeconds": 707992037530324174}]}', true);
-ERROR:  Error in specification { "key" : { "ttl" : 1 }, "name" : "ttl_index2", "expireAfterSeconds" : 707992037530324174 } :: caused by :: TTL index 'expireAfterSeconds' option must be within an acceptable range, try a different number than 707992037530324224.000000.
+ERROR:  Error in specification { "key" : { "ttl" : 1 }, "name" : "ttl_index2", "expireAfterSeconds" : 707992037530324174 }:TTL index 'expireAfterSeconds' option must be within an acceptable range, try a different number than 707992037530324224.000000.
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{"createIndexes": "ttlcoll", "indexes": [{"key": {"ttl": 1}, "name": "ttl_index2", "expireAfterSeconds": 100, "v" : 1}]}', true);
 ERROR:  An existing index has the same name as the requested index. When index names are not specified, they are auto generated and can cause conflicts. Please refer to our documentation. Requested index: { "v" : 1, "key" : { "ttl" : 1 }, "name" : "ttl_index2", "expireAfterSeconds" : 100 }, existing index: { "v" : 2, "key" : { "ttl2" : 1 }, "name" : "ttl_index2", "unique" : true, "expireAfterSeconds" : 100 }
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{"createIndexes": "ttlcoll", "indexes": [{"key": {"_id": 1}, "name": "ttl_idx", "expireAfterSeconds": 100}]}', true);
-ERROR:  Error in specification { "key" : { "_id" : 1 }, "name" : "ttl_idx", "expireAfterSeconds" : 100 } :: caused by :: The field 'expireAfterSeconds' is not valid for an _id index specification.
+ERROR:  Error in specification { "key" : { "_id" : 1 }, "name" : "ttl_idx", "expireAfterSeconds" : 100 }:The field 'expireAfterSeconds' is not valid for an _id index specification.
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{"createIndexes": "ttlcoll", "indexes": [{"key": {"_id": 1, "_id" : 1}, "name": "ttl_idx", "expireAfterSeconds": 100}]}', true);
-ERROR:  Error in specification { "key" : { "_id" : 1 }, "name" : "ttl_idx", "expireAfterSeconds" : 100 } :: caused by :: The field 'expireAfterSeconds' is not valid for an _id index specification.
+ERROR:  Error in specification { "key" : { "_id" : 1 }, "name" : "ttl_idx", "expireAfterSeconds" : 100 }:The field 'expireAfterSeconds' is not valid for an _id index specification.
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{"createIndexes": "ttlcoll", "indexes": [{"key": {"_id": 1, "non_id" : 1}, "name": "ttl_idx", "expireAfterSeconds": 100}]}', true);
-ERROR:  Error in specification { "key" : { "_id" : 1, "non_id" : 1 }, "name" : "ttl_idx", "expireAfterSeconds" : 100 } :: caused by :: TTL indexes are single-field indexes, compound indexes do not support TTL.
+ERROR:  Error in specification { "key" : { "_id" : 1, "non_id" : 1 }, "name" : "ttl_idx", "expireAfterSeconds" : 100 }:TTL indexes work only on single fields, and compound indexes are incompatible with TTL functionality.
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{"createIndexes": "ttlcoll", "indexes": [{"key": {"non_id1": 1, "non_id2" : 1}, "name": "ttl_idx", "expireAfterSeconds": 100}]}', true);
-ERROR:  Error in specification { "key" : { "non_id1" : 1, "non_id2" : 1 }, "name" : "ttl_idx", "expireAfterSeconds" : 100 } :: caused by :: TTL indexes are single-field indexes, compound indexes do not support TTL.
+ERROR:  Error in specification { "key" : { "non_id1" : 1, "non_id2" : 1 }, "name" : "ttl_idx", "expireAfterSeconds" : 100 }:TTL indexes work only on single fields, and compound indexes are incompatible with TTL functionality.
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{"createIndexes": "ttlcoll", "indexes": [{"key": {"non_id1.$**": 1}, "name": "ttl_idx", "expireAfterSeconds": 100}]}', true);
-ERROR:  Error in specification { "key" : { "non_id1.$**" : 1 }, "name" : "ttl_idx", "expireAfterSeconds" : 100 } :: caused by :: Index type 'wildcard' cannot be a TTL index.
+ERROR:  Error in specification { "key" : { "non_id1.$**" : 1 }, "name" : "ttl_idx", "expireAfterSeconds" : 100 }:Index type 'wildcard' cannot be a TTL index.
 -- 15. Unsupported ttl index scenarios
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{"createIndexes": "ttlcoll", "indexes": [{"key": {"ttl4": "hashed"}, "name": "ttl_index4", "expireAfterSeconds": 100}]}', true);
 ERROR:  Creating a hash index as ttl index is not supported.
@@ -426,7 +426,7 @@ SELECT bson_dollar_unwind(cursorpage, '$cursor.firstBatch') FROM documentdb_api.
 (9 rows)
 
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{"createIndexes": "ttlcoll", "indexes": [{"key": {"ttlnew3": "hashed"}, "name": "ttl_new_indexk", "unique" : true, "expireAfterSeconds" : 10}]}', true);
-ERROR:  Error in specification { "key" : { "ttlnew3" : "hashed" }, "name" : "ttl_new_indexk", "unique" : true, "expireAfterSeconds" : 10 } :: caused by :: Currently hashed indexes cannot guarantee uniqueness. Use a regular index
+ERROR:  Error in specification { "key" : { "ttlnew3" : "hashed" }, "name" : "ttl_new_indexk", "unique" : true, "expireAfterSeconds" : 10 }:Index type 'hashed' does not support the unique option.
 -- 17. Partial filter expresson tests
 SELECT documentdb_api_internal.create_indexes_non_concurrently(
   'db',
@@ -831,7 +831,6 @@ SELECT count(*) < 9900 from documentdb_api.collection('db', 'ttlRepeatedDeletes2
 END;
 -- 21. TTL index with forced ordered scan via index hints
 set documentdb.enableExtendedExplainPlans to on;
-SET documentdb.enableNewCompositeIndexOpClass to on;
 set documentdb_rum.preferOrderedIndexScan to on;
 -- if documentdb_extended_rum exists, set alternate index handler
 SELECT pg_catalog.set_config('documentdb.alternate_index_handler_name', 'extended_rum', false), extname FROM pg_extension WHERE extname = 'documentdb_extended_rum';
@@ -930,7 +929,6 @@ SELECT COUNT(documentdb_api.insert_one('db', 'ttlCompositeOrderedScan', FORMAT('
 
 --  Create TTL Index --
 SET documentdb.enableExtendedExplainPlans to on;
-SET documentdb.enableNewCompositeIndexOpClass to on;
 SET documentdb.enableIndexOrderbyPushdown to on;
 SELECT documentdb_api_internal.create_indexes_non_concurrently('db', '{"createIndexes": "ttlCompositeOrderedScan", "indexes": [{"key": {"ttl": 1}, "enableCompositeTerm": true, "name": "ttl_index", "v" : 1, "expireAfterSeconds": 5, "sparse": true}]}', true);
                                                                                                    create_indexes_non_concurrently                                                                                                    
@@ -982,21 +980,21 @@ BEGIN;
 SET client_min_messages TO LOG;
 SET LOCAL documentdb.logTTLProgressActivity to on;
 CALL documentdb_api_internal.delete_expired_rows(100);
-LOG:  Number of rows deleted: 0, table = documents_20006_2000104, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000104, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 100, table = documents_20006_2000105, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 100, table = documents_20006_2000105, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 0, table = documents_20006_2000106, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000106, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 0, table = documents_20006_2000107, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000107, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 0, table = documents_20006_2000108, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000108, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 0, table = documents_20006_2000109, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000109, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 0, table = documents_20006_2000110, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000110, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 0, table = documents_20006_2000111, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000111, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=1 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
 RESET client_min_messages;
 END;
@@ -1005,21 +1003,21 @@ SET client_min_messages TO LOG;
 SET LOCAL documentdb.useIndexHintsForTTLTask to off;
 SET LOCAL documentdb.logTTLProgressActivity to on;
 CALL documentdb_api_internal.delete_expired_rows(100);
-LOG:  Number of rows deleted: 0, table = documents_20006_2000104, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000104, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 100, table = documents_20006_2000105, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 100, table = documents_20006_2000105, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 0, table = documents_20006_2000106, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000106, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 0, table = documents_20006_2000107, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000107, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 0, table = documents_20006_2000108, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000108, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 0, table = documents_20006_2000109, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000109, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 0, table = documents_20006_2000110, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000110, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
-LOG:  Number of rows deleted: 0, table = documents_20006_2000111, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1
+LOG:  Number of rows deleted: 0, table = documents_20006_2000111, index_id=20023, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=0
 LOG:  TTL job elapsed time:<redacted> limit: 20000ms
 RESET client_min_messages;
 END;
@@ -1033,7 +1031,6 @@ SELECT count(*) from ( SELECT shard_key_value, object_id, document  from documen
 --  TTL indexes behaves like normal indexes that are used in queries (cx can provide .hint() to force)
 BEGIN;
 SET LOCAL documentdb.enableIndexOrderbyPushdown to on;
-SET LOCAL documentdb.enableNewCompositeIndexOpClass to on;
 EXPLAIN(costs off) SELECT object_id FROM documentdb_data.documents_20006
 		WHERE bson_dollar_eq(document, '{ "ttl" : { "$date" : { "$numberLong" : "100" } } }'::documentdb_core.bson)
         LIMIT 100;
@@ -1056,7 +1053,6 @@ END;
 --  Check the query to fetch the eligible TTL indexes uses IndexScan.
 BEGIN;
 SET LOCAL documentdb.enableIndexOrderbyPushdown to on;
-SET LOCAL documentdb.enableNewCompositeIndexOpClass to on;
 EXPLAIN(analyze on, verbose on, costs off, timing off, summary off) SELECT ctid FROM documentdb_data.documents_20006_2000105
                 WHERE bson_dollar_lt(document, '{ "ttl" : { "$date" : { "$numberLong" : "1754515365000" } } }'::documentdb_core.bson)
                 AND documentdb_api_internal.bson_dollar_index_hint(document, 'ttl_index'::text, '{"key": {"ttl": 1}}'::documentdb_core.bson, true)
@@ -1103,7 +1099,6 @@ SELECT count(*) from ( SELECT shard_key_value, object_id, document  from documen
 --  Check for Ordered Indes Scan on the ttl index 
 BEGIN;
 SET LOCAL documentdb.enableIndexOrderbyPushdown to on;
-SET LOCAL documentdb.enableNewCompositeIndexOpClass to on;
 EXPLAIN(analyze on, verbose on, costs off, timing off, summary off) SELECT ctid FROM documentdb_data.documents_20006_2000124
                 WHERE bson_dollar_lt(document, '{ "ttl" : { "$date" : { "$numberLong" : "1657900030775" } } }'::documentdb_core.bson)
                 AND documentdb_api_internal.bson_dollar_index_hint(document, 'ttl_index'::text, '{"key": {"ttl": 1}}'::documentdb_core.bson, true)
@@ -1128,7 +1123,6 @@ EXPLAIN(analyze on, verbose on, costs off, timing off, summary off) SELECT ctid 
 END;
 BEGIN;
 SET LOCAL documentdb.enableIndexOrderbyPushdown to on;
-SET LOCAL documentdb.enableNewCompositeIndexOpClass to on;
 SET client_min_messages TO INFO;
 EXPLAIN(COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT ctid FROM documentdb_data.documents_20006_2000122
                 WHERE bson_dollar_lt(document, '{ "ttl" : { "$date" : { "$numberLong" : "1657900030775" } } }'::documentdb_core.bson)
@@ -1147,5 +1141,74 @@ EXPLAIN(COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) SELECT ctid FROM documen
          ->  Index Scan using ttl_index on documents_20006_2000122 (actual rows=100 loops=1)
                Index Cond: (document @< '{ "ttl" : { "$date" : { "$numberLong" : "1657900030775" } } }'::bson)
 (10 rows)
+
+END;
+SELECT count(*) from ( SELECT shard_key_value, object_id, document  from documentdb_api.collection('db', 'ttlCompositeOrderedScan') order by object_id) as a;
+ count 
+---------------------------------------------------------------------
+  9001
+(1 row)
+
+-- Test with descending TTL ordering
+BEGIN;
+SET client_min_messages TO LOG;
+SET LOCAL documentdb.useIndexHintsForTTLTask to off;
+SET LOCAL documentdb.logTTLProgressActivity to on;
+SET LOCAL documentdb.enableTTLDescSort to on;
+SET LOCAL documentdb.enableIndexOrderbyPushdown to on;
+CALL documentdb_api_internal.delete_expired_rows(100);
+LOG:  Number of rows deleted: 100, table = documents_20006_2000120, index_id=20025, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=1
+LOG:  TTL job elapsed time:<redacted> limit: 20000ms
+LOG:  Number of rows deleted: 100, table = documents_20006_2000121, index_id=20025, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=1
+LOG:  TTL job elapsed time:<redacted> limit: 20000ms
+LOG:  Number of rows deleted: 100, table = documents_20006_2000122, index_id=20025, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=1
+LOG:  TTL job elapsed time:<redacted> limit: 20000ms
+LOG:  Number of rows deleted: 100, table = documents_20006_2000123, index_id=20025, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=1
+LOG:  TTL job elapsed time:<redacted> limit: 20000ms
+LOG:  Number of rows deleted: 100, table = documents_20006_2000124, index_id=20025, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=1
+LOG:  TTL job elapsed time:<redacted> limit: 20000ms
+LOG:  Number of rows deleted: 100, table = documents_20006_2000125, index_id=20025, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=1
+LOG:  TTL job elapsed time:<redacted> limit: 20000ms
+LOG:  Number of rows deleted: 100, table = documents_20006_2000126, index_id=20025, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=1
+LOG:  TTL job elapsed time:<redacted> limit: 20000ms
+LOG:  Number of rows deleted: 100, table = documents_20006_2000127, index_id=20025, batch_size=100, expiry_cutoff=<redacted> has_pfe=false, statement_timeout=60000, lock_timeout=10000 used_hints=0 disabled_seq_scan=0 index_is_ordered=1 use_desc_sort=1
+LOG:  TTL job elapsed time:<redacted> limit: 20000ms
+RESET client_min_messages;
+END;
+SELECT count(*) from ( SELECT shard_key_value, object_id, document  from documentdb_api.collection('db', 'ttlCompositeOrderedScan') order by object_id) as a;
+ count 
+---------------------------------------------------------------------
+  8201
+(1 row)
+
+BEGIN;
+SET LOCAL documentdb.enableIndexOrderbyPushdown to on;
+set local enable_seqscan to off;
+set LOCAL enable_bitmapscan to off;
+SET client_min_messages TO INFO;
+-- Check ORDER BY uses index 
+EXPLAIN(COSTS OFF, ANALYZE ON, SUMMARY OFF, TIMING OFF) 
+    SELECT ctid FROM documentdb_data.documents_20006_2000122
+        WHERE 
+        bson_dollar_lt(document, '{ "ttl" : { "$date" : { "$numberLong" : "1657900030775" } } }'::documentdb_core.bson) AND
+        documentdb_api_internal.bson_dollar_index_hint(document, 'ttl_index'::text, '{"key": {"ttl": 1}}'::documentdb_core.bson, true) AND
+        documentdb_api_internal.bson_dollar_fullscan(document, '{ "ttl" : -1 }'::documentdb_core.bson)
+        ORDER BY documentdb_api_catalog.bson_orderby(document, '{ "ttl" : -1}'::documentdb_core.bson)
+        LIMIT 100;
+                                                             QUERY PLAN                                                             
+---------------------------------------------------------------------
+ Limit (actual rows=100 loops=1)
+   ->  Custom Scan (DocumentDBApiExplainQueryScan) (actual rows=100 loops=1)
+         indexName: ttl_index
+         isMultiKey: false
+         indexBounds: ["ttl": [{ "$date" : { "$numberLong" : "-9223372036854775808" } }, { "$date" : "2022-07-15T15:47:10.775Z" })]
+         isBackwardScan: true
+         innerScanLoops: 1 loops
+         scanType: ordered
+         scanKeyDetails: key 1: [(isInequality: true, estimatedEntryCount: 1216)]
+         ->  Index Scan using ttl_index on documents_20006_2000122 (actual rows=100 loops=1)
+               Index Cond: (document @< '{ "ttl" : { "$date" : { "$numberLong" : "1657900030775" } } }'::bson)
+               Order By: (document OPERATOR(documentdb_api_internal.<>-|) '{ "ttl" : { "$numberInt" : "-1" } }'::bson)
+(12 rows)
 
 END;

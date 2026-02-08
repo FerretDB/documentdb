@@ -86,7 +86,7 @@ GetUpperBound(bson_type_t type, bool *isUpperBoundInclusive)
 
 		case BSON_TYPE_BINARY:
 		{
-			/* Exclusive to the lower bound of the next type */
+			/* Exclusive to next type lower bound */
 			upperBound = GetLowerBound(BSON_TYPE_OID);
 			*isUpperBoundInclusive = false;
 			break;
@@ -126,7 +126,7 @@ GetUpperBound(bson_type_t type, bool *isUpperBoundInclusive)
 
 		case BSON_TYPE_REGEX:
 		{
-			/* Exclusive to the lower bound of the next type */
+			/* Exclusive to next type lower bound */
 			upperBound = GetLowerBound(BSON_TYPE_DBPOINTER);
 			*isUpperBoundInclusive = false;
 			break;
@@ -134,7 +134,7 @@ GetUpperBound(bson_type_t type, bool *isUpperBoundInclusive)
 
 		case BSON_TYPE_DBPOINTER:
 		{
-			/* Exclusive to the lower bound of the next type */
+			/* Exclusive to next type lower bound */
 			upperBound = GetLowerBound(BSON_TYPE_CODE);
 			*isUpperBoundInclusive = false;
 			break;
@@ -142,7 +142,7 @@ GetUpperBound(bson_type_t type, bool *isUpperBoundInclusive)
 
 		case BSON_TYPE_CODE:
 		{
-			/* Exclusive to the lower bound of the next type */
+			/* Exclusive to next type lower bound */
 			upperBound = GetLowerBound(BSON_TYPE_CODEWSCOPE);
 			*isUpperBoundInclusive = false;
 			break;
@@ -150,7 +150,7 @@ GetUpperBound(bson_type_t type, bool *isUpperBoundInclusive)
 
 		case BSON_TYPE_CODEWSCOPE:
 		{
-			/* Exclusive to the lower bound of the next type */
+			/* Exclusive to next type lower bound */
 			upperBound = GetLowerBound(BSON_TYPE_MAXKEY);
 			*isUpperBoundInclusive = false;
 			break;
@@ -266,7 +266,7 @@ GetLowerBound(bson_type_t type)
 		{
 			lowerBound.value_type = BSON_TYPE_TIMESTAMP;
 			lowerBound.value.v_timestamp.increment = 0;
-			lowerBound.value.v_timestamp.timestamp = 0; /* Minimum timestamp value */
+			lowerBound.value.v_timestamp.timestamp = 0; /* Lowest allowable timestamp value */
 			break;
 		}
 

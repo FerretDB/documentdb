@@ -21,6 +21,7 @@
 #include <executor/tstoreReceiver.h>
 #include <nodes/makefuncs.h>
 #include <utils/lsyscache.h>
+#include <utils/ruleutils.h>
 #include <metadata/metadata_cache.h>
 #include <io/bson_core.h>
 #include <utils/snapmgr.h>
@@ -46,6 +47,8 @@
 extern int32_t MaxWorkerCursorSize;
 extern bool EnablePrimaryKeyCursorScan;
 extern bool UseFileBasedPersistedCursors;
+extern bool EnableDebugQueryText;
+extern bool EnableDelayedHoldPortal;
 
 static char LastOpenPortalName[NAMEDATALEN] = { 0 };
 
@@ -185,8 +188,8 @@ static BsonStoreTupleDestReceiver * CreateBsonStoreTupleDestReceiver(
 	accumulatedSize, bool
 	closeCursor);
 static void DrainStatementViaExecutor(PlannedStmt *queryPlan, ParamListInfo paramList,
-									  DestReceiver *destReceiver, MemoryContext
-									  currentContext);
+									  const char *sourceText, DestReceiver *destReceiver,
+									  MemoryContext currentContext);
 
 const char NodeId[] = "nodeId";
 uint32_t NodeIdLength = 7;
@@ -203,7 +206,7 @@ uint32_t ContiunationTokenLength = 16;
 pgbson *
 DrainSingleResultQuery(Query *query)
 {
-	/* Create a cursor for this iteration */
+	/* Generate a cursor for the specified iteration */
 	int cursorOptions = CURSOR_OPT_NO_SCROLL | CURSOR_OPT_BINARY;
 	Portal queryPortal = CreateNewPortal();
 	queryPortal->visible = false;
@@ -214,7 +217,13 @@ DrainSingleResultQuery(Query *query)
 										   paramListInfo);
 
 	/* Set the plan in the cursor for this iteration */
-	PortalDefineQuery(queryPortal, NULL, "",
+	char *sourceText = "";
+	if (EnableDebugQueryText)
+	{
+		bool pretty = false;
+		sourceText = pg_get_querydef(query, pretty);
+	}
+	PortalDefineQuery(queryPortal, NULL, sourceText,
 					  CMDTAG_SELECT,
 					  list_make1(queryPlan),
 					  NULL);
@@ -401,7 +410,13 @@ CreateAndDrainSingleBatchQuery(const char *cursorName, Query *query,
 		cursorName,
 		accumulatedSize,
 		closeCursor);
-	DrainStatementViaExecutor(queryPlan, paramList, (DestReceiver *) receiver,
+	char *sourceText = "";
+	if (EnableDebugQueryText)
+	{
+		bool pretty = false;
+		sourceText = pg_get_querydef(query, pretty);
+	}
+	DrainStatementViaExecutor(queryPlan, paramList, sourceText, (DestReceiver *) receiver,
 							  currentContext);
 }
 
@@ -440,7 +455,7 @@ CreateAndDrainPersistedQuery(const char *cursorName, Query *query,
 		}
 		else
 		{
-			elog(LOG, "portal %s was not found", LastOpenPortalName);
+			elog(LOG, "Portal %s could not be located", LastOpenPortalName);
 			LastOpenPortalName[0] = '\0';
 		}
 	}
@@ -482,16 +497,26 @@ CreateAndDrainPersistedQuery(const char *cursorName, Query *query,
 		/* In order to use a portal & SPI in Merge Command we need to set it to true */
 		queryPlan->hasReturning = true;
 	}
-	else if (!closeCursor)
+	else if (!closeCursor && (!EnableDelayedHoldPortal || !isHoldCursor))
 	{
-		/* Since this could be holdable, copy the query plan to the portal context  */
+		/* Since this could be holdable, copy the query plan to the portal context
+		 * Note that this is cleared anyway when we call HoldPortal (portal->stmts is
+		 * NULLed out) so we don't need to copy this plan. Note that in transactions
+		 * we don't hold the cursor so we need to copy the plan.
+		 */
 		MemoryContextSwitchTo(queryPortal->portalContext);
 		queryPlan = copyObject(queryPlan);
 		MemoryContextSwitchTo(currentContext);
 	}
 
 	/* Set the plan into the portal  */
-	PortalDefineQuery(queryPortal, NULL, "",
+	char *sourceText = "";
+	if (EnableDebugQueryText)
+	{
+		bool pretty = false;
+		sourceText = pg_get_querydef(query, pretty);
+	}
+	PortalDefineQuery(queryPortal, NULL, sourceText,
 					  CMDTAG_SELECT,
 					  list_make1(queryPlan),
 					  NULL);
@@ -513,7 +538,7 @@ CreateAndDrainPersistedQuery(const char *cursorName, Query *query,
 		queryPortal->cleanup = CleanupPortalState;
 	}
 
-	if (!closeCursor && isHoldCursor)
+	if (!closeCursor && isHoldCursor && !EnableDelayedHoldPortal)
 	{
 		HoldPortal(queryPortal);
 	}
@@ -533,6 +558,14 @@ CreateAndDrainPersistedQuery(const char *cursorName, Query *query,
 																  &numRowsFetched,
 																  &currentAccumulatedSize,
 																  currentContext);
+
+	if (EnableDelayedHoldPortal && !closeCursor && isHoldCursor &&
+		reason != TerminationReason_CursorCompletion)
+	{
+		/* There's more to this cursor and needs continuation, hold the portal */
+		HoldPortal(queryPortal);
+	}
+
 	if (closeCursor || (reason == TerminationReason_CursorCompletion))
 	{
 		SPI_cursor_close(queryPortal);
@@ -565,7 +598,13 @@ CreateAndDrainPersistedQueryWithFiles(const char *cursorName, Query *query,
 																			cursorName,
 																			accumulatedSize,
 																			closeCursor);
-	DrainStatementViaExecutor(queryPlan, paramList, (DestReceiver *) receiver,
+	char *sourceText = "";
+	if (EnableDebugQueryText)
+	{
+		bool pretty = false;
+		sourceText = pg_get_querydef(query, pretty);
+	}
+	DrainStatementViaExecutor(queryPlan, paramList, sourceText, (DestReceiver *) receiver,
 							  currentContext);
 
 	/* return the continuation state */
@@ -608,8 +647,14 @@ CreateAndDrainPointReadQuery(const char *cursorName, Query *query,
 		batchSize, cursorName,
 		accumulatedSize,
 		closeCursor);
-	DrainStatementViaExecutor(queryPlan, paramList, (DestReceiver *) receiver,
-							  currentContext);
+	char *sourceText = "";
+	if (EnableDebugQueryText)
+	{
+		bool pretty = false;
+		sourceText = pg_get_querydef(query, pretty);
+	}
+	DrainStatementViaExecutor(queryPlan, paramList, sourceText,
+							  (DestReceiver *) receiver, currentContext);
 }
 
 
@@ -769,7 +814,8 @@ CreateBsonStoreTupleDestReceiver(pgbson_array_writer *arrayWriter,
  *
  */
 static void
-DrainStatementViaExecutor(PlannedStmt *queryPlan, ParamListInfo paramList,
+DrainStatementViaExecutor(PlannedStmt *queryPlan, ParamListInfo paramList, const
+						  char *sourceText,
 						  DestReceiver *destReceiver, MemoryContext currentContext)
 {
 	ScanDirection scanDirection = ForwardScanDirection;
@@ -782,13 +828,13 @@ DrainStatementViaExecutor(PlannedStmt *queryPlan, ParamListInfo paramList,
 	MemoryContext oldContext = MemoryContextSwitchTo(localContext);
 
 	/* Create a QueryDesc for the query */
-	QueryDesc *queryDesc = CreateQueryDesc(queryPlan, "",
+	QueryDesc *queryDesc = CreateQueryDesc(queryPlan, sourceText,
 										   GetActiveSnapshot(), InvalidSnapshot,
 										   (DestReceiver *) destReceiver, paramList,
 										   queryEnv, 0);
 
 	ExecutorStart(queryDesc, eflags);
-	ExecutorRun(queryDesc, scanDirection, 0L, true);
+	ExecutorRun_Compat(queryDesc, scanDirection, 0L, true);
 	ExecutorFinish(queryDesc);
 	ExecutorEnd(queryDesc);
 
@@ -830,7 +876,13 @@ PlanStreamingQuery(Query *query, Datum parameter, HTAB *cursorMap)
 	queryPortal->cursorOptions = cursorOptions;
 
 	/* Set the plan in the cursor for this iteration */
-	PortalDefineQuery(queryPortal, NULL, "",
+	char *sourceText = "";
+	if (EnableDebugQueryText)
+	{
+		bool pretty = false;
+		sourceText = pg_get_querydef(query, pretty);
+	}
+	PortalDefineQuery(queryPortal, NULL, sourceText,
 					  CMDTAG_SELECT,
 					  list_make1(queryPlan),
 					  NULL);
@@ -857,8 +909,8 @@ PlanStreamingQuery(Query *query, Datum parameter, HTAB *cursorMap)
 								queryPortal->tupDesc->natts)));
 		}
 
-		if (queryPortal->tupDesc->attrs[0].atttypid != BsonTypeId() ||
-			queryPortal->tupDesc->attrs[1].atttypid != BsonTypeId())
+		if (TupleDescAttr(queryPortal->tupDesc, 0)->atttypid != BsonTypeId() ||
+			TupleDescAttr(queryPortal->tupDesc, 1)->atttypid != BsonTypeId())
 		{
 			ereport(ERROR, (errmsg(
 								"Cursor return cannot be anything other than Bson. This is a bug")));
@@ -872,7 +924,7 @@ PlanStreamingQuery(Query *query, Datum parameter, HTAB *cursorMap)
 								"Cursor returning less than 1 column not supported. This is a bug")));
 		}
 
-		if (queryPortal->tupDesc->attrs[0].atttypid != BsonTypeId())
+		if (TupleDescAttr(queryPortal->tupDesc, 0)->atttypid != BsonTypeId())
 		{
 			ereport(ERROR, (errmsg(
 								"Cursor return cannot be anything other than Bson. This is a bug")));
@@ -905,10 +957,20 @@ HoldPortal(Portal portal)
 	/*
 	 * Note that PersistHoldablePortal() must release all resources used by
 	 * the portal that are local to the creating transaction.
-	 * Since we need backwards scan here, ensure we set SCROLL on the portal
+	 * Since we need backwards scan on the tuplestore here, ensure we set SCROLL on the portal
 	 */
 	portal->cursorOptions = portal->cursorOptions | CURSOR_OPT_SCROLL;
 	PortalCreateHoldStore(portal);
+
+	/* Since we only serialize any results we haven't already collected in the
+	 * first batch, we tell the Persist logic to not rewind and redo the entire
+	 * query results. The way this is done is by removing SCROLL.
+	 */
+	if (!EnableDelayedHoldPortal)
+	{
+		portal->cursorOptions = portal->cursorOptions & ~CURSOR_OPT_SCROLL;
+	}
+
 	PersistHoldablePortal(portal);
 
 	/* drop cached plan reference, if any */
@@ -964,7 +1026,7 @@ DrainPersistedCursor(const char *cursorName, int batchSize,
 	if (portal == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CURSORNOTFOUND),
-						errmsg("Cursor not found in the store.")));
+						errmsg("Failed to locate the cursor in the specified store.")));
 	}
 
 	HTAB *cursorMap = NULL;
@@ -1367,7 +1429,7 @@ UpdateCursorInContinuationMapCore(bson_iter_t *singleContinuationDoc, HTAB *curs
 		{
 			if (!BSON_ITER_HOLDS_UTF8(singleContinuationDoc))
 			{
-				ereport(ERROR, (errmsg("Expecting string value for %s",
+				ereport(ERROR, (errmsg("Expecting a valid string value for %s",
 									   CursorContinuationTableName.string)));
 			}
 
@@ -1394,9 +1456,10 @@ UpdateCursorInContinuationMapCore(bson_iter_t *singleContinuationDoc, HTAB *curs
 
 	if (continuationBinaryValue.value_type != BSON_TYPE_BINARY)
 	{
-		ereport(ERROR, (errmsg("Expecting binary value for %s, found %s",
-							   CursorContinuationValue.string, BsonTypeName(
-								   continuationBinaryValue.value_type))));
+		ereport(ERROR, (errmsg(
+							"Expected a binary value for %s but instead encountered %s",
+							CursorContinuationValue.string, BsonTypeName(
+								continuationBinaryValue.value_type))));
 	}
 
 	if (continuationBinaryValue.value.v_binary.data_len != sizeof(ItemPointerData))
@@ -1501,7 +1564,8 @@ BuildContinuationMap(pgbson *continuationValue, HTAB *cursorMap)
 		if (!BSON_ITER_HOLDS_ARRAY(&continuationIterator) ||
 			!bson_iter_recurse(&continuationIterator, &continuationArray))
 		{
-			ereport(ERROR, (errmsg("continuation must be an array.")));
+			ereport(ERROR, (errmsg(
+								"continuation must be an array.")));
 		}
 
 		while (bson_iter_next(&continuationArray))
@@ -1550,7 +1614,7 @@ ConstructCursorResultTupleDesc(AttrNumber maxAttrNum)
 
 	if (tupleDescriptor->tdtypeid == RECORDOID && tupleDescriptor->tdtypmod < 0)
 	{
-		/* Register the type */
+		/* Make sure to register the specified type */
 		assign_record_type_typmod(tupleDescriptor);
 	}
 
@@ -1582,7 +1646,8 @@ BuildTailableCursorContinuationMap(pgbson *continuationValue, HTAB *cursorMap)
 		if (!BSON_ITER_HOLDS_ARRAY(&continuationIterator) ||
 			!bson_iter_recurse(&continuationIterator, &continuationArray))
 		{
-			ereport(ERROR, (errmsg("continuation must be an array.")));
+			ereport(ERROR, (errmsg(
+								"continuation must be an array.")));
 		}
 
 		while (bson_iter_next(&continuationArray))

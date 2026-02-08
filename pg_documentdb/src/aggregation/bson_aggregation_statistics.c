@@ -198,7 +198,7 @@ bson_covariance_pop_samp_transition(PG_FUNCTION_ARGS)
 		if (AggCheckCallContext(fcinfo, &aggregateContext) != AGG_CONTEXT_WINDOW)
 		{
 			ereport(ERROR, errmsg(
-						"window aggregate function called in non-window-aggregate context"));
+						"window aggregate function is invoked outside a valid window aggregate context"));
 		}
 
 		/* Create the aggregate state in the aggregate context. */
@@ -595,7 +595,7 @@ bson_std_dev_pop_samp_transition(PG_FUNCTION_ARGS)
 	pgbsonelement currentValueElement;
 	PgbsonToSinglePgbsonElement(currentValue, &currentValueElement);
 
-	/* Ignore non-numeric values */
+	/* Skip non-numeric values */
 	if (BsonValueIsNumber(&currentValueElement.bsonValue))
 	{
 		CalculateSFuncForCovarianceOrVarianceWithYCAlgr(&currentValueElement.bsonValue,
@@ -619,7 +619,8 @@ bson_std_dev_pop_samp_combine(PG_FUNCTION_ARGS)
 	MemoryContext aggregateContext;
 	if (!AggCheckCallContext(fcinfo, &aggregateContext))
 	{
-		ereport(ERROR, errmsg("aggregate function called in non-aggregate context"));
+		ereport(ERROR, errmsg(
+					"Aggregate function invoked in non-aggregate context"));
 	}
 
 	/* Create the aggregate state in the aggregate context. */
@@ -1688,7 +1689,7 @@ CalculateSFuncForCovarianceOrVarianceWithYCAlgr(const bson_value_t *newXValue,
 	ArithmeticOperationFunc(ArithmeticOperation_Add, &bsonN, &intOne,
 							OperationSource_SFuncYCAlgr);
 
-	/* NAN will be handled in later parts */
+	/* NAN will be addressed in subsequent sections */
 	/* focus on infinities first */
 	/* We will check all the infinity values (if any) from Sxy(didn't update yet), X, Y */
 	/* If all the infinity values have the same sign, we will return the infinity value */
@@ -1901,7 +1902,7 @@ ParseInputWeightForExpMovingAvg(const bson_value_t *opValue,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 								errmsg(
-									"'alpha' must be between 0 and 1 (exclusive), found alpha: %lf",
+									"The value of 'alpha' must lie strictly between 0 and 1 (not inclusive), but the provided alpha is: %lf",
 									BsonValueAsDouble(weightExpression))));
 			}
 			decimalWeightValue->value_type = BSON_TYPE_DECIMAL128;
@@ -1912,7 +1913,7 @@ ParseInputWeightForExpMovingAvg(const bson_value_t *opValue,
 		else if (strcmp(key, "N") == 0)
 		{
 			/*
-			 * N is a integer, must be greater than 1.
+			 * N must be an integer greater than one.
 			 */
 			*weightExpression = *bson_iter_value(&docIter);
 
@@ -1924,14 +1925,14 @@ ParseInputWeightForExpMovingAvg(const bson_value_t *opValue,
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 									errmsg(
-										"'N' field must be an integer, but found  N: %lf. To use a non-integer, use the 'alpha' argument instead",
+										"The 'N' field is required to be an integer value, but instead a floating-point number was provided as N: %lf; to specify a non-integer, please use the 'alpha' argument.",
 										BsonValueAsDouble(weightExpression))));
 				}
 				else if (IsBsonValueNegativeNumber(weightExpression))
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 									errmsg(
-										"'N' must be greater than zero. Got %d",
+										"'N' cannot be less than or equal to 0. Received %d",
 										BsonValueAsInt32(weightExpression))));
 				}
 			}
@@ -1939,7 +1940,7 @@ ParseInputWeightForExpMovingAvg(const bson_value_t *opValue,
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 								errmsg(
-									"'N' field must be an integer, but found type %s",
+									"Expected 'integer' type for 'N' field but found '%s' type.",
 									BsonTypeName(weightExpression->value_type))));
 			}
 
@@ -1954,7 +1955,7 @@ ParseInputWeightForExpMovingAvg(const bson_value_t *opValue,
 			/*incorrect parameter,like "alpah" */
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 							errmsg(
-								"Got unrecognized field in $expMovingAvg, $expMovingAvg sub object must have exactly two fields: An 'input' field, and either an 'N' field or an 'alpha' field")));
+								"Got unrecognized field in $expMovingAvg, The $expMovingAvg sub-object must contain exactly two specific fields: one labeled 'input', and the other either labeled 'N' or 'alpha'.")));
 		}
 	}
 
@@ -1964,7 +1965,7 @@ ParseInputWeightForExpMovingAvg(const bson_value_t *opValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 						errmsg(
-							"$expMovingAvg sub object must have exactly two fields: An 'input' field, and either an 'N' field or an 'alpha' field")));
+							"The $expMovingAvg sub-object must contain exactly two specific fields: one labeled 'input', and the other either labeled 'N' or 'alpha'.")));
 	}
 
 	return (paramsValid & InputValidFlags_Alpha) ? true : false;
@@ -2162,7 +2163,7 @@ RunTimeCheckForIntegralAndDerivative(bson_value_t *xBsonValue, bson_value_t *yBs
 			const char *errorMsg = isIntegralOperator
 								   ?
 								   "%s (with no 'unit') expects the sortBy field to be numeric"
-								   : "%s where the sortBy is a Date requires an 'unit'";
+								   : "%s with sortBy set to Date needs a specified 'unit'";
 			ereport(ERROR, errcode(errorCode),
 					errmsg(errorMsg, opName),
 					errdetail_log(errorMsg, opName));
@@ -2176,7 +2177,8 @@ RunTimeCheckForIntegralAndDerivative(bson_value_t *xBsonValue, bson_value_t *yBs
 		{
 			int errorCode = isIntegralOperator ? ERRCODE_DOCUMENTDB_LOCATION5423901 :
 							ERRCODE_DOCUMENTDB_LOCATION5624900;
-			const char *errorMsg = "%s with 'unit' expects the sortBy field to be a Date";
+			const char *errorMsg =
+				"%s with 'unit' requires that the sortBy field needs to be a Date value";
 			ereport(ERROR, errcode(errorCode),
 					errmsg(errorMsg, opName),
 					errdetail_log(errorMsg, opName));
@@ -2187,7 +2189,7 @@ RunTimeCheckForIntegralAndDerivative(bson_value_t *xBsonValue, bson_value_t *yBs
 	if (timeUnitInt64 && xBsonValue->value_type != BSON_TYPE_DATE_TIME)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION5429513), errmsg(
-							"Expected the sortBy field to be a Date, but it was %s",
+							"Expected 'Date' type for 'sortBy' field but found '%s' type",
 							BsonTypeName(
 								xBsonValue->value_type))));
 	}
@@ -2196,7 +2198,7 @@ RunTimeCheckForIntegralAndDerivative(bson_value_t *xBsonValue, bson_value_t *yBs
 	else if (!timeUnitInt64 && xBsonValue->value_type == BSON_TYPE_DATE_TIME)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION5429413), errmsg(
-							"For windows that involve date or time ranges, a unit must be provided.")));
+							"When specifying windows that cover a range of dates or times, it is necessary to include a corresponding unit.")));
 	}
 
 	/* y must be a number or valid date time*/
@@ -2395,7 +2397,7 @@ HandleArithmeticOperationError(const char *opName, bson_value_t *state, const
 							   bson_value_t *number, ArithmeticOperationErrorSource
 							   errSource)
 {
-	char *errMsg = "Internal error while calculating %s.";
+	char *errMsg = "An internal error occurred during the calculation of %s.";
 	char *errMsgSource = "variance/covariance";
 	char *errMsgDetails =
 		"Failed while calculating %s result: opName = %s, state = %s, number = %s.";

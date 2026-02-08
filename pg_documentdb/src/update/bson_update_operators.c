@@ -217,7 +217,8 @@ HandleUpdateDollarInc(const bson_value_t *existingValue,
 	if (!BsonValueIsNumberOrBool(updateValue))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
-						errmsg("Cannot increment with non-numeric argument")));
+						errmsg(
+							"Increment operation failed due to non-numeric argument")));
 	}
 
 	bool overflowedFromInt64 = false;
@@ -231,7 +232,7 @@ HandleUpdateDollarInc(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
 						errmsg(
-							"Cannot apply $inc to a value of non-numeric type. { _id: %s } has the field '%.*s' of non-numeric type %s",
+							"Operation $inc cannot be performed because the target value is not numeric. Document { _id: %s } contains the field '%.*s' which is of non-numeric type %s.",
 							BsonValueToJsonForLogging(&state->documentId),
 							setValueState->fieldPath->length,
 							setValueState->fieldPath->string,
@@ -249,7 +250,7 @@ HandleUpdateDollarInc(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"Failed to apply $inc operations to current value (%s) for document {_id: %s}",
+							"Unable to perform $inc operators on the existing value (%s) in the document with identifier {_id: %s}",
 							FormatBsonValueForShellLogging(existingValue),
 							BsonValueToJsonForLogging(&state->documentId)
 							)));
@@ -419,11 +420,11 @@ HandleUpdateDollarMul(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
 						errmsg(
-							"Cannot multiply with non-numeric argument: { %s : %s }",
+							"Multiplication operation failed due to a non-numeric argument: { %s : %s }",
 							setValueState->relativePath, BsonValueToJsonForLogging(
 								mulFactor)),
 						errdetail_log(
-							"Cannot multiply with non-numeric argument of type %s ",
+							"Multiplication cannot be performed because the argument is non-numeric and of type %s ",
 							BsonTypeName(mulFactor->value_type))));
 	}
 
@@ -464,7 +465,7 @@ HandleUpdateDollarMul(const bson_value_t *existingValue,
 			default:
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
-								errmsg("Unexpected data type")));
+								errmsg("Data type not recognized")));
 			}
 		}
 		valueToModify.value_type = mulFactor->value_type;
@@ -475,7 +476,8 @@ HandleUpdateDollarMul(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
 						errmsg(
-							"Cannot apply $mul to a value of non-numeric type. { _id: %s } has the field '%.*s' of non-numeric type %s",
+							"Unable to use the $mul operator on values that are not numeric. "
+							"The document { _id: %s } contains the field '%.*s', which has a non-numeric type %s.",
 							BsonValueToJsonForLogging(&state->documentId),
 							setValueState->fieldPath->length,
 							setValueState->fieldPath->string,
@@ -489,7 +491,7 @@ HandleUpdateDollarMul(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"Failed to apply $mul operations to current (%s) value for document { _id: %s }",
+							"Unable to perform $mul on the existing (%s) value for the document with _id: %s",
 							FormatBsonValueForShellLogging(existingValue),
 							BsonValueToJsonForLogging(&state->documentId))));
 	}
@@ -534,7 +536,7 @@ HandleUpdateDollarPull(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"Cannot apply $pull to a non-array value")));
+							"$pull cannot be used on values that are not arrays")));
 	}
 
 	/* Run the match and get all matching indices */
@@ -773,7 +775,7 @@ HandleUpdateDollarAddToSet(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"Cannot apply $addToSet to non-array field. Field named '%.*s' has non-array type %s",
+							"Expected 'array' type for $addToSet but field '%.*s' has '%s' type",
 							setValueState->fieldPath->length,
 							setValueState->fieldPath->string,
 							BsonTypeName(existingValue->value_type))));
@@ -819,7 +821,7 @@ HandleUpdateDollarPullAll(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"$pullAll requires an array argument but was given a %s",
+							"Parameter $pullAll needs an array input, but received a %s instead",
 							BsonTypeName(updateValue->value_type))));
 	}
 
@@ -834,7 +836,7 @@ HandleUpdateDollarPullAll(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"Cannot apply $pullAll to a non-array value")));
+							"Unable to use $pullAll on a value that is not an array")));
 	}
 
 	bson_iter_t currentArrayIter;
@@ -914,13 +916,13 @@ HandleUpdateDollarPush(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"The field '%.*s' must be an array but is of type %s in document { _id: %s }",
+							"The field '%.*s' is required to be an array, however it is currently of type %s in document { _id: %s }",
 							setValueState->fieldPath->length,
 							setValueState->fieldPath->string,
 							BsonTypeName(currentValue.value_type),
 							BsonValueToJsonForLogging(&state->documentId)),
 						errdetail_log(
-							"The field in $push must be an array but is of type %s",
+							"The field specified in the $push operator needs to be an array, but instead it has a type of %s",
 							BsonTypeName(currentValue.value_type))));
 	}
 
@@ -989,11 +991,11 @@ HandleUpdateDollarPop(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 						errmsg(
-							"Expected a number in: %s: %s",
+							"Expected numeric value in: %s: %s",
 							setValueState->relativePath,
 							BsonValueToJsonForLogging(updateValue)),
 						errdetail_log(
-							"Expected a number in $pop, found: %s",
+							"Expected numeric value in $pop, but encountered: %s",
 							BsonTypeName(updateValue->value_type))));
 	}
 
@@ -1002,11 +1004,11 @@ HandleUpdateDollarPop(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 						errmsg(
-							"Expected an integer: %s: %s",
+							"Expected numeric value: %s: %s",
 							setValueState->relativePath,
 							BsonValueToJsonForLogging(updateValue)),
 						errdetail_log(
-							"Expected a number in $pop, found: %s",
+							"Expected numeric value in $pop, but encountered: %s",
 							BsonTypeName(updateValue->value_type))));
 	}
 
@@ -1014,7 +1016,7 @@ HandleUpdateDollarPop(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 						errmsg(
-							"$pop expects 1 or -1, found: %s",
+							"$pop operator requires either 1 or -1, but received: %s",
 							BsonValueToJsonForLogging(updateValue))));
 	}
 
@@ -1030,11 +1032,11 @@ HandleUpdateDollarPop(const bson_value_t *existingValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"Path '%s' contains an element of non-array type '%s'",
+							"The specified path '%s' within $pop includes an element that is not of an array data type '%s'",
 							setValueState->relativePath,
 							BsonTypeName(existingValue->value_type)),
 						errdetail_log(
-							"Path in $pop contains an element of non-array type '%s'",
+							"The specified path within $pop includes an element that is not of an array data type '%s'",
 							BsonTypeName(existingValue->value_type))));
 	}
 
@@ -1172,12 +1174,12 @@ ValidateBitwiseInputParams(const MongoBitwiseOperatorType operatorType,
 		{
 			/* Get the document Id for error reporting */
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("Cannot apply $bit to a value of non-integral type."
-								   "{ \"_id\" : %s } has the field %s of non-integer type %s",
-								   BsonValueToJsonForLogging(&docState->documentId),
-								   updatePath, BsonTypeName(state->value_type)),
+							errmsg(
+								"$bit cannot be used on a value that is not of an integral type. The document with _id = %s contains the field %s, which has a non-integer type %s.",
+								BsonValueToJsonForLogging(&docState->documentId),
+								updatePath, BsonTypeName(state->value_type)),
 							errdetail_log(
-								"Cannot apply $bit to a value of non-integral type %s",
+								"$bit cannot be used on a value that is not of an integral type %s",
 								BsonTypeName(state->value_type))));
 		}
 	}
@@ -1232,12 +1234,12 @@ ValidateAddToSetWithDollarEach(const bson_value_t *updateValue,
 	{
 		*isEach = true;
 
-		/* The argument to $each in $addToSet must be an array, else error out */
+		/* The value provided to the $each within the $addToSet must specifically be an array, otherwise the operation will result in an error. */
 		if (element.bsonValue.value_type != BSON_TYPE_ARRAY)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_TYPEMISMATCH),
 							errmsg(
-								"The argument to $each in $addToSet must be an array but it was of type %s",
+								"Expected 'array' type for $each but found '%s' type",
 								BsonTypeName(element.bsonValue.value_type))));
 		}
 		*elementsToAdd = element.bsonValue;
@@ -1265,7 +1267,7 @@ AddToSetWriteFinalArray(UpdateOperatorWriter *writer,
 	{
 		BsonValueInitIterator(existingValue, &currentArrayIter);
 
-		/* Add all the existing elements first. */
+		/* Make sure to add all current existing elements first. */
 		while (bson_iter_next(&currentArrayIter))
 		{
 			const bson_value_t *value = bson_iter_value(&currentArrayIter);
@@ -1428,12 +1430,12 @@ ValidateUpdateSpecAndSetPushUpdateState(const bson_value_t *fieldUpdateValue,
 
 	pushState->modifiersExist = true;
 
-	/* Validate $each spec */
+	/* Validate $each specification */
 	if (eachBsonValue.value_type != BSON_TYPE_ARRAY)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"The argument to $each in $push must be an array but it was of type: %s",
+							"Expected 'array' type for $each in $push but found '%s' type",
 							BsonTypeName(eachBsonValue.value_type))));
 	}
 	pushState->dollarEachArray = eachBsonValue;
@@ -1459,7 +1461,7 @@ ValidateUpdateSpecAndSetPushUpdateState(const bson_value_t *fieldUpdateValue,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"The argument to $slice in $push must be an integer value but was given type: %s",
+							"Expected 'array' type for $slice in $push but found '%s' type",
 							BsonTypeName(sliceBsonValue.value_type))));
 	}
 
@@ -1565,7 +1567,7 @@ ApplyDollarPushModifiers(const bson_value_t *bsonArray,
 		index++;
 	}
 
-	/* Step 4: Do Sort */
+	/* step 4: proceed to sort */
 	if (pushState->sortContext->sortType != SortType_No_Sort)
 	{
 		/**

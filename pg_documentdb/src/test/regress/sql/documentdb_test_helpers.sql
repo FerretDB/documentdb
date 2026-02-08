@@ -2,12 +2,6 @@ CREATE SCHEMA documentdb_test_helpers;
 
 SELECT datname, datcollate, datctype, pg_encoding_to_char(encoding), datlocprovider FROM pg_database;
 
--- Check if recreating the extension works
-DROP EXTENSION IF EXISTS documentdb;
-
--- Install the latest available documentdb_api version
-CREATE EXTENSION documentdb CASCADE;
-
 -- binary version should return the installed version after recreating the extension
 SELECT documentdb_api.binary_version() = (SELECT REPLACE(extversion, '-', '.') FROM pg_extension where extname = 'documentdb_core');
 
@@ -35,6 +29,24 @@ CALL documentdb_test_helpers.wait_for_background_worker();
 
 -- validate background worker is launched
 SELECT application_name FROM pg_stat_activity WHERE application_name = 'documentdb_bg_worker_leader';
+
+
+CREATE OR REPLACE FUNCTION documentdb_test_helpers.run_explain_and_trim(p_query text)
+RETURNS SETOF text
+AS $$
+DECLARE
+  v_explain_row text;
+BEGIN
+  FOR v_explain_row IN EXECUTE p_query
+  LOOP
+    IF v_explain_row ~ '^\s+Disabled: true\s*$' THEN
+      CONTINUE;
+    END IF;
+    RETURN NEXT v_explain_row;
+  END LOOP;
+END
+$$
+LANGUAGE plpgsql;
 
 -- query documentdb_api_catalog.collection_indexes for given collection
 CREATE OR REPLACE FUNCTION documentdb_test_helpers.get_collection_indexes(

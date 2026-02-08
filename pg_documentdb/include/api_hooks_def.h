@@ -28,7 +28,7 @@ typedef bool (*IsMetadataCoordinator_HookType)(void);
 extern IsMetadataCoordinator_HookType is_metadata_coordinator_hook;
 
 /*
- * Returns true if the Change Stream feature is enabled.
+ * Indicates whether the Change Stream feature is currently enabled
  */
 typedef bool (*IsChangeStreamEnabledAndCompatible)(void);
 extern IsChangeStreamEnabledAndCompatible is_changestream_enabled_and_compatible_hook;
@@ -252,5 +252,12 @@ extern TryGetCancelIndexBuildQuery_HookType try_get_cancel_index_build_query_hoo
 typedef bool (*ShouldScheduleIndexBuilds_HookType)();
 extern ShouldScheduleIndexBuilds_HookType should_schedule_index_builds_hook;
 
+typedef List *(*GettShardIndexOids_HookType)(uint64_t collectionId, int indexId, bool
+											 ignoreMissing);
+extern GettShardIndexOids_HookType get_shard_index_oids_hook;
+
+typedef void (*UpdatePostgresIndex_HookType)(uint64_t collectionId, int indexId, bool
+											 hidden);
+extern UpdatePostgresIndex_HookType update_postgres_index_hook;
 
 #endif

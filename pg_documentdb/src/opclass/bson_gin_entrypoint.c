@@ -931,7 +931,7 @@ ValidateIndexForQualifierValue(bytea *indexOptions, Datum queryValue, BsonIndexS
 				if (StringViewEndsWith(&fieldPathName, '.'))
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOTTEDFIELDNAME), errmsg(
-										"FieldPath must not end with a '.'.")));
+										"The FieldPath cannot terminate with a '.' character.")));
 				}
 			}
 
@@ -1002,7 +1002,8 @@ ValidateIndexForQualifierValue(bytea *indexOptions, Datum queryValue, BsonIndexS
 
 		default:
 		{
-			ereport(ERROR, (errmsg("Unrecognized index options type %d", options->type)));
+			ereport(ERROR, (errmsg("Index options type %d not recognized",
+								   options->type)));
 			break;
 		}
 	}
@@ -1054,7 +1055,7 @@ ValidateIndexForQualifierPathForDollarIn(bytea *indexOptions, const StringView *
 				if (StringViewEndsWith(queryPath, '.'))
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_DOTTEDFIELDNAME), errmsg(
-										"FieldPath must not end with a '.'.")));
+										"The FieldPath cannot terminate with a '.' character.")));
 				}
 			}
 
@@ -1098,7 +1099,8 @@ ValidateIndexForQualifierPathForDollarIn(bytea *indexOptions, const StringView *
 
 		default:
 		{
-			ereport(ERROR, (errmsg("Unrecognized index options type %d", options->type)));
+			ereport(ERROR, (errmsg("Index options type %d not recognized",
+								   options->type)));
 			break;
 		}
 	}
@@ -1323,7 +1325,7 @@ ValidateSinglePathSpec(const char *prefix)
 	int32_t stringLength = strlen(prefix);
 	if (stringLength == 0)
 	{
-		/* root wildcard index */
+		/* root wildcard index value */
 		return;
 	}
 }
@@ -1419,7 +1421,7 @@ ValidateWildcardProjectPathSpec(const char *prefix)
 	if (stringLength < 3)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"at least one filter path must be specified")));
+							"A minimum of one filter path is required to be provided")));
 	}
 }
 
@@ -1441,7 +1443,7 @@ FillWildcardProjectPathSpec(const char *prefix, void *buffer)
 	if (prefix == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"at least one filter path must be specified")));
+							"A minimum of one filter path is required to be provided")));
 	}
 
 	pgbson *bson = PgbsonInitFromJson(prefix);

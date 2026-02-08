@@ -15,12 +15,12 @@ use serde_json::Value;
 use tokio_postgres::types::Type;
 
 use crate::{
-    context::ConnectionContext,
+    context::{ConnectionContext, RequestContext},
     error::{DocumentDBError, ErrorCode, Result},
     postgres::{PgDataClient, PgDocument},
     processor,
     protocol::OK_SUCCEEDED,
-    requests::{Request, RequestInfo, RequestType},
+    requests::{request_tracker::RequestTracker, Request, RequestType},
     responses::{RawResponse, Response},
 };
 
@@ -82,30 +82,25 @@ impl AuthState {
 
 pub async fn process<T>(
     connection_context: &mut ConnectionContext,
-    request: &Request<'_>,
+    request_context: &mut RequestContext<'_>,
 ) -> Result<Response>
 where
     T: PgDataClient,
 {
+    let request = request_context.payload;
     if let Some(response) = handle_auth_request(connection_context, request).await? {
         return Ok(response);
     }
 
-    let request_info = request.extract_common();
     if request.request_type().allowed_unauthorized() {
         let service_context = Arc::clone(&connection_context.service_context);
         let data_client = T::new_unauthorized(&service_context).await?;
-        return processor::process_request(
-            request,
-            &mut request_info?,
-            connection_context,
-            data_client,
-        )
-        .await;
+
+        return processor::process_request(request_context, connection_context, data_client).await;
     }
 
     Err(DocumentDBError::unauthorized(format!(
-        "Command {} not supported prior to authentication.",
+        "Command {} is not allowed as the connection is not authenticated yet.",
         request.request_type().to_string().to_lowercase()
     )))
 }
@@ -244,7 +239,7 @@ async fn handle_oidc_token_authentication(
             &[Type::TEXT, Type::TEXT],
             &[&oid, &token_string],
             None,
-            &mut RequestInfo::new(),
+            &mut RequestTracker::new(),
         )
         .await?;
 
@@ -358,7 +353,7 @@ async fn handle_sasl_continue(
             .username
             .or(connection_context.auth_state.username.as_deref())
             .ok_or(DocumentDBError::internal_error(
-                "Username missing from sasl continue".to_string(),
+                "Username missing from SaslContinue".to_string(),
             ))?;
 
         if client_nonce != first_state.nonce {
@@ -387,7 +382,7 @@ async fn handle_sasl_continue(
                 &[Type::TEXT, Type::TEXT, Type::TEXT],
                 &[&username, &auth_message, &proof],
                 None,
-                &mut RequestInfo::new(),
+                &mut RequestTracker::new(),
             )
             .await?;
 
@@ -428,7 +423,7 @@ async fn handle_sasl_continue(
         })))
     } else {
         Err(DocumentDBError::unauthorized(
-            "Sasl Continue called without SaslStart state.".to_string(),
+            "SaslContinue called without SaslStart state.".to_string(),
         ))
     }
 }
@@ -532,7 +527,7 @@ async fn get_salt_and_iteration(
             &[Type::TEXT],
             &[&username],
             None,
-            &mut RequestInfo::new(),
+            &mut RequestTracker::new(),
         )
         .await?;
 
@@ -574,7 +569,7 @@ pub async fn get_user_oid(connection_context: &ConnectionContext, username: &str
             &[Type::TEXT],
             &[&username],
             None,
-            &mut RequestInfo::new(),
+            &mut RequestTracker::new(),
         )
         .await?;
 

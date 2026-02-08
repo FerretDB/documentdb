@@ -70,7 +70,8 @@ BsonValueHoldsNumberArray(const bson_value_t *currentValue, int32_t *numElements
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"value must be of type array")));
+							"Invalid type: expected an array type field, but received %s instead",
+							BsonTypeName(currentValue->value_type))));
 	}
 	bson_iter_t arrayIter;
 	BsonValueInitIterator(currentValue, &arrayIter);
@@ -259,7 +260,7 @@ DivideBsonValueNumbers(bson_value_t *dividend, const bson_value_t *divisor)
 		if (IsDecimal128Zero(&divisor128))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("can't $divide by zero")));
+							errmsg("$divide by zero is not allowed")));
 		}
 
 		dividend->value_type = BSON_TYPE_DECIMAL128;
@@ -273,7 +274,7 @@ DivideBsonValueNumbers(bson_value_t *dividend, const bson_value_t *divisor)
 		if (divisorDouble == 0.0)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("can't $divide by zero")));
+							errmsg("$divide by zero is not allowed")));
 		}
 
 		dividend->value_type = BSON_TYPE_DOUBLE;
@@ -552,7 +553,7 @@ BsonTypeFromName(const char *name)
 	}
 
 	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-					errmsg("Unknown type name alias: %s", name)));
+					errmsg("Unrecognized data type alias: %s", name)));
 }
 
 
@@ -699,7 +700,7 @@ BsonTypeName(bson_type_t type)
 		default:
 		{
 			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-							errmsg("unknown BSON type code %d", type)));
+							errmsg("Unrecognized BSON data type code %d", type)));
 		}
 	}
 }
@@ -861,7 +862,7 @@ AddDoubleToValue(bson_value_t *current, double value)
 		valueBson.value.v_double = value;
 		valueBson.value_type = BSON_TYPE_DOUBLE;
 
-		/* Convert value to decimal128 */
+		/* Transform value into decimal128 format */
 		valueBson.value.v_decimal128 = GetBsonValueAsDecimal128Quantized(&valueBson);
 		valueBson.value_type = BSON_TYPE_DECIMAL128;
 

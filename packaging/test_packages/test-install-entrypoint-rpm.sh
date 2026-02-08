@@ -3,6 +3,12 @@ set -e
 
 echo "Testing RPM package installation..."
 
+# Debug: report runtime architecture
+echo "Runtime uname -m: $(uname -m)"
+if [ -n "${TARGETARCH:-}" ]; then
+    echo "TARGETARCH env: ${TARGETARCH}"
+fi
+
 # Install the RPM package
 dnf install -y /tmp/documentdb.rpm
 

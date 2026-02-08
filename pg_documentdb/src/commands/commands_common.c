@@ -33,6 +33,7 @@ extern bool ThrowDeadlockOnCrud;
 extern bool EnableBackendStatementTimeout;
 extern int MaxCustomCommandTimeout;
 extern bool EnableVariablesSupportForWriteCommands;
+extern bool RumFailOnLostPath;
 
 /*
  *  This is a list of command options that are not currently supported.
@@ -350,7 +351,7 @@ GetWriteErrorFromErrorData(ErrorData *errorData, int writeErrorIdx)
 
 	if (errorData->sqlerrcode == ERRCODE_INTERNAL_ERROR && errorData->message != NULL)
 	{
-		if (strcmp(errorData->message, "Lost Path") == 0)
+		if (RumFailOnLostPath && strcmp(errorData->message, "Lost path") == 0)
 		{
 			/*
 			 * We need to throw this updated error and retry at the gateway
@@ -397,7 +398,7 @@ TryGetErrorMessageAndCode(ErrorData *errorData, int *code, char **errmessage)
 {
 	if (errorData->sqlerrcode == ERRCODE_CHECK_VIOLATION)
 	{
-		ereport(LOG, (errmsg("Check constraint error %s", errorData->message)));
+		ereport(LOG, (errmsg("Check constraint violation %s", errorData->message)));
 		*code = ERRCODE_DOCUMENTDB_DUPLICATEKEY;
 		*errmessage =
 			"Invalid write detected. Please validate the collection and/or shard key being written to";
@@ -479,7 +480,7 @@ ValidateIdField(const bson_value_t *idValue)
 		(idValue->value_type == BSON_TYPE_REGEX))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"The '_id' value cannot be of type %s",
+							"The '_id' field value must not be a type of %s",
 							BsonTypeName(idValue->value_type))));
 	}
 
@@ -587,7 +588,7 @@ CommitWriteProcedureAndReacquireCollectionLock(MongoCollection *collection,
 	/* Commit the old transaction */
 	CommitTransactionCommand();
 
-	/* Start a new transaction */
+	/* Initiate a new transaction */
 	StartTransactionCommand();
 
 	/* Push the active snapshot if commands need it (Portals do) */
@@ -596,7 +597,7 @@ CommitWriteProcedureAndReacquireCollectionLock(MongoCollection *collection,
 		PushActiveSnapshot(GetTransactionSnapshot());
 	}
 
-	/* Now acquire the collection lock */
+	/* Acquire the collection lock */
 	LockRelationOid(collection->relationId, RowExclusiveLock);
 
 	/* If the shard table OID is valid, lock it as well */

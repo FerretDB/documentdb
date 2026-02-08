@@ -405,12 +405,13 @@ EnsureValidFieldPathString(const StringView *fieldPath)
 	if (fieldPath->length == 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("FieldPath cannot be constructed with empty string.")));
+						errmsg(
+							"A FieldPath object cannot be created when the provided string is empty.")));
 	}
 	else if (StringViewEndsWith(fieldPath, '.'))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-						errmsg("FieldPath must not end with a '.'.")));
+						errmsg("The FieldPath cannot terminate with a '.' character.")));
 	}
 
 	StringView fieldPathView = *fieldPath;
@@ -434,14 +435,16 @@ EnsureValidFieldPathString(const StringView *fieldPath)
 		if (currentFieldPath.length == 0)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("FieldPath field names may not be empty strings.")));
+							errmsg(
+								"FieldPath field names cannot be completely empty strings.")));
 		}
 		else if (StringViewStartsWith(&currentFieldPath, '$') &&
 				 !StringViewContainsDbRefsField(&currentFieldPath))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION16410),
-							errmsg("FieldPath field names may not start with '$'. "
-								   "Consider using $getField or $setField")));
+							errmsg(
+								"FieldPath field names cannot begin with the operators "
+								"symbol '$'; you might want to use $getField or $setField instead.")));
 		}
 	}
 }
@@ -548,7 +551,8 @@ ValidateAndSetLeafNodeData(BsonPathNode *childNode, const bson_value_t *value,
 	if (childNode->nodeType == NodeType_Intermediate)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION31250),
-						errmsg("Path collision at %.*s", relativePath->length,
+						errmsg("Collision detected in specified path %.*s",
+							   relativePath->length,
 							   relativePath->string)));
 	}
 

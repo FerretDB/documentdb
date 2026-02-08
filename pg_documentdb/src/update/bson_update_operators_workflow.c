@@ -62,10 +62,10 @@ typedef enum PositionalType
 	/* It is not a positional update */
 	PositionalType_None = 0,
 
-	/* Corresponds to the $[] path */
+	/* Matches the $[] path */
 	PositionalType_All,
 
-	/* Corresponds to the $ path */
+	/* Matches the specified value $ path */
 	PositionalType_QueryFilter,
 
 	/* Corresponds to the $[identifier] path */
@@ -309,7 +309,7 @@ static HTAB * BuildExpressionForArrayFilters(const bson_value_t *arrayFilters);
 static void PostValidateArrayFilters(HTAB *arrayFiltersHash, const
 									 bson_value_t *updateSpec);
 
-/* Value writer functions */
+/* Functions for writing values */
 static bool HandleUpdateDocumentId(pgbson_writer *writer,
 								   const BsonUpdateIntermediatePathNode *root,
 								   const CurrentDocumentState *state);
@@ -679,7 +679,7 @@ ProcessUpdateOperatorWithState(pgbson *sourceDoc,
 
 	PgbsonInitIterator(sourceDoc, &docIterator);
 
-	/* Do the update */
+	/* Update */
 	pgbson_writer writer;
 	PgbsonWriterInit(&writer);
 
@@ -879,15 +879,13 @@ ReadUpdateSpecAndUpdateTree(bson_iter_t *updateIterator,
 				const bson_value_t *updateItrVal = bson_iter_value(updateIterator);
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 								errmsg(
-									"Modifiers operate on fields but we found type %s instead. "
-									"For example: {$mod: {<field>: ...}} not {%s: %s}",
+									"Modifiers work only with fields, but the provided value is of type %s. Expected format: {$mod: {<field>: ...}}, but received: {%s: %s}.",
 									BsonTypeName(updateItrVal->value_type),
 									MongoUpdateOperators[i].operatorName,
 									BsonValueToJsonForLogging(
 										updateItrVal)),
 								errdetail_log(
-									"Modifiers operate on fields but we found type %s instead "
-									"for operator name: %s",
+									"Modifiers work only with fields, but the provided value is of type %s. Expected $mod but received operator name: %s.",
 									BsonTypeName(updateItrVal->value_type),
 									MongoUpdateOperators[i].operatorName)));
 			}
@@ -907,7 +905,7 @@ ReadUpdateSpecAndUpdateTree(bson_iter_t *updateIterator,
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 							errmsg(
-								"Unknown modifier: %s. Expected a valid update modifier or "
+								"Unknown modifier: %s. Please use a valid update modifier or "
 								"pipeline-style update specified as an array",
 								updateOperator)));
 		}
@@ -1101,7 +1099,7 @@ HandleRenameUpdateTree(BsonIntermediatePathNode *tree, bson_iter_t *updateSpec,
 		if (value->value_type != BSON_TYPE_UTF8)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-								"Rename target should be a string")));
+								"The rename destination must be provided as a string value")));
 		}
 
 		/* For the rename target, we map the "value" to the path of the rename source */
@@ -1243,14 +1241,14 @@ ValidateSpecPathForUpdateTree(const StringView *updatePath)
 	if (updatePath->length == 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_EMPTYFIELDNAME), errmsg(
-							"An empty update path is not valid")));
+							"The update path cannot be empty and is therefore invalid")));
 	}
 
 	if (updatePath->string[updatePath->length - 1] == '.')
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_EMPTYFIELDNAME),
 						errmsg(
-							"An update path '%s' contains an empty field name, which is not allowed.",
+							"Empty field name detected at path '%s'",
 							updatePath->string)));
 	}
 
@@ -1266,14 +1264,15 @@ ValidateSpecPathForUpdateTree(const StringView *updatePath)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 							errmsg(
-								"Cannot have array filter identifier (i.e. '$[<id>]') element in the first position in path '%s'",
+								"Array filter identifier usage (e.g., '$[<id>]') "
+								"is not permitted at the starting position of the specified path '%s'",
 								updatePath->string)));
 		}
 		else if (StringViewEquals(&path, &PositionalFilterString))
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 							errmsg(
-								"Cannot have positional (i.e. '$') element in the first position in path '%s'",
+								"Positional element (i.e. '$') cannot appear at the beginning of the path '%s'.",
 								updatePath->string)));
 		}
 	}
@@ -1331,7 +1330,7 @@ ValidateNodePathInTree(const StringView *path, const char *relativePath)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"An empty path '%s' contains an empty field name, which is not allowed.",
+							"A path '%s' is empty because it holds a field name with no content, which is not permitted.",
 							relativePath)));
 	}
 }
@@ -1388,8 +1387,9 @@ GetNodePositionalDataFromPath(const StringView *path,
 		if (!found || hashEntry == NULL)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("No array filter found for identifier %.*s",
-								   identifier.length, identifier.string)));
+							errmsg(
+								"array filter identifier %.*s must match an entry in arrayFilters (no match found)",
+								identifier.length, identifier.string)));
 		}
 
 		/* Mark the filter as used in the query */
@@ -1499,7 +1499,7 @@ HandleUpdateDocumentId(pgbson_writer *writer,
 		case NodeType_Intermediate:
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-								"_id cannot be an object/array")));
+								"_id value cannot be an object or array")));
 		}
 
 		case NodeType_LeafIncluded:
@@ -1521,7 +1521,8 @@ HandleUpdateDocumentId(pgbson_writer *writer,
 
 		default:
 		{
-			ereport(ERROR, (errmsg("Unexpected node type for _id: %d", node->nodeType)));
+			ereport(ERROR, (errmsg("Encountered an unsupported node type for _id: %d",
+								   node->nodeType)));
 		}
 	}
 }
@@ -1567,7 +1568,7 @@ TraverseDocumentAndApplyUpdate(bson_iter_t *sourceDocIterator,
 			continue;
 		}
 
-		/* Process the current field in the document */
+		/* Process the current field within the document */
 		PgbsonInitObjectElementWriter(writer, &elementWriter, fieldPath.string,
 									  fieldPath.length);
 		bool fieldModified = HandleCurrentIteratorPosition(sourceDocIterator, tree,
@@ -1772,7 +1773,7 @@ HandleCurrentIteratorPosition(bson_iter_t *documentIterator,
 					if (isArray)
 					{
 						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-											"Cannot create field '%s' in element {%s : %s}",
+											"Failed to create the field '%s' within the element specified by {%s : %s}",
 											path.string, path.string,
 											BsonValueToJsonForLogging(bson_iter_value(
 																		  documentIterator)))));
@@ -1783,7 +1784,7 @@ HandleCurrentIteratorPosition(bson_iter_t *documentIterator,
 					{
 						ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_PATHNOTVIABLE),
 										errmsg(
-											"Cannot create field '%s' in element {%s : %s}",
+											"Failed to create the field '%s' within the element specified by {%s : %s}",
 											path.string, path.string,
 											BsonValueToJsonForLogging(bson_iter_value(
 																		  documentIterator)))));
@@ -1798,7 +1799,7 @@ HandleCurrentIteratorPosition(bson_iter_t *documentIterator,
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_PATHNOTVIABLE),
 									errmsg(
-										"Cannot create field '%s' in element {%s : %s}",
+										"Failed to create the field '%s' within the element specified by {%s : %s}",
 										path.string, path.string,
 										BsonValueToJsonForLogging(bson_iter_value(
 																	  documentIterator)))));
@@ -1834,7 +1835,7 @@ ThrowPositionalOnNonArrayPathError(const BsonPathNode * node,
 {
 	const char *elementValue = BsonValueToJsonForLogging(currentValue);
 	ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-						"Cannot apply array updates to non-array element %.*s: { %.*s: %s }",
+						"Array updates cannot be applied to an element that is not an array %.*s: { %.*s: %s }",
 						node->parent->baseNode.field.length,
 						node->parent->baseNode.field.string,
 						fieldPath->length,
@@ -1867,7 +1868,7 @@ IsNodeMatchForIteratorPath(const BsonPathNode *node,
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 									errmsg(
-										"The positional operator did not find the match needed from the query.")));
+										"The positional operator failed to locate the required match within the provided query.")));
 				}
 
 				state->indexOfPositionalTypeQueryFilter = matchedIndex;
@@ -1971,7 +1972,7 @@ HandleUnresolvedDocumentFields(const BsonUpdateIntermediatePathNode *tree,
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
 						errmsg(
-							"The path '%.*s' must exist in the document in order to apply array updates.",
+							"The specified path '%.*s' does not exist within the document. Cannot apply array update operations.",
 							tree->base.baseNode.field.length,
 							tree->base.baseNode.field.string)));
 	}
@@ -2131,7 +2132,7 @@ HandleUnresolvedArrayFields(const BsonUpdateIntermediatePathNode *tree,
 	if (maxIndex - currentMaxIndex > 1500000)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_CANNOTBACKFILLARRAY), errmsg(
-							"can't backfill more than 1500000 elements")));
+							"Backfilling is not possible for more than 1500000 elements.")));
 	}
 
 	for (int index = currentMaxIndex; index <= maxIndex; index++)
@@ -2275,7 +2276,7 @@ HandlePullWriterGetState(const bson_value_t *updateValue)
 				if (hasDollarField)
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-										"unknown operator: %s", field)));
+										"Unrecognized operator specified: %s", field)));
 				}
 			}
 		}
@@ -2354,7 +2355,7 @@ BuildExpressionForArrayFilters(const bson_value_t *arrayFilters)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 							errmsg(
-								"Cannot use an expression without a top-level field name in"
+								"Expression missing a required top-level field name in"
 								" arrayFilters")));
 		}
 
@@ -2433,7 +2434,7 @@ BuildExpressionForArrayFilters(const bson_value_t *arrayFilters)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 							errmsg(
-								"Found multiple array filters with the same top-level field name %.*s",
+								"Multiple array filters detected using identical top-level field name %.*s",
 								topLevelKey.length, topLevelKey.string)));
 		}
 
@@ -2517,7 +2518,7 @@ PostValidateArrayFilters(HTAB *arrayFiltersHash, const bson_value_t *updateSpec)
 			const char *updateSpecStr = FormatBsonValueForShellLogging(updateSpec);
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 							errmsg(
-								"The array filter for identifier \'%.*s\' was not used in the update %s",
+								"The filter array for identifier '%.*s' was ignored during the %s update process",
 								entry->identifier.length, entry->identifier.string,
 								updateSpecStr)));
 		}

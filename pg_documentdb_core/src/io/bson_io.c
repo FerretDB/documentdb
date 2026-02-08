@@ -123,7 +123,7 @@ bson_in(PG_FUNCTION_ARGS)
 
 
 /*
- * Converts a bson to a hex string representation.
+ * Transforms a BSON object into its hexadecimal string format.
  */
 Datum
 bson_to_bson_hex(PG_FUNCTION_ARGS)
@@ -235,12 +235,13 @@ bson_get_value_text(PG_FUNCTION_ARGS)
 {
 	pgbson *document = PG_GETARG_PGBSON_PACKED(0);
 	char *path = text_to_cstring(PG_GETARG_TEXT_PP(1));
+	bool quoteString = PG_NARGS() > 2 ? PG_GETARG_BOOL(2) : false;
 	bson_iter_t pathIterator;
 
 	if (PgbsonInitIteratorAtPath(document, path, &pathIterator))
 	{
 		const bson_value_t *value = bson_iter_value(&pathIterator);
-		const char *strRepr = BsonValueToJsonForLogging(value);
+		const char *strRepr = BsonValueToJsonForLoggingWithOptions(value, quoteString);
 		PG_RETURN_POINTER(cstring_to_text(strRepr));
 	}
 	else
@@ -295,12 +296,13 @@ row_get_bson(PG_FUNCTION_ARGS)
 	for (int i = 0; i < tupleDescriptor->natts; i++)
 	{
 		bool isnull;
-		if (tupleDescriptor->attrs[i].attisdropped)
+		FormData_pg_attribute *attr = TupleDescAttr(tupleDescriptor, i);
+		if (attr->attisdropped)
 		{
 			continue;
 		}
 
-		/* get the SQL value. */
+		/* Retrieve the SQL database value */
 		Datum fieldValue = heap_getattr(&tupleValue, i + 1, tupleDescriptor, &isnull);
 
 		if (isnull)
@@ -309,7 +311,7 @@ row_get_bson(PG_FUNCTION_ARGS)
 		}
 
 		/* get the field name. */
-		const char *fieldName = NameStr(tupleDescriptor->attrs[i].attname);
+		const char *fieldName = NameStr(attr->attname);
 		if (fieldName == NULL)
 		{
 			fieldName = "";
@@ -321,7 +323,7 @@ row_get_bson(PG_FUNCTION_ARGS)
 
 		/* convert the SQL Value and write it into the bson Writer. */
 		PgbsonElementWriterWriteSQLValue(&elementWriter, isnull, fieldValue,
-										 tupleDescriptor->attrs[i].atttypid);
+										 attr->atttypid);
 	}
 
 	ReleaseTupleDesc(tupleDescriptor);
@@ -428,7 +430,7 @@ bson_repath_and_build(PG_FUNCTION_ARGS)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-					 errmsg("argument %d cannot be null", i + 1),
+					 errmsg("The specified argument %d must not be null", i + 1),
 					 errdetail("Object keys should be text.")));
 		}
 
@@ -436,7 +438,9 @@ bson_repath_and_build(PG_FUNCTION_ARGS)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-					 errmsg("argument %d must be a text", i)));
+					 errmsg(
+						 "Invalid type: expected a text type field, but received %s instead",
+						 format_type_be(types[i]))));
 		}
 
 		text *pathText = DatumGetTextP(args[i]);
@@ -448,8 +452,9 @@ bson_repath_and_build(PG_FUNCTION_ARGS)
 		{
 			/* We don't support dollar prefixed-paths here */
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_LOCATION40236),
-							errmsg("The field name %.*s cannot be an operator name",
-								   len, path)));
+							errmsg(
+								"Cannot use %.*s as a field name. Dollar prefixed paths are not allowed.",
+								len, path)));
 		}
 
 		if (nulls[i + 1])
@@ -475,7 +480,7 @@ bson_repath_and_build(PG_FUNCTION_ARGS)
 			else
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								(errmsg("Expecting a single element value"))));
+								(errmsg("Expecting only one element value"))));
 			}
 		}
 		else
@@ -677,7 +682,7 @@ PgbsonElementWriterWriteSQLValue(pgbson_element_writer *writer,
 												 &fieldBsonValue.value.v_decimal128))
 				{
 					ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-									errmsg("Invalid numeric value %s", numStr)));
+									errmsg("Invalid number value %s", numStr)));
 				}
 
 				bool isFixedInteger = IsDecimal128AFixedInteger(&fieldBsonValue);
@@ -714,7 +719,8 @@ PgbsonElementWriterWriteSQLValue(pgbson_element_writer *writer,
 			}
 
 			ereport(ERROR, (errcode(ERRCODE_FEATURE_NOT_SUPPORTED), errmsg(
-								"Type oid not supported %d", fieldTypeId)));
+								"Data type oid is currently unsupported %d",
+								fieldTypeId)));
 		}
 	}
 }

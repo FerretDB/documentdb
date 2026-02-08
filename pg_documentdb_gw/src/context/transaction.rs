@@ -223,11 +223,6 @@ impl TransactionStore {
                 }
             }
 
-            log::trace!(
-                "Starting transaction: {:?} - {:?}",
-                session_id,
-                transaction_info.transaction_number
-            );
             let transaction = Transaction::start(
                 connection_context.service_context.setup_configuration(),
                 transaction_info,

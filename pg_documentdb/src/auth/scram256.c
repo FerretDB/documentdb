@@ -36,7 +36,7 @@
 #define AUTH_SERV_SIGN_KEY "ServerSignature" /* Server signature key */
 #define AUTH_SERV_SIGN_KEY_LEN strlen(AUTH_SERV_SIGN_KEY) /* Serv sign length */
 
-/* For test helper functions */
+/* Test helper functions in use */
 #define AUTH_MSG_KEY "AuthMessage"
 #define AUTH_MSG_KEY_LEN strlen(AUTH_MSG_KEY)
 #define AUTH_CLIENT_PROOF_KEY "ClientProof"
@@ -168,7 +168,7 @@ static bool ScramServerKey(ScramState *state, const uint8 *saltedPassword,
 static bool ScramHash(ScramState *state, const uint8 *clientKey, int keyLength,
 					  uint8 *clientStoredKey);
 static bool ScramSaltedPassword(ScramState *state, const char *password, const
-								char *decodedSalt,
+								char_uint8_compat *decodedSalt,
 								int decodedLength, int iterations, uint8 *saltedPassword);
 
 
@@ -237,7 +237,7 @@ Datum
 command_authenticate_with_scram_sha256(PG_FUNCTION_ARGS)
 {
 	char *proof; /* Client proof as received from the compute gateway */
-	char *clientProof;  /* Decoded Client Proof */
+	char_uint8_compat *clientProof;  /* Decoded Client Proof */
 	int clientProofLen;
 	ScramState scramState;
 	ScramAuthResult authResult; /* Authentication result */
@@ -483,7 +483,7 @@ command_generate_auth_message_client_proof_for_test(PG_FUNCTION_ARGS)
 	encodedLen = pg_b64_enc_len(scramState.keyLength);
 	result.encodedClientProof = palloc0(encodedLen + 1);
 
-	encodedLen = pg_b64_encode((const char *) scramState.decodedClientProof,
+	encodedLen = pg_b64_encode((const char_uint8_compat *) scramState.decodedClientProof,
 							   scramState.keyLength, result.encodedClientProof,
 							   encodedLen);
 
@@ -655,7 +655,7 @@ GenerateSaltedPasswordForTest(ScramState *scramState,
 {
 	int encodedLen;
 	int decodedLen;
-	char *decodedSalt;
+	char_uint8_compat *decodedSalt;
 	char *prepPassword;
 	pg_saslprep_rc returnCode;
 
@@ -735,7 +735,7 @@ VerifyClientProof(ScramState *state)
 	/* H(ClientSignature ^ ClientProof) = StoredKey */
 	if (memcmp(clientStoredKey, state->storedKey, state->keyLength) != 0)
 	{
-		ereport(LOG, (errmsg("Client proof verification failed.")));
+		ereport(LOG, (errmsg("Failed to verify the provided client proof.")));
 		return false;
 	}
 
@@ -772,7 +772,7 @@ BuildServerFinalMessage(ScramState *state)
 
 	/* don't forget the zero-terminator */
 	serverSignatureBase64 = palloc0(siglen + 1);
-	siglen = pg_b64_encode((const char *) serverSignature,
+	siglen = pg_b64_encode((const char_uint8_compat *) serverSignature,
 						   state->keyLength, serverSignatureBase64,
 						   siglen);
 
@@ -953,7 +953,8 @@ ScramHash(ScramState *state, const uint8 *clientKey, int keyLength,
  * reporting for different postgres versions.
  */
 static bool
-ScramSaltedPassword(ScramState *state, const char *password, const char *decodedSalt,
+ScramSaltedPassword(ScramState *state, const char *password, const
+					char_uint8_compat *decodedSalt,
 					int decodedLength, int iterations, uint8 *saltedPassword)
 {
 #if PG_VERSION_NUM >= 160000

@@ -104,7 +104,7 @@ typedef struct
 	/* represents value of "v" field */
 	int version;
 
-	/* represents sphere index version */
+	/* Indicates the version of the sphere index */
 	int sphereIndexVersion;
 
 	/* represents value of "key" field */
@@ -177,6 +177,9 @@ typedef struct
 
 	/* Feature flag to enable the composite term index */
 	BoolIndexOption enableCompositeTerm;
+
+	/* Flag to indicate we should create the index as unique without the unique constraint being added to the table. Then we can transform it to unique iff an equivalent unique index exists. */
+	BoolIndexOption buildAsUnique;
 
 	/* Feature flag to enable the composite term index */
 	BoolIndexOption enableReducedWildcardTerms;

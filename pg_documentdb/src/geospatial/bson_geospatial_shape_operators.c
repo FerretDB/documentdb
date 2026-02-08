@@ -139,7 +139,7 @@ GetShapeOperatorByValue(const bson_value_t *shapeValue, bson_value_t *shapePoint
 	if (IsBsonValueEmptyDocument(shapeValue))
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("geo query doesn't have any geometry")));
+						errmsg("Geo query is missing the required geometry data")));
 	}
 
 	bson_iter_t shapeIter;
@@ -164,9 +164,10 @@ GetShapeOperatorByValue(const bson_value_t *shapeValue, bson_value_t *shapePoint
 		if (shapeOperator->op == GeospatialShapeOperator_UNKNOWN)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("unknown geo specifier: %s: %s",
-								   shapeOperatorName,
-								   BsonValueToJsonForLogging(shapeOperatorValue)),
+							errmsg(
+								"Unrecognized geographic specifier encountered: %s: %s",
+								shapeOperatorName,
+								BsonValueToJsonForLogging(shapeOperatorValue)),
 							errdetail_log(
 								"unknown geo specifier operator %s with argument of type %s",
 								shapeOperatorName,
@@ -227,8 +228,9 @@ BsonValueGetBox(const bson_value_t *shapePointValue, ShapeOperatorInfo *opInfo)
 		shapePointValue->value_type != BSON_TYPE_DOCUMENT)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("unknown geo specifier: $box: %s",
-							   BsonValueToJsonForLogging(shapePointValue)),
+						errmsg(
+							"Unknown geographical specifier detected: %s with operator $box",
+							BsonValueToJsonForLogging(shapePointValue)),
 						errdetail_log("unknown geo specifier: $box with argument type %s",
 									  BsonTypeName(shapePointValue->value_type))));
 	}
@@ -254,7 +256,8 @@ BsonValueGetBox(const bson_value_t *shapePointValue, ShapeOperatorInfo *opInfo)
 			value->value_type != BSON_TYPE_DOCUMENT)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("Point must be an array or object")));
+							errmsg(
+								"The specified point should either be structured as an array or defined as an object")));
 		}
 
 		Point point;
@@ -286,7 +289,8 @@ BsonValueGetBox(const bson_value_t *shapePointValue, ShapeOperatorInfo *opInfo)
 		 * If 2 points are not given, the box is not defined
 		 */
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("Point must be an array or object")));
+						errmsg(
+							"The specified point should either be structured as an array or defined as an object")));
 	}
 
 	/*
@@ -339,10 +343,11 @@ BsonValueGetPolygon(const bson_value_t *shapeValue, ShapeOperatorInfo *opInfo)
 		shapeValue->value_type != BSON_TYPE_DOCUMENT)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("unknown geo specifier: $polygon: %s",
-							   BsonValueToJsonForLogging(shapeValue)),
+						errmsg(
+							"Invalid specifier $polygon: %s",
+							BsonValueToJsonForLogging(shapeValue)),
 						errdetail_log(
-							"unknown geo specifier: $polygon with argument type %s",
+							"Invalid specified $polygon with type %s",
 							BsonTypeName(shapeValue->value_type))));
 	}
 
@@ -376,7 +381,8 @@ BsonValueGetPolygon(const bson_value_t *shapeValue, ShapeOperatorInfo *opInfo)
 			value->value_type != BSON_TYPE_DOCUMENT)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("Point must be an array or object")));
+							errmsg(
+								"The specified point should either be structured as an array or defined as an object")));
 		}
 
 		Point point;
@@ -407,7 +413,7 @@ BsonValueGetPolygon(const bson_value_t *shapeValue, ShapeOperatorInfo *opInfo)
 		/* If 3 points are not given, the polygon is not defined
 		 */
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("Polygon must have at least 3 points")));
+						errmsg("A polygon shape requires a minimum of three points")));
 	}
 
 	/* Check if last and first points are not same then add first point implicitly,
@@ -448,8 +454,9 @@ BsonValueGetCenter(const bson_value_t *shapeValue, ShapeOperatorInfo *opInfo)
 		shapeValue->value_type != BSON_TYPE_DOCUMENT)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("unknown geo specifier: $center: %s",
-							   BsonValueToJsonForLogging(shapeValue)),
+						errmsg(
+							"Unrecognized geographical specifier in operator $center: %s",
+							BsonValueToJsonForLogging(shapeValue)),
 						errdetail_log(
 							"unknown geo specifier: $center with argument type %s",
 							BsonTypeName(shapeValue->value_type))));
@@ -466,7 +473,8 @@ BsonValueGetCenter(const bson_value_t *shapeValue, ShapeOperatorInfo *opInfo)
 		if (index > 1)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("Only 2 fields allowed for circular region")));
+							errmsg(
+								"A maximum of two fields can be defined for the circular region.")));
 		}
 		const bson_value_t *value = bson_iter_value(&centerValueIter);
 		if (index == 0)
@@ -475,7 +483,8 @@ BsonValueGetCenter(const bson_value_t *shapeValue, ShapeOperatorInfo *opInfo)
 				value->value_type != BSON_TYPE_DOCUMENT)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("Point must be an array or object")));
+								errmsg(
+									"The specified point should either be structured as an array or defined as an object")));
 			}
 			else
 			{
@@ -499,7 +508,8 @@ BsonValueGetCenter(const bson_value_t *shapeValue, ShapeOperatorInfo *opInfo)
 				IsBsonValueNaN(value))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("radius must be a non-negative number")));
+								errmsg(
+									"radius value must be zero or greater")));
 			}
 			else if (IsBsonValueInfinity(value))
 			{
@@ -527,12 +537,14 @@ BsonValueGetCenter(const bson_value_t *shapeValue, ShapeOperatorInfo *opInfo)
 	if (index == 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("Point must be an array or object")));
+						errmsg(
+							"The specified point should either be structured as an array or defined as an object")));
 	}
 	else if (index == 1)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("radius must be a non-negative number")));
+						errmsg(
+							"radius value must be zero or greater")));
 	}
 
 	DollarCenterOperatorState *state = palloc0(sizeof(DollarCenterOperatorState));
@@ -607,9 +619,11 @@ BsonValueGetGeometry(const bson_value_t *value, ShapeOperatorInfo *opInfo)
 	{
 		ereport(ERROR, (
 					errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-					errmsg("$geoWithin not supported with provided geometry: %s",
-						   BsonValueToJsonForLogging(value)),
-					errdetail_log("$geoWithin not supported with provided geometry.")));
+					errmsg(
+						"$geoWithin is not supported for the specified geometry: %s",
+						BsonValueToJsonForLogging(value)),
+					errdetail_log(
+						"$geoWithin is not supported for the specified geometry.")));
 	}
 
 	if (IsGeoWithinQueryOperator(opInfo->queryOperatorType) &&
@@ -630,7 +644,7 @@ BsonValueGetGeometry(const bson_value_t *value, ShapeOperatorInfo *opInfo)
 		{
 			ereport(ERROR, (
 						errcode(ERRCODE_DOCUMENTDB_COMMANDNOTSUPPORTED),
-						errmsg("Strict winding order is only supported by Polygon.")));
+						errmsg("Polygon supports strict winding order exclusively.")));
 		}
 		else
 		{
@@ -668,10 +682,11 @@ BsonValueGetCenterSphere(const bson_value_t *shapeValue, ShapeOperatorInfo *opIn
 		shapeValue->value_type != BSON_TYPE_DOCUMENT)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("unknown geo specifier: $centerSphere: %s",
-							   BsonValueToJsonForLogging(shapeValue)),
+						errmsg(
+							"Invalid specifier $centerSphere: %s",
+							BsonValueToJsonForLogging(shapeValue)),
 						errdetail_log(
-							"unknown geo specifier: $centerSphere with argument type %s",
+							"Invalid specified $centerSphere with type %s",
 							BsonTypeName(shapeValue->value_type))));
 	}
 
@@ -685,7 +700,8 @@ BsonValueGetCenterSphere(const bson_value_t *shapeValue, ShapeOperatorInfo *opIn
 		if (index > 1)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("Only 2 fields allowed for circular region")));
+							errmsg(
+								"A maximum of two fields can be defined for the circular region.")));
 		}
 		const bson_value_t *value = bson_iter_value(&centerValueIter);
 		if (index == 0)
@@ -694,7 +710,8 @@ BsonValueGetCenterSphere(const bson_value_t *shapeValue, ShapeOperatorInfo *opIn
 				value->value_type != BSON_TYPE_DOCUMENT)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("Point must be an array or object")));
+								errmsg(
+									"The specified point should either be structured as an array or defined as an object")));
 			}
 			else
 			{
@@ -716,7 +733,8 @@ BsonValueGetCenterSphere(const bson_value_t *shapeValue, ShapeOperatorInfo *opIn
 				IsBsonValueNaN(value))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("radius must be a non-negative number")));
+								errmsg(
+									"radius value must be zero or greater")));
 			}
 			else if (IsBsonValueInfinity(value))
 			{
@@ -737,12 +755,14 @@ BsonValueGetCenterSphere(const bson_value_t *shapeValue, ShapeOperatorInfo *opIn
 	if (index == 0)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("Point must be an array or object")));
+						errmsg(
+							"The specified point should either be structured as an array or defined as an object")));
 	}
 	else if (index == 1)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("radius must be a non-negative number")));
+						errmsg(
+							"radius value must be zero or greater")));
 	}
 
 	DollarCenterOperatorState *state = palloc0(sizeof(DollarCenterOperatorState));

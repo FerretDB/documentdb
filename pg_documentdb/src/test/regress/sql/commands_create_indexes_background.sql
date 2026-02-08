@@ -365,3 +365,11 @@ CALL documentdb_api_internal.build_index_concurrently(1);
 SELECT * FROM documentdb_api_catalog.documentdb_index_queue;
 SELECT * FROM documentdb_test_helpers.count_collection_indexes('db', 'backgroundcoll1');
 SELECT * FROM documentdb_test_helpers.count_collection_indexes('db', 'backgroundcoll2');
+
+-- now queue some reindex jobs and test index builds
+SELECT * FROM documentdb_api_internal.reindex_index_background('db', '{ "collection": "backgroundcoll1", "indexes": [ 32044, 32045 ] }');
+SELECT index_cmd, cmd_type, index_id, index_cmd_status, collection_id FROM documentdb_api_catalog.documentdb_index_queue;
+CALL documentdb_api_internal.build_index_concurrently(1);
+
+--all indexes should be built and queue should be empty.
+SELECT * FROM documentdb_api_catalog.documentdb_index_queue;

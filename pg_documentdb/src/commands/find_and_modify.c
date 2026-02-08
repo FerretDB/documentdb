@@ -140,7 +140,7 @@ command_find_and_modify(PG_FUNCTION_ARGS)
 {
 	if (PG_ARGISNULL(0))
 	{
-		ereport(ERROR, (errmsg("p_database_name cannot be NULL")));
+		ereport(ERROR, (errmsg("The parameter p_database_name must not be NULL")));
 	}
 	Datum databaseNameDatum = PG_GETARG_DATUM(0);
 
@@ -261,7 +261,7 @@ ParseFindAndModifyMessage(pgbson *message)
 			if (!BSON_ITER_HOLDS_UTF8(&messageIter))
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-								errmsg("collection name has invalid type %s",
+								errmsg("Collection name contains an invalid data type %s",
 									   BsonIterTypeName(&messageIter))));
 			}
 
@@ -269,7 +269,8 @@ ParseFindAndModifyMessage(pgbson *message)
 			if (strlen(spec.collectionName) == 0)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INVALIDNAMESPACE),
-								errmsg("Invalid empty namespace specified")));
+								errmsg(
+									"An invalid and empty namespace has been specified")));
 			}
 		}
 		else if (strcmp(key, "query") == 0)
@@ -340,7 +341,7 @@ ParseFindAndModifyMessage(pgbson *message)
 			{
 				ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
 								errmsg(
-									"Invalid parameter. expected an object (arrayFilters)")));
+									"Parameter provided is invalid; an object (arrayFilters) was expected.")));
 			}
 
 			EnsureTopLevelFieldType("findAndModify.arrayFields", &messageIter,
@@ -429,8 +430,9 @@ ParseFindAndModifyMessage(pgbson *message)
 		}
 
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-						errmsg("BSON field 'findAndModify.%s' is an unknown "
-							   "field", key)));
+						errmsg(
+							"The BSON field 'findAndModify.%s' is not recognized as a valid field.",
+							key)));
 	}
 
 	if (spec.collectionName == NULL)
@@ -443,23 +445,23 @@ ParseFindAndModifyMessage(pgbson *message)
 		if (spec.update != NULL)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("Cannot specify both an update and "
-								   "remove=true")));
+							errmsg(
+								"It is not possible to specify both an update action and simultaneously set  "
+								"remove=true")));
 		}
 
 		if (spec.upsert)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("Cannot specify both upsert=true and "
-								   "remove=true")));
+							errmsg("It is not allowed to set both upsert=true "
+								   "and remove=true simultaneously")));
 		}
 
 		if (spec.returnNewDocument)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("Cannot specify both new=true and "
-								   "remove=true; 'remove' always returns "
-								   "the deleted document")));
+							errmsg(
+								"It is not allowed to set both new=true and remove=true simultaneously, as the 'remove' always returns the document that was deleted.")));
 		}
 	}
 	else
@@ -467,8 +469,8 @@ ParseFindAndModifyMessage(pgbson *message)
 		if (spec.update == NULL)
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_FAILEDTOPARSE),
-							errmsg("Either an update or remove=true must be "
-								   "specified")));
+							errmsg("You must specify either an update action "
+								   "or set remove=true for proper execution")));
 		}
 	}
 
@@ -535,7 +537,8 @@ ProcessFindAndModifySpec(MongoCollection *collection, FindAndModifySpec *spec,
 		if (deleteOneResult.isRowDeleted &&
 			deleteOneResult.resultDeletedDocument == NULL)
 		{
-			ereport(ERROR, (errmsg("couldn't return deleted document")));
+			ereport(ERROR, (errmsg(
+								"Failed to return the document that was previously deleted")));
 		}
 
 		FindAndModifyResult result = {

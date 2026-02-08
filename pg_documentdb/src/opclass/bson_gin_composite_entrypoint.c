@@ -62,7 +62,6 @@ PG_FUNCTION_INFO_V1(gin_bson_composite_ordering_transform);
 PG_FUNCTION_INFO_V1(gin_bson_composite_index_term_transform);
 
 extern bool EnableCollation;
-extern bool EnableNewCompositeIndexOpclass;
 extern bool RumHasMultiKeyPaths;
 
 static void ValidateCompositePathSpec(const char *prefix);
@@ -280,7 +279,9 @@ gin_bson_composite_path_extract_query(PG_FUNCTION_ARGS)
 	 */
 	if (!hasArrayPaths)
 	{
-		MergeSingleVariableBounds(&variableBounds, runData);
+		variableBounds.variableBoundsList =
+			MergeSingleVariableBounds(variableBounds.variableBoundsList,
+									  runData->indexBounds);
 	}
 	else if (isOrderedScan)
 	{
@@ -319,7 +320,7 @@ gin_bson_composite_path_extract_query(PG_FUNCTION_ARGS)
 				totalPathTerms = 0;
 			}
 
-			/* Add the index to the current key */
+			/* Insert the index into the active key */
 			pathScanTermMap[set->indexAttribute].scanKeyIndexList =
 				lappend_int(pathScanTermMap[set->indexAttribute].scanKeyIndexList,
 							foreach_current_index(cell));
@@ -1006,7 +1007,7 @@ gin_bson_composite_index_term_transform(PG_FUNCTION_ARGS)
 
 	if (!foundSkipPath)
 	{
-		/* Keep the current path */
+		/* Continue using current path */
 		PG_RETURN_DATUM(0);
 	}
 
@@ -1333,11 +1334,6 @@ GetCompositePathIndexTraverseOption(BsonIndexStrategy strategy, void *contextOpt
 									const bson_value_t *bsonValue,
 									int32_t *compositeIndexCol)
 {
-	if (!EnableNewCompositeIndexOpclass)
-	{
-		return IndexTraverse_Invalid;
-	}
-
 	if (bsonValue->value_type == BSON_TYPE_ARRAY)
 	{
 		/*
@@ -1762,7 +1758,7 @@ ValidateCompositePathSpec(const char *prefix)
 	if (stringLength < 3)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"at least one filter path must be specified")));
+							"A minimum of one filter path is required to be provided")));
 	}
 }
 
@@ -1784,7 +1780,7 @@ FillCompositePathSpec(const char *prefix, void *buffer)
 	if (prefix == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE), errmsg(
-							"at least one filter path must be specified")));
+							"A minimum of one filter path is required to be provided")));
 	}
 
 	pgbson *bson = PgbsonInitFromJson(prefix);

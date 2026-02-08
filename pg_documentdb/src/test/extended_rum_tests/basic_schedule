@@ -1,0 +1,2 @@
+test: documentdb_test_helpers
+test: basic_extended_rum_creation_tests

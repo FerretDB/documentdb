@@ -23,6 +23,11 @@
 #include <catalog/pg_operator.h>
 #include <optimizer/restrictinfo.h>
 
+#if PG_VERSION_NUM >= 180000
+#include <commands/explain_format.h>
+#include <executor/executor.h>
+#endif
+
 #include "io/bson_core.h"
 #include "customscan/bson_custom_scan.h"
 #include "customscan/custom_scan_registrations.h"
@@ -81,7 +86,7 @@ typedef struct ContinuationState
 	/* How many tuples have been enumerated so far */
 	uint64_t currentTupleCount;
 
-	/* The size of the tuples enumerated */
+	/* The enumerated tuples' size */
 	uint64_t currentEnumeratedSize;
 
 	/* The current table ID (Copied from input continuation) */
@@ -257,7 +262,7 @@ command_cursor_state(PG_FUNCTION_ARGS)
 {
 	if (CurrentQueryState == NULL)
 	{
-		ereport(ERROR, (errmsg("This method should not be called directly")));
+		ereport(ERROR, (errmsg("This method must never be invoked directly")));
 	}
 	else
 	{
@@ -677,7 +682,7 @@ UpdatePathsWithExtensionStreamingCursorPlans(PlannerInfo *root, RelOptInfo *rel,
 			}
 		}
 
-		/* store the continuation data */
+		/* Save the continuation data into storage */
 		InputContinuation *inputContinuation = palloc0(sizeof(InputContinuation));
 		inputContinuation->extensible.type = T_ExtensibleNode;
 		inputContinuation->extensible.extnodename = InputContinuationNodeName;
@@ -767,7 +772,8 @@ UpdatePathsWithExtensionStreamingCursorPlans(PlannerInfo *root, RelOptInfo *rel,
 			!IsValidScanPath(inputPath))
 		{
 			/* For now just break if it's not a seq scan or bitmap scan */
-			elog(INFO, "Skipping unsupported path type %d", inputPath->pathtype);
+			elog(INFO, "Path type %d is unsupported in this flow. Skipping it.",
+				 inputPath->pathtype);
 			continue;
 		}
 
@@ -1099,7 +1105,7 @@ ExtensionScanPlanCustomPath(PlannerInfo *root,
 	Plan *nestedPlan = linitial(custom_plans);
 
 	/* TODO: clear the filters in the nested plan (so we don't load the document in the nested plan) */
-	/* This is the output of the scan */
+	/* Scan output */
 	if (tlist != NIL)
 	{
 		cscan->scan.plan.targetlist = tlist;
@@ -1175,7 +1181,7 @@ static void
 ExtensionScanBeginCustomScan(CustomScanState *node, EState *estate,
 							 int eflags)
 {
-	/* Initialize the actual state of the plan */
+	/* Initialize the current state of the plan */
 	ExtensionScanState *extensionScanState = (ExtensionScanState *) node;
 	extensionScanState->innerScanState = (ScanState *) ExecInitNode(
 		extensionScanState->innerPlan, estate, eflags);
@@ -1269,7 +1275,8 @@ ExtensionScanExecCustomScan(CustomScanState *pstate)
 		{
 			/* attribute numbers are 1 based */
 			int index = node->contentTrackAttributeNumber - 1;
-			Oid currentTypeId = returnSlot->tts_tupleDescriptor->attrs[index].atttypid;
+			Oid currentTypeId = TupleDescAttr(returnSlot->tts_tupleDescriptor,
+											  index)->atttypid;
 			if (currentTypeId == BsonTypeId() && !returnSlot->tts_isnull[index])
 			{
 				/*
@@ -1446,7 +1453,8 @@ ParseContinuationState(ExtensionScanState *extensionScanState,
 		{
 			if (!BSON_ITER_HOLDS_NUMBER(&continuationIterator))
 			{
-				ereport(ERROR, (errmsg("batchCount must be a number.")));
+				ereport(ERROR, (errmsg(
+									"The value for batchCount must be provided as a numeric type.")));
 			}
 			else if (extensionScanState->batchCount > 0)
 			{
@@ -1460,7 +1468,8 @@ ParseContinuationState(ExtensionScanState *extensionScanState,
 		{
 			if (!BSON_ITER_HOLDS_NUMBER(&continuationIterator))
 			{
-				ereport(ERROR, (errmsg("batchSizeAttr must be a number.")));
+				ereport(ERROR, (errmsg(
+									"batchSizeAttr must be a number.")));
 			}
 			else if (extensionScanState->contentTrackAttributeNumber > 0)
 			{
@@ -1476,7 +1485,7 @@ ParseContinuationState(ExtensionScanState *extensionScanState,
 		{
 			if (!BSON_ITER_HOLDS_NUMBER(&continuationIterator))
 			{
-				ereport(ERROR, (errmsg("batchSizeHint must be a number.")));
+				ereport(ERROR, (errmsg("batchSizeHint value must be numeric.")));
 			}
 			else if (extensionScanState->batchSizeHintBytes > 0)
 			{
@@ -1493,7 +1502,8 @@ ParseContinuationState(ExtensionScanState *extensionScanState,
 			if (!BSON_ITER_HOLDS_ARRAY(&continuationIterator) ||
 				!bson_iter_recurse(&continuationIterator, &continuationArray))
 			{
-				ereport(ERROR, (errmsg("continuation must be an array.")));
+				ereport(ERROR, (errmsg(
+									"continuation must be an array.")));
 			}
 
 			while (bson_iter_next(&continuationArray))
@@ -1516,8 +1526,9 @@ ParseContinuationState(ExtensionScanState *extensionScanState,
 					{
 						if (!BSON_ITER_HOLDS_UTF8(&singleContinuationDoc))
 						{
-							ereport(ERROR, (errmsg("Expecting string value for %s",
-												   CursorContinuationTableName.string)));
+							ereport(ERROR, (errmsg(
+												"Expecting a valid string value for %s",
+												CursorContinuationTableName.string)));
 						}
 
 						tableName = bson_iter_utf8(&singleContinuationDoc, NULL);
@@ -1600,7 +1611,8 @@ ParseContinuationState(ExtensionScanState *extensionScanState,
 		}
 		else
 		{
-			ereport(ERROR, (errmsg("Unknown continuation field %s", currentField)));
+			ereport(ERROR, (errmsg("Unrecognized continuation field value %s",
+								   currentField)));
 		}
 	}
 }
@@ -1732,7 +1744,11 @@ BuildPrimaryKeyIndexClauses(PlannerInfo *root, RelOptInfo *rel, ExtensionScanSta
 									 state->primaryKeyDatums[1], false, false);
 	RowCompareExpr *rcexpr = makeNode(RowCompareExpr);
 	rcexpr = makeNode(RowCompareExpr);
+#if PG_VERSION_NUM >= 180000
+	rcexpr->cmptype = COMPARE_GT;
+#else
 	rcexpr->rctype = ROWCOMPARE_GT;
+#endif
 	rcexpr->opnos = list_make2_oid(BigIntGreaterOperatorId(),
 								   BsonGreaterThanOperatorId());
 	rcexpr->opfamilies = list_make2_oid(IntegerOpsOpFamilyOid(), BsonBtreeOpFamilyOid());

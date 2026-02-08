@@ -117,7 +117,7 @@ command_drop_indexes(PG_FUNCTION_ARGS)
 
 	if (PG_ARGISNULL(1))
 	{
-		ereport(ERROR, (errmsg("arg cannot be NULL")));
+		ereport(ERROR, (errmsg("Argument value must not be NULL")));
 	}
 	pgbson *arg = PG_GETARG_PGBSON(1);
 
@@ -154,7 +154,8 @@ ProcessDropIndexesRequest(char *dbName, DropIndexesArg dropIndexesArg, bool
 	if (collection == NULL)
 	{
 		ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_NAMESPACENOTFOUND),
-						errmsg("ns not found %s.%s", dbName, collectionName)));
+						errmsg("Namespace %s.%s could not be located", dbName,
+							   collectionName)));
 	}
 
 	uint64 collectionId = collection->collectionId;
@@ -269,7 +270,8 @@ ProcessDropIndexesRequest(char *dbName, DropIndexesArg dropIndexesArg, bool
 				PgbsonToJsonForLogging(dropIndexesArg.index.document);
 
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_INDEXNOTFOUND),
-							errmsg("can't find index with key: %s", keyDocumentStr)));
+							errmsg("Unable to locate index using the provided key: %s",
+								   keyDocumentStr)));
 		}
 		else if (nmatchingIndexes > 1)
 		{
@@ -348,7 +350,7 @@ ProcessDropIndexesRequest(char *dbName, DropIndexesArg dropIndexesArg, bool
 	}
 	else
 	{
-		ereport(ERROR, (errmsg("unexpected drop index mode")));
+		ereport(ERROR, (errmsg("invalid dropIndex mode")));
 	}
 
 	return result;
@@ -367,7 +369,7 @@ command_drop_indexes_concurrently(PG_FUNCTION_ARGS)
 	}
 	if (PG_ARGISNULL(1))
 	{
-		ereport(ERROR, (errmsg("arg cannot be NULL")));
+		ereport(ERROR, (errmsg("Argument value must not be NULL")));
 	}
 	text *databaseDatum = PG_GETARG_TEXT_P(0);
 	pgbson *spec = PG_GETARG_PGBSON(1);
@@ -455,7 +457,7 @@ command_drop_indexes_concurrently_internal(PG_FUNCTION_ARGS)
 
 	if (PG_ARGISNULL(1))
 	{
-		ereport(ERROR, (errmsg("arg cannot be NULL")));
+		ereport(ERROR, (errmsg("Argument value must not be NULL")));
 	}
 	pgbson *arg = PG_GETARG_PGBSON(1);
 
@@ -510,6 +512,17 @@ DropIndexesConcurrentlyInternal(char *dbName, pgbson *arg)
 		StartTransactionCommand();
 	}
 	PG_END_TRY();
+
+
+	/* Post process if there's an error to massage the message */
+	if (dropIndexResult->errcode == ERRCODE_INSUFFICIENT_PRIVILEGE)
+	{
+		ereport(LOG, (errmsg(
+						  "Insufficient privileges to execute drop indexes - inner error %s",
+						  dropIndexResult->errmsg)));
+		dropIndexResult->errmsg = "Insufficient privileges to execute drop indexes";
+	}
+
 	return dropIndexResult;
 }
 
@@ -603,7 +616,7 @@ ParseDropIndexesArg(pgbson *arg)
 		}
 		else if (IsCommonSpecIgnoredField(argKey))
 		{
-			elog(DEBUG1, "Unrecognized command field: dropIndexes.%s", argKey);
+			elog(DEBUG1, "Command field not recognized: dropIndexes.%s", argKey);
 
 			/*
 			 *  Silently ignore now, so that clients don't break
@@ -615,8 +628,9 @@ ParseDropIndexesArg(pgbson *arg)
 		else
 		{
 			ereport(ERROR, (errcode(ERRCODE_DOCUMENTDB_BADVALUE),
-							errmsg("BSON field 'dropIndexes.%s' is an unknown field",
-								   argKey)));
+							errmsg(
+								"The BSON field 'dropIndexes.%s' is not recognized as a valid field.",
+								argKey)));
 		}
 	}
 
@@ -659,7 +673,7 @@ DropIndexesArgExpandIndexNameList(uint64 collectionId, DropIndexesArg *dropIndex
 	if (list_length(dropIndexesArg->index.nameList) != 0 &&
 		strcmp(linitial(dropIndexesArg->index.nameList), "*") == 0)
 	{
-		/* we don't want to drop _id index */
+		/* Dropping the _id index is not permitted */
 		bool excludeIdIndex = true;
 		bool inProgressOnly = false;
 		dropIndexesArg->index.nameList = CollectionIdGetIndexNames(collectionId,
@@ -870,7 +884,8 @@ HandleDropIndexConcurrently(uint64 collectionId, int indexId, bool unique, bool
 		result->errmsg = edata->message;
 		result->ok = false;
 
-		ereport(DEBUG1, (errmsg("couldn't drop some indexes for a collection")));
+		ereport(DEBUG1, (errmsg(
+							 "Failed to remove certain indexes from the specified collection")));
 
 		PopAllActiveSnapshots();
 		AbortCurrentTransaction();
@@ -904,8 +919,8 @@ CancelIndexBuildRequest(int indexId)
 		appendStringInfo(cmdStr,
 						 "SELECT iq.global_pid AS pid, iq.start_time AS timestamp");
 		appendStringInfo(cmdStr,
-						 " FROM %s iq WHERE index_id = %d AND cmd_type = '%c'",
-						 GetIndexQueueName(), indexId, CREATE_INDEX_COMMAND_TYPE);
+						 " FROM %s iq WHERE index_id = %d",
+						 GetIndexQueueName(), indexId);
 
 		cancelIndexBuildRequestQueryStr = cmdStr->data;
 	}

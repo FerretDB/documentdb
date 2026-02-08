@@ -222,9 +222,9 @@ WriteBufferGeoJsonCoordinates(const bson_value_t *coordinatesValue,
 				RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 					shouldThrowError, (
 						errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-						errmsg("%sPolygon has no loops.",
+						errmsg("Polygon %s does not contain any loops.",
 							   GEO_ERROR_PREFIX(parseState->errorCtxt)),
-						errdetail_log("%sPolygon has no loops.",
+						errdetail_log("Polygon %s does not contain any loops.",
 									  GEO_HINT_PREFIX(parseState->errorCtxt))));
 			}
 
@@ -297,10 +297,11 @@ WriteBufferGeoJsonCoordinates(const bson_value_t *coordinatesValue,
 				RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 					shouldThrowError, (
 						errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-						errmsg("%sMultiPoint coordinates must have at least 1 element",
-							   GEO_ERROR_PREFIX(parseState->errorCtxt)),
+						errmsg(
+							"%sMultiPoint coordinates require a minimum of one element",
+							GEO_ERROR_PREFIX(parseState->errorCtxt)),
 						errdetail_log(
-							"%sMultiPoint coordinates must have at least 1 element",
+							"%sMultiPoint coordinates require a minimum of one element",
 							GEO_HINT_PREFIX(parseState->errorCtxt))));
 			}
 
@@ -316,10 +317,12 @@ WriteBufferGeoJsonCoordinates(const bson_value_t *coordinatesValue,
 					RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 						shouldThrowError, (
 							errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-							errmsg("%sGeoJSON coordinates must be an array",
-								   GEO_ERROR_PREFIX(parseState->errorCtxt)),
-							errdetail_log("%sGeoJSON coordinates must be an array",
-										  GEO_HINT_PREFIX(parseState->errorCtxt))));
+							errmsg(
+								"%sGeoJSON coordinates need to be provided in an array format",
+								GEO_ERROR_PREFIX(parseState->errorCtxt)),
+							errdetail_log(
+								"%sGeoJSON coordinates need to be provided in an array format",
+								GEO_HINT_PREFIX(parseState->errorCtxt))));
 				}
 				isValid = WriteBufferGeoJsonCoordinates(pointValue, GeoJsonType_POINT,
 														insideGeometryCollection,
@@ -345,10 +348,10 @@ WriteBufferGeoJsonCoordinates(const bson_value_t *coordinatesValue,
 					shouldThrowError, (
 						errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
 						errmsg(
-							"%sMultiLineString coordinates must have at least 1 element",
+							"%sMultiLineString coordinates require a minimum of one element",
 							GEO_ERROR_PREFIX(parseState->errorCtxt)),
 						errdetail_log(
-							"%sMultiLineString coordinates must have at least 1 element",
+							"%sMultiLineString coordinates require a minimum of one element",
 							GEO_HINT_PREFIX(parseState->errorCtxt))));
 			}
 
@@ -385,10 +388,10 @@ WriteBufferGeoJsonCoordinates(const bson_value_t *coordinatesValue,
 					shouldThrowError, (
 						errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
 						errmsg(
-							"%sMultiPolygon coordinates must have at least 1 element",
+							"%sMultiPolygon coordinates require a minimum of one element",
 							GEO_ERROR_PREFIX(parseState->errorCtxt)),
 						errdetail_log(
-							"%sMultiPolygon coordinates must have at least 1 element",
+							"%sMultiPolygon coordinates require a minimum of one element",
 							GEO_HINT_PREFIX(parseState->errorCtxt))));
 			}
 
@@ -423,10 +426,10 @@ WriteBufferGeoJsonCoordinates(const bson_value_t *coordinatesValue,
 				RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 					shouldThrowError, (
 						errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-						errmsg("%sGeometryCollections cannot be nested: %s",
+						errmsg("%sGeometryCollections nesting is not allowed: %s",
 							   GEO_ERROR_PREFIX(parseState->errorCtxt),
 							   BsonValueToJsonForLogging(coordinatesValue)),
-						errdetail_log("%sGeometryCollections cannot be nested",
+						errdetail_log("%sGeometryCollections nesting is not allowed",
 									  GEO_HINT_PREFIX(parseState->errorCtxt))));
 			}
 			if (IsBsonValueEmptyArray(coordinatesValue))
@@ -435,10 +438,10 @@ WriteBufferGeoJsonCoordinates(const bson_value_t *coordinatesValue,
 					shouldThrowError, (
 						errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
 						errmsg(
-							"%sGeometryCollection geometries must have at least 1 element",
+							"%sGeometryCollection must contain a minimum of one geometry element",
 							GEO_ERROR_PREFIX(parseState->errorCtxt)),
 						errdetail_log(
-							"%sGeometryCollection geometries must have at least 1 element",
+							"%sGeometryCollection must contain a minimum of one geometry element",
 							GEO_HINT_PREFIX(parseState->errorCtxt))));
 			}
 			insideGeometryCollection = true;
@@ -448,7 +451,7 @@ WriteBufferGeoJsonCoordinates(const bson_value_t *coordinatesValue,
 
 			while (bson_iter_next(&coordinatesIter))
 			{
-				/* Check if value is object in collection */
+				/* Verify whether the value is an object within the given collection */
 				if (!BSON_ITER_HOLDS_DOCUMENT(&coordinatesIter))
 				{
 					RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
@@ -501,12 +504,13 @@ WriteBufferGeoJsonCoordinates(const bson_value_t *coordinatesValue,
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 				shouldThrowError, (
 					errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-					errmsg("%sunknown GeoJSON type: %s",
+					errmsg("%sAn unknown type of GeoJSON object has been detected: %s",
 						   GEO_ERROR_PREFIX(parseState->errorCtxt),
 						   BsonValueToJsonForLogging(coordinatesValue)),
-					errdetail_log("%sunknown GeoJSON type found: %d",
-								  GEO_HINT_PREFIX(parseState->errorCtxt),
-								  geoJsonType)));
+					errdetail_log(
+						"%sAn unknown type of GeoJSON object has been detected: %d",
+						GEO_HINT_PREFIX(parseState->errorCtxt),
+						geoJsonType)));
 		}
 	}
 	return true;
@@ -573,10 +577,11 @@ WriteBufferGeoJsonMultiPoints(const bson_value_t *multiPointValue, const GeoJson
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 				shouldThrowError, (
 					errcode(GEO_ERROR_CODE(state->errorCtxt)),
-					errmsg("%sGeoJSON coordinates must be an array",
+					errmsg("%sGeoJSON coordinates need to be provided in an array format",
 						   GEO_ERROR_PREFIX(state->errorCtxt)),
-					errdetail_log("%sGeoJSON coordinates must be an array",
-								  GEO_HINT_PREFIX(state->errorCtxt))));
+					errdetail_log(
+						"%sGeoJSON coordinates need to be provided in an array format",
+						GEO_HINT_PREFIX(state->errorCtxt))));
 		}
 
 		memset(&point, 0, sizeof(Point));
@@ -676,9 +681,9 @@ WriteBufferGeoJsonMultiPoints(const bson_value_t *multiPointValue, const GeoJson
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 				shouldThrowError, (
 					errcode(GEO_ERROR_CODE(state->errorCtxt)),
-					errmsg("%sLoop has no vertices: []",
+					errmsg("%sLoop contains no vertices: []",
 						   GEO_ERROR_PREFIX(state->errorCtxt)),
-					errdetail_log("%sLoop has no vertices. []",
+					errdetail_log("%sLoop contains no vertices available.",
 								  GEO_HINT_PREFIX(state->errorCtxt))));
 		}
 
@@ -687,10 +692,10 @@ WriteBufferGeoJsonMultiPoints(const bson_value_t *multiPointValue, const GeoJson
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 				shouldThrowError, (
 					errcode(GEO_ERROR_CODE(state->errorCtxt)),
-					errmsg("%sLoop is not closed: %s",
+					errmsg("%sLoop structure remains unclosed: %s",
 						   GEO_ERROR_PREFIX(state->errorCtxt),
 						   BsonValueToJsonForLogging(multiPointValue)),
-					errdetail_log("%sLoop is not closed.",
+					errdetail_log("Loop for %s remains unclosed.",
 								  GEO_HINT_PREFIX(state->errorCtxt))));
 		}
 
@@ -699,11 +704,13 @@ WriteBufferGeoJsonMultiPoints(const bson_value_t *multiPointValue, const GeoJson
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 				shouldThrowError, (
 					errcode(GEO_ERROR_CODE(state->errorCtxt)),
-					errmsg("%sLoop must have at least 3 different vertices: %s",
-						   GEO_ERROR_PREFIX(state->errorCtxt),
-						   BsonValueToJsonForLogging(multiPointValue)),
-					errdetail_log("%sLoop must have at least 3 different vertices.",
-								  GEO_HINT_PREFIX(state->errorCtxt))));
+					errmsg(
+						"A %sLoop must contain no fewer than three distinct vertices: %s",
+						GEO_ERROR_PREFIX(state->errorCtxt),
+						BsonValueToJsonForLogging(multiPointValue)),
+					errdetail_log(
+						"A %s loop requires a minimum of three distinct vertices.",
+						GEO_HINT_PREFIX(state->errorCtxt))));
 		}
 	}
 
@@ -714,11 +721,12 @@ WriteBufferGeoJsonMultiPoints(const bson_value_t *multiPointValue, const GeoJson
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 				shouldThrowError, (
 					errcode(GEO_ERROR_CODE(state->errorCtxt)),
-					errmsg("%sGeoJSON LineString must have at least 2 vertices: %s",
+					errmsg("%sGeoJSON LineString requires a minimum of two vertices: %s",
 						   GEO_ERROR_PREFIX(state->errorCtxt),
 						   BsonValueToJsonForLogging(multiPointValue)),
-					errdetail_log("%sGeoJSON LineString must have at least 2 vertices.",
-								  GEO_HINT_PREFIX(state->errorCtxt))));
+					errdetail_log(
+						"%sGeoJSON LineString requires a minimum of two vertices.",
+						GEO_HINT_PREFIX(state->errorCtxt))));
 		}
 	}
 
@@ -808,9 +816,9 @@ ValidateCoordinatesNotArray(const bson_value_t *coordinatesValue, GeoJsonType ge
 				RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 					shouldThrowError, (
 						errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-						errmsg("%sPoint must be an array or object",
+						errmsg("%sPoint must be either an array or an object",
 							   GEO_ERROR_PREFIX(parseState->errorCtxt)),
-						errdetail_log("%sPoint must be an array or object",
+						errdetail_log("%sPoint must be either an array or an object",
 									  GEO_HINT_PREFIX(parseState->errorCtxt))));
 			}
 		}
@@ -819,10 +827,11 @@ ValidateCoordinatesNotArray(const bson_value_t *coordinatesValue, GeoJsonType ge
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 				shouldThrowError, (
 					errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-					errmsg("%sGeometryCollection geometries must be an array",
+					errmsg("%sGeometryCollection requires geometries in an array format",
 						   GEO_ERROR_PREFIX(parseState->errorCtxt)),
-					errdetail_log("%sGeometryCollection geometries must be an array",
-								  GEO_HINT_PREFIX(parseState->errorCtxt))));
+					errdetail_log(
+						"%sGeometryCollection requires geometries in an array format",
+						GEO_HINT_PREFIX(parseState->errorCtxt))));
 		}
 		else if ((geoJsonType & (GeoJsonType_POLYGON | GeoJsonType_MULTILINESTRING |
 								 GeoJsonType_MULTIPOLYGON)) > 1)
@@ -831,10 +840,10 @@ ValidateCoordinatesNotArray(const bson_value_t *coordinatesValue, GeoJsonType ge
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 				shouldThrowError, (
 					errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-					errmsg("%s%s coordinates must be an array",
+					errmsg("Coordinates for %s%s must be provided as an array",
 						   GEO_ERROR_PREFIX(parseState->errorCtxt),
 						   geoJsonTypeName),
-					errdetail_log("%s%s coordinates must be an array",
+					errdetail_log("Coordinates for %s%s must be provided as an array",
 								  GEO_HINT_PREFIX(parseState->errorCtxt),
 								  geoJsonTypeName)));
 		}
@@ -843,10 +852,12 @@ ValidateCoordinatesNotArray(const bson_value_t *coordinatesValue, GeoJsonType ge
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 				shouldThrowError, (
 					errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-					errmsg("%sGeoJSON coordinates must be an array of coordinates",
-						   GEO_ERROR_PREFIX(parseState->errorCtxt)),
-					errdetail_log("%sGeoJSON coordinates must be an array of coordinates",
-								  GEO_HINT_PREFIX(parseState->errorCtxt))));
+					errmsg(
+						"%sGeoJSON coordinates should always be provided as an array format containing coordinate values",
+						GEO_ERROR_PREFIX(parseState->errorCtxt)),
+					errdetail_log(
+						"%sGeoJSON coordinates should always be provided as an array format containing coordinate values",
+						GEO_HINT_PREFIX(parseState->errorCtxt))));
 		}
 	}
 	return true;
@@ -908,12 +919,12 @@ AdditionalPolygonValidation(StringInfo polygonWKB, GeoJsonParseState *parseState
 		RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 			shouldThrowError, (
 				errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-				errmsg("%sSecondary loops not contained by first exterior loop - "
-					   "secondary loops must be holes",
-					   GEO_ERROR_PREFIX(parseState->errorCtxt)),
-				errdetail_log("%sSecondary loops not contained by first exterior loop - "
-							  "secondary loops must be holes",
-							  GEO_HINT_PREFIX(parseState->errorCtxt))));
+				errmsg(
+					"%sSecondary loops are outside the first exterior loop and must instead represent holes",
+					GEO_ERROR_PREFIX(parseState->errorCtxt)),
+				errdetail_log(
+					"%sSecondary loops are outside the first exterior loop and must instead represent holes",
+					GEO_HINT_PREFIX(parseState->errorCtxt))));
 	}
 	else if (strstr(isValidDetailState.invalidityReason, "Self-intersection") != NULL)
 	{
@@ -1263,14 +1274,14 @@ IsHoleFullyCoveredByOuterRing(char *currPtr, int32 numPoints,
 				polygonValidationState->shouldThrowValidityError, (
 					errcode(GEO_ERROR_CODE(polygonValidationState->errorCtxt)),
 					errmsg(
-						"%s Secondary loops not contained by first exterior loop - secondary loops must be holes: %s first loop: %s",
+						"%sSecondary loops are outside the boundaries of the primary exterior loop - all secondary loops are required to be holes: %s first loop: %s",
 						GEO_ERROR_PREFIX(polygonValidationState->errorCtxt),
 						GetRingPointsStringForError(currPtr, numPoints),
 						GetRingPointsStringForError(
 							polygonValidationState->previousRingPointsStart,
 							polygonValidationState->previousRingNumPoints)),
 					errdetail_log(
-						"%s Secondary loops not contained by first exterior loop - secondary loops must be holes",
+						"%s Secondary loops are not enclosed within the primary outer loop — all secondary loops must function as holes.",
 						GEO_HINT_PREFIX(polygonValidationState->errorCtxt)
 						)));
 		}
@@ -1293,14 +1304,14 @@ IsHoleFullyCoveredByOuterRing(char *currPtr, int32 numPoints,
 					polygonValidationState->shouldThrowValidityError, (
 						errcode(GEO_ERROR_CODE(polygonValidationState->errorCtxt)),
 						errmsg(
-							"%s Secondary loops not contained by first exterior loop - secondary loops must be holes: %s first loop: %s",
+							"%sSecondary loops are outside the boundaries of the primary exterior loop - all secondary loops are required to be holes: %s first loop: %s",
 							GEO_ERROR_PREFIX(polygonValidationState->errorCtxt),
 							GetRingPointsStringForError(currPtr, numPoints),
 							GetRingPointsStringForError(
 								polygonValidationState->previousRingPointsStart,
 								polygonValidationState->previousRingNumPoints)),
 						errdetail_log(
-							"%s Secondary loops not contained by first exterior loop - secondary loops must be holes",
+							"%s Secondary loops are not enclosed within the primary outer loop — all secondary loops must function as holes.",
 							GEO_HINT_PREFIX(polygonValidationState->errorCtxt)
 							)));
 			}
@@ -1371,10 +1382,11 @@ WriteBufferGeoJsonCore(const bson_value_t *value, bool insideGeoJsonGeometryColl
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 				shouldThrowError, (
 					errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-					errmsg("%sGeoJSON CRS must be an object.",
+					errmsg("The %s GeoJSON CRS value must be provided as an object.",
 						   GEO_ERROR_PREFIX(parseState->errorCtxt)),
-					errdetail_log("%sGeoJSON CRS must be an object.",
-								  GEO_HINT_PREFIX(parseState->errorCtxt))));
+					errdetail_log(
+						"The %s GeoJSON CRS value must be provided as an object.",
+						GEO_HINT_PREFIX(parseState->errorCtxt))));
 		}
 		bson_iter_t crsChildIter, typeIter;
 		bson_iter_recurse(&crsIter, &crsChildIter);
@@ -1430,10 +1442,10 @@ WriteBufferGeoJsonCore(const bson_value_t *value, bool insideGeoJsonGeometryColl
 					RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 						shouldThrowError, (
 							errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-							errmsg("%sUnknown CRS name: %s",
+							errmsg("%sUnrecognized CRS name provided: %s",
 								   GEO_ERROR_PREFIX(parseState->errorCtxt),
 								   crsName),
-							errdetail_log("%sUnknown CRS name.",
+							errdetail_log("%sUnknown CRS name encountered.",
 										  GEO_HINT_PREFIX(parseState->errorCtxt))));
 				}
 			}
@@ -1443,10 +1455,12 @@ WriteBufferGeoJsonCore(const bson_value_t *value, bool insideGeoJsonGeometryColl
 				RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 					shouldThrowError, (
 						errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-						errmsg("%sIn CRS, \"properties.name\" must be a string",
-							   GEO_ERROR_PREFIX(parseState->errorCtxt)),
-						errdetail_log("%sIn CRS, \"properties.name\" must be a string",
-									  GEO_HINT_PREFIX(parseState->errorCtxt))));
+						errmsg(
+							"%sIn CRS, the field \"properties.name\" is required to be of string type",
+							GEO_ERROR_PREFIX(parseState->errorCtxt)),
+						errdetail_log(
+							"%sIn CRS, the field \"properties.name\" is required to be of string type",
+							GEO_HINT_PREFIX(parseState->errorCtxt))));
 			}
 		}
 
@@ -1455,10 +1469,11 @@ WriteBufferGeoJsonCore(const bson_value_t *value, bool insideGeoJsonGeometryColl
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 				shouldThrowError, (
 					errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-					errmsg("%sCRS must have field \"properties\" which is an object",
-						   GEO_ERROR_PREFIX(parseState->errorCtxt)),
+					errmsg(
+						"%sCRS must include a field named \"properties\", and this field needs to be an object.",
+						GEO_ERROR_PREFIX(parseState->errorCtxt)),
 					errdetail_log(
-						"%sCRS must have field \"properties\" which is an object",
+						"%sCRS must include a field named \"properties\", and this field needs to be an object.",
 						GEO_HINT_PREFIX(parseState->errorCtxt))));
 		}
 	}
@@ -1470,10 +1485,10 @@ WriteBufferGeoJsonCore(const bson_value_t *value, bool insideGeoJsonGeometryColl
 		RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 			shouldThrowError, (
 				errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-				errmsg("%sUnknwown GeoJSON type: %s",
+				errmsg("%sUnknown GeoJSON data type: %s",
 					   GEO_ERROR_PREFIX(parseState->errorCtxt),
 					   BsonValueToJsonForLogging(value)),
-				errdetail_log("%sUnknwown GeoJSON type",
+				errdetail_log("%sUnknown GeoJSON data type",
 							  GEO_HINT_PREFIX(parseState->errorCtxt))));
 	}
 	else
@@ -1485,10 +1500,10 @@ WriteBufferGeoJsonCore(const bson_value_t *value, bool insideGeoJsonGeometryColl
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 				shouldThrowError, (
 					errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-					errmsg("%sUnknwown GeoJSON type: %s",
+					errmsg("%sUnknown GeoJSON data type: %s",
 						   GEO_ERROR_PREFIX(parseState->errorCtxt),
 						   BsonValueToJsonForLogging(value)),
-					errdetail_log("%sUnknwown GeoJSON type",
+					errdetail_log("%s Unknown GeoJSON data type",
 								  GEO_HINT_PREFIX(parseState->errorCtxt))));
 		}
 
@@ -1499,14 +1514,15 @@ WriteBufferGeoJsonCore(const bson_value_t *value, bool insideGeoJsonGeometryColl
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(
 				shouldThrowError, (
 					errcode(GEO_ERROR_CODE(parseState->errorCtxt)),
-					errmsg("%sunknown GeoJSON type: %s",
+					errmsg("%s Unknown GeoJSON data type: %s",
 						   GEO_ERROR_PREFIX(parseState->errorCtxt),
 						   BsonValueToJsonForLogging(value)),
-					errdetail_log("%sunknown GeoJSON type found",
-								  GEO_HINT_PREFIX(parseState->errorCtxt))));
+					errdetail_log(
+						"An unknown type of GeoJSON object has been detected %s",
+						GEO_HINT_PREFIX(parseState->errorCtxt))));
 		}
 
-		/* Not an expected type */
+		/* Type provided is not expected */
 		if ((geoJsonType & parseState->expectedType) != geoJsonType)
 		{
 			RETURN_FALSE_IF_ERROR_NOT_EXPECTED(

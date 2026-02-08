@@ -6,20 +6,22 @@
  *-------------------------------------------------------------------------
  */
 
+mod certs;
 mod dynamic;
 mod pg_configuration;
 mod setup;
 mod version;
 
+pub use certs::{CertInputType, CertificateOptions};
 pub use dynamic::DynamicConfiguration;
 pub use pg_configuration::PgConfiguration;
-pub use setup::{CertificateOptions, DocumentDBSetupConfiguration};
+pub use setup::DocumentDBSetupConfiguration;
 pub use version::Version;
 
 use dyn_clone::{clone_trait_object, DynClone};
 use std::fmt::Debug;
 
-// These are the required configuration fields.
+/// These are the required configuration fields.
 /// A trait that defines the configuration setup for the application.
 /// Implementors of this trait are expected to provide various configuration
 /// parameters required for the application to function correctly.
@@ -55,9 +57,6 @@ pub trait SetupConfiguration: DynClone + Send + Sync + Debug {
     /// Returns the port number on which the gateway listens.
     fn gateway_listen_port(&self) -> u16;
 
-    /// Indicates whether SSL/TCP enforcement is enabled.
-    fn enforce_ssl_tcp(&self) -> bool;
-
     /// Returns a list of role prefixes that are blocked.
     fn blocked_role_prefixes(&self) -> &[String];
 
@@ -68,13 +67,16 @@ pub trait SetupConfiguration: DynClone + Send + Sync + Debug {
     fn node_host_name(&self) -> &str;
 
     /// Returns the certificate options for SSL/TLS connections.
-    fn certificate_options(&self) -> Option<CertificateOptions>;
+    fn certificate_options(&self) -> &CertificateOptions;
 
     /// Returns the name of the Gateway application.
     fn application_name(&self) -> &str;
 
     /// Returns the time to wait for PostgreSQL to start up before giving up.
     fn postgres_startup_wait_time_seconds(&self) -> u64;
+
+    /// Returns the number of worker threads for the async runtime.
+    fn async_runtime_worker_threads(&self) -> usize;
 
     /// Provides a way to downcast the trait object to a concrete type.
     fn as_any(&self) -> &dyn std::any::Any;
